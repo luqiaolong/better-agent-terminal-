@@ -362,17 +362,17 @@ export function TerminalPanel({ terminalId, isActive = true, terminalType }: Ter
       }
     })
 
-    // Handle resize — debounce via rAF to avoid excessive reflows during drag
-    let resizeRafId = 0
+    // Handle resize — debounce with 150ms timeout to reduce DWM pressure during drag
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null
     const resizeObserver = new ResizeObserver(() => {
-      if (resizeRafId) cancelAnimationFrame(resizeRafId)
-      resizeRafId = requestAnimationFrame(() => {
-        resizeRafId = 0
+      if (resizeTimer) clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null
         if (!isActive) return
         fitAddon.fit()
         const { cols, rows } = terminal
         window.electronAPI.pty.resize(terminalId, cols, rows)
-      })
+      }, 150)
     })
     resizeObserver.observe(containerRef.current)
 
@@ -405,7 +405,7 @@ export function TerminalPanel({ terminalId, isActive = true, terminalType }: Ter
       unsubscribeOutput()
       unsubscribeExit()
       unsubscribeSettings()
-      if (resizeRafId) cancelAnimationFrame(resizeRafId)
+      if (resizeTimer) clearTimeout(resizeTimer)
       resizeObserver.disconnect()
       observer.disconnect()
       terminal.dispose()

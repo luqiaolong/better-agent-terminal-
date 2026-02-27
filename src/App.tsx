@@ -65,6 +65,11 @@ export default function App() {
   const [showProfiles, setShowProfiles] = useState(false)
   const [activeProfileName, setActiveProfileName] = useState<string>('Default')
   const [isRemoteConnected, setIsRemoteConnected] = useState(false)
+
+  // Sync window title with active profile
+  useEffect(() => {
+    document.title = `Better Terminal - ${activeProfileName}`
+  }, [activeProfileName])
   const [envDialogWorkspaceId, setEnvDialogWorkspaceId] = useState<string | null>(null)
   // Snippet sidebar is always visible by default
   const [showSnippetSidebar] = useState(true)

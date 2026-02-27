@@ -12,6 +12,9 @@ import { PROXIED_CHANNELS } from './remote/protocol'
 import { RemoteServer } from './remote/remote-server'
 import { RemoteClient } from './remote/remote-client'
 
+// GPU / DWM safety — reduce GPU compositing overhead to prevent DWM hangs during resize
+app.commandLine.appendSwitch('disable-gpu-compositing')
+
 // Set AppUserModelId for Windows taskbar pinning (must be before app.whenReady)
 if (process.platform === 'win32') {
   app.setAppUserModelId('org.tonyq.better-agent-terminal')
@@ -138,6 +141,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true
     },
+    backgroundThrottling: true,
+    paintWhenInitiallyHidden: false,
     frame: true,
     titleBarStyle: 'default',
     title: 'Better Agent Terminal',
