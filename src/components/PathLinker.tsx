@@ -5,7 +5,7 @@ import 'highlight.js/styles/vs2015.css'
 const TEXT_EXTS = new Set([
   'ts', 'tsx', 'js', 'jsx', 'json', 'jsonl', 'css', 'scss', 'less', 'html', 'htm',
   'md', 'txt', 'yml', 'yaml', 'toml', 'xml', 'svg', 'sh', 'bash', 'zsh',
-  'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'hpp', 'cs',
+  'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'gs',
   'env', 'gitignore', 'editorconfig', 'prettierrc', 'eslintrc',
   'dockerfile', 'makefile', 'cfg', 'ini', 'conf', 'log', 'output',
 ])
@@ -19,7 +19,7 @@ const EXT_TO_LANG: Record<string, string> = {
   md: 'markdown', yml: 'yaml', yaml: 'yaml', toml: 'ini',
   sh: 'bash', bash: 'bash', zsh: 'bash',
   py: 'python', rb: 'ruby', go: 'go', rs: 'rust',
-  java: 'java', c: 'c', cpp: 'cpp', h: 'c', hpp: 'cpp', cs: 'csharp',
+  java: 'java', c: 'c', cpp: 'cpp', h: 'c', hpp: 'cpp', cs: 'csharp', gs: 'javascript',
   dockerfile: 'dockerfile', makefile: 'makefile',
   ini: 'ini', conf: 'ini', cfg: 'ini',
 }
