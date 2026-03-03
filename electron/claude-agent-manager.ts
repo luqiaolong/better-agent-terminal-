@@ -788,21 +788,22 @@ export class ClaudeAgentManager {
   }
 
   async listSessions(cwd: string): Promise<SessionSummary[]> {
-    // Use SDK's listSessions API instead of manual JSONL parsing
+    // Try SDK's listSessions API first, fall back to manual JSONL parsing
     await getQuery() // ensure SDK is loaded
-    if (!listSessionsFn) return []
-    try {
-      const sessions = await listSessionsFn({ dir: cwd, limit: 50 })
-      return sessions.map(s => ({
-        sdkSessionId: s.sessionId,
-        timestamp: s.lastModified,
-        preview: s.customTitle || s.firstPrompt || s.summary || '(no preview)',
-        messageCount: 0, // SDK doesn't expose count directly
-      }))
-    } catch (e) {
-      console.warn('SDK listSessions failed, falling back to manual parse:', e)
-      return this.listSessionsFallback(cwd)
+    if (listSessionsFn) {
+      try {
+        const sessions = await listSessionsFn({ dir: cwd, limit: 50 })
+        return sessions.map(s => ({
+          sdkSessionId: s.sessionId,
+          timestamp: s.lastModified,
+          preview: s.customTitle || s.firstPrompt || s.summary || '(no preview)',
+          messageCount: 0, // SDK doesn't expose count directly
+        }))
+      } catch (e) {
+        console.warn('SDK listSessions failed, falling back to manual parse:', e)
+      }
     }
+    return this.listSessionsFallback(cwd)
   }
 
   private async listSessionsFallback(cwd: string): Promise<SessionSummary[]> {
