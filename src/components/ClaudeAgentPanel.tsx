@@ -789,7 +789,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
       setPromptSuggestion(null)
       return
     }
-    if (e.key === 'ArrowUp' && !e.shiftKey) {
+    if (e.key === 'ArrowUp' && !e.shiftKey && !e.nativeEvent.isComposing) {
       const history = inputHistoryRef.current
       if (history.length === 0) return
       e.preventDefault()
@@ -802,7 +802,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
       setInputValue(history[inputHistoryIndexRef.current])
       return
     }
-    if (e.key === 'ArrowDown' && !e.shiftKey) {
+    if (e.key === 'ArrowDown' && !e.shiftKey && !e.nativeEvent.isComposing) {
       if (inputHistoryIndexRef.current === -1) return
       e.preventDefault()
       const history = inputHistoryRef.current
@@ -1845,7 +1845,22 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
       </div>
 
       {/* Permission Request Card — VS Code style vertical list */}
-      {pendingPermission && (
+      {pendingPermission && (() => {
+        // For ExitPlanMode, find the most recent plan file content from Write tool calls
+        const planContent = pendingPermission.toolName === 'ExitPlanMode'
+          ? (() => {
+              for (let i = messages.length - 1; i >= 0; i--) {
+                const m = messages[i]
+                if ('toolName' in m && m.toolName === 'Write' && m.input?.file_path
+                  && String(m.input.file_path).includes('plan')
+                  && m.input?.content) {
+                  return String(m.input.content)
+                }
+              }
+              return null
+            })()
+          : null
+        return (
         <div
           ref={permissionCardRef}
           tabIndex={-1}
@@ -1861,7 +1876,15 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
           <div className="claude-permission-command">
             {toolInputSummary(pendingPermission.toolName, pendingPermission.input)}
           </div>
-          {pendingPermission.decisionReason && (
+          {planContent && (
+            <div className="claude-plan-block">
+              <pre className="claude-plan-content">{planContent.split('\n').slice(0, 3).join('\n')}{planContent.split('\n').length > 3 ? '\n...' : ''}</pre>
+              <div className="claude-plan-open-btn" onClick={() => setContentModal({ title: 'Plan', content: planContent })}>
+                View full plan ({planContent.split('\n').length} lines)
+              </div>
+            </div>
+          )}
+          {pendingPermission.decisionReason && !planContent && (
             <div className="claude-permission-reason">
               {pendingPermission.decisionReason}
             </div>
@@ -1914,7 +1937,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
           </div>
           <div className="claude-permission-hint">Esc to cancel</div>
         </div>
-      )}
+        )
+      })()}
 
       {/* AskUserQuestion Card */}
       {pendingQuestion && (

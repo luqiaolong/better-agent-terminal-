@@ -61,7 +61,14 @@ function tokenize(text: string): Token[] {
     // Skip if overlapping with an already-found markdown link
     const overlaps = specials.some(s => m!.index >= s.start && m!.index < s.end)
     if (overlaps) continue
-    specials.push({ start: m.index, end: m.index + m[0].length, token: { type: 'url', text: m[0], href: m[0] } })
+    // Strip trailing punctuation that's likely not part of the URL (e.g. backtick from markdown `url`)
+    let url = m[0]
+    const end = m.index + m[0].length
+    while (url.length > 0 && /[`'",;:!]/.test(url[url.length - 1])) {
+      url = url.slice(0, -1)
+    }
+    const trimmed = m[0].length - url.length
+    specials.push({ start: m.index, end: end - trimmed, token: { type: 'url', text: url, href: url } })
   }
 
   PATH_RE.lastIndex = 0
