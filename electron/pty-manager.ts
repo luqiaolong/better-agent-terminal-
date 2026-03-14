@@ -37,7 +37,11 @@ export class PtyManager {
   private broadcast(channel: string, ...args: unknown[]) {
     for (const win of this.getWindows()) {
       if (!win.isDestroyed()) {
-        win.webContents.send(channel, ...args)
+        try {
+          win.webContents.send(channel, ...args)
+        } catch {
+          // Render frame may be disposed during window reload/close
+        }
       }
     }
     broadcastHub.broadcast(channel, ...args)

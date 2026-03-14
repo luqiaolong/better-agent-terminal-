@@ -375,7 +375,7 @@ function registerProxiedHandlers() {
   registerHandler('git:branch', async (cwd: string) => {
     try {
       const { execSync } = await import('child_process')
-      return execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf-8', timeout: 3000 }).trim() || null
+      return execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'] }).trim() || null
     } catch { return null }
   })
   registerHandler('git:log', async (cwd: string, count: number = 50) => {

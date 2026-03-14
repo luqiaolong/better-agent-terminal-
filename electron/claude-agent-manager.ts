@@ -570,16 +570,25 @@ export class ClaudeAgentManager {
           if (resultMsg.modelUsage) {
             let totalInput = 0
             let totalOutput = 0
-            for (const modelStats of Object.values(resultMsg.modelUsage)) {
+            for (const [model, modelStats] of Object.entries(resultMsg.modelUsage)) {
+              const line = `[Claude ctx] modelUsage[${model}]: input=${modelStats.inputTokens}, output=${modelStats.outputTokens}, contextWindow=${modelStats.contextWindow}`
+              console.log(line)
+              fsSync.appendFileSync('/tmp/bat-ctx.log', `${new Date().toISOString()} ${line}\n`)
               totalInput += modelStats.inputTokens || 0
               totalOutput += modelStats.outputTokens || 0
               if (modelStats.contextWindow) {
                 session.metadata.contextWindow = modelStats.contextWindow
               }
             }
+            const summary = `[Claude ctx] prev: input=${session.metadata.inputTokens}, output=${session.metadata.outputTokens} | new: input=${totalInput}, output=${totalOutput} | cost=${resultMsg.total_cost_usd}`
+            console.log(summary)
+            fsSync.appendFileSync('/tmp/bat-ctx.log', `${new Date().toISOString()} ${summary}\n`)
             session.metadata.inputTokens = totalInput
             session.metadata.outputTokens = totalOutput
           } else if (resultMsg.usage) {
+            const line = `[Claude ctx] usage fallback: input=${resultMsg.usage.input_tokens}, output=${resultMsg.usage.output_tokens} | prev: input=${session.metadata.inputTokens}, output=${session.metadata.outputTokens}`
+            console.log(line)
+            fsSync.appendFileSync('/tmp/bat-ctx.log', `${new Date().toISOString()} ${line}\n`)
             // Fallback: usage is session-cumulative (like total_cost_usd), assign directly
             session.metadata.inputTokens = resultMsg.usage.input_tokens || 0
             session.metadata.outputTokens = resultMsg.usage.output_tokens || 0
