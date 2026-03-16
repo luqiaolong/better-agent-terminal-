@@ -306,6 +306,16 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
     workspaceStore.setTerminalPendingAction(sessionId, hasPending)
   }, [sessionId, pendingPermission, pendingQuestion])
 
+  // Keep breathing light active (yellow) while streaming/thinking/executing tools
+  useEffect(() => {
+    if (!isStreaming) return
+    workspaceStore.updateTerminalActivity(sessionId)
+    const interval = setInterval(() => {
+      workspaceStore.updateTerminalActivity(sessionId)
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [isStreaming, sessionId])
+
   // Subscribe to IPC events
   useEffect(() => {
     const api = window.electronAPI.claude
