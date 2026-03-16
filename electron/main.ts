@@ -1,6 +1,35 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu, powerMonitor, clipboard, nativeImage } from 'electron'
 import path from 'path'
 import * as fs from 'fs/promises'
+import { execFileSync } from 'child_process'
+
+// Fix PATH for GUI-launched apps on macOS.
+// When launched via .dmg / Applications, macOS gives a minimal PATH that
+// doesn't include Homebrew (/opt/homebrew/bin), NVM, etc.
+// We source the user's login shell to get the real PATH.
+if (process.platform === 'darwin') {
+  try {
+    const shell = process.env.SHELL || '/bin/zsh'
+    // fish stores PATH as a list; use string join to get colon-separated output
+    const isFish = shell.endsWith('/fish') || shell === 'fish'
+    const cmd = isFish ? 'string join : $PATH' : 'echo $PATH'
+    const rawPath = execFileSync(shell, ['-l', '-c', cmd], {
+      timeout: 3000,
+      encoding: 'utf8',
+    }).trim()
+    if (rawPath) {
+      process.env.PATH = rawPath
+    }
+  } catch {
+    // Fallback: prepend the most common node locations
+    const extraPaths = [
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      `${process.env.HOME}/.volta/bin`,
+    ].join(':')
+    process.env.PATH = `${extraPaths}:${process.env.PATH || ''}`
+  }
+}
 import { PtyManager } from './pty-manager'
 import { ClaudeAgentManager } from './claude-agent-manager'
 import { checkForUpdates, UpdateCheckResult } from './update-checker'
@@ -360,6 +389,39 @@ function registerProxiedHandlers() {
     return true
   })
 
+  // Claude usage (5h / 7d rate limits)
+  registerHandler('claude:get-usage', async () => {
+    try {
+      if (process.platform !== 'darwin') return null
+      const { execSync } = await import('child_process')
+      const username = execSync('whoami', { encoding: 'utf-8' }).trim()
+      const raw = execSync(
+        `security find-generic-password -s "Claude Code-credentials" -a "${username}" -w 2>/dev/null`,
+        { encoding: 'utf-8', timeout: 3000 }
+      ).trim()
+      const creds = JSON.parse(raw)
+      const token = creds?.claudeAiOauth?.accessToken
+      if (!token || !token.startsWith('sk-ant-oat')) return null
+
+      const res = await fetch('https://api.anthropic.com/api/oauth/usage', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'anthropic-beta': 'oauth-2025-04-20',
+          'User-Agent': 'claude-code/2.0.32',
+          'Accept': 'application/json',
+        },
+      })
+      if (!res.ok) return null
+      const data = await res.json()
+      return {
+        fiveHour: data.five_hour?.utilization ?? null,
+        sevenDay: data.seven_day?.utilization ?? null,
+        fiveHourReset: data.five_hour?.resets_at ?? null,
+        sevenDayReset: data.seven_day?.resets_at ?? null,
+      }
+    } catch { return null }
+  })
+
   // Git
   registerHandler('git:get-github-url', async (folderPath: string) => {
     try {
@@ -375,7 +437,7 @@ function registerProxiedHandlers() {
   registerHandler('git:branch', async (cwd: string) => {
     try {
       const { execSync } = await import('child_process')
-      return execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf-8', timeout: 3000 }).trim() || null
+      return execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'] }).trim() || null
     } catch { return null }
   })
   registerHandler('git:log', async (cwd: string, count: number = 50) => {

@@ -322,6 +322,12 @@ export class ClaudeAgentManager {
           return { behavior: 'allow', updatedInput: input as Record<string, unknown> }
         }
 
+        // In bypassPermissions mode (e.g. after planBypass → ExitPlanMode approval),
+        // auto-approve all tool calls without prompting
+        if (session.permissionMode === 'bypassPermissions') {
+          return { behavior: 'allow', updatedInput: input as Record<string, unknown> }
+        }
+
         // For all other tools, send permission request to frontend
         return new Promise((resolve) => {
           session.pendingPermissions.set(opts.toolUseID, { resolve })
@@ -406,6 +412,10 @@ export class ClaudeAgentManager {
       for await (const message of generator) {
         // Check abort
         if (session.abortController.signal.aborted) break
+
+        // Temporary: log all message types to debug /context and ctx tracking
+        const msgPreview = JSON.stringify(message).slice(0, 300)
+        fsSync.appendFileSync('/tmp/bat-ctx.log', `${new Date().toISOString()} [msg] type=${(message as Record<string,unknown>).type} subtype=${(message as Record<string,unknown>).subtype || ''} ${msgPreview}\n`)
 
         if (message.type === 'system' && message.subtype === 'init') {
           // Capture and persist the SDK session ID
@@ -507,7 +517,27 @@ export class ClaudeAgentManager {
 
         if (message.type === 'stream_event') {
           // Partial streaming content
-          const event = message.event as { type?: string; delta?: { text?: string; thinking?: string }; content_block?: { type?: string; id?: string; name?: string; input?: string } }
+          const event = message.event as {
+            type?: string
+            delta?: { text?: string; thinking?: string }
+            content_block?: { type?: string; id?: string; name?: string; input?: string }
+            usage?: { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; output_tokens?: number }
+            message?: { usage?: { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; output_tokens?: number } }
+          }
+          // Track context usage from message_start and message_delta (includes cached tokens)
+          const eventUsage = event.usage || event.message?.usage
+          if (eventUsage && (event.type === 'message_delta' || event.type === 'message_start') && !message.parent_tool_use_id) {
+            const contextTokens = (eventUsage.input_tokens || 0)
+              + (eventUsage.cache_creation_input_tokens || 0)
+              + (eventUsage.cache_read_input_tokens || 0)
+            if (contextTokens > session.metadata.inputTokens) {
+              session.metadata.inputTokens = contextTokens
+            }
+            if (eventUsage.output_tokens && eventUsage.output_tokens > session.metadata.outputTokens) {
+              session.metadata.outputTokens = eventUsage.output_tokens
+            }
+            this.send('claude:status', sessionId, { ...session.metadata })
+          }
           if (event.type === 'content_block_delta') {
             if (event.delta?.text) {
               this.send('claude:stream', sessionId, {
@@ -570,16 +600,25 @@ export class ClaudeAgentManager {
           if (resultMsg.modelUsage) {
             let totalInput = 0
             let totalOutput = 0
-            for (const modelStats of Object.values(resultMsg.modelUsage)) {
+            for (const [model, modelStats] of Object.entries(resultMsg.modelUsage)) {
+              const line = `[Claude ctx] modelUsage[${model}]: input=${modelStats.inputTokens}, output=${modelStats.outputTokens}, contextWindow=${modelStats.contextWindow}`
+              console.log(line)
+              fsSync.appendFileSync('/tmp/bat-ctx.log', `${new Date().toISOString()} ${line}\n`)
               totalInput += modelStats.inputTokens || 0
               totalOutput += modelStats.outputTokens || 0
               if (modelStats.contextWindow) {
                 session.metadata.contextWindow = modelStats.contextWindow
               }
             }
+            const summary = `[Claude ctx] prev: input=${session.metadata.inputTokens}, output=${session.metadata.outputTokens} | new: input=${totalInput}, output=${totalOutput} | cost=${resultMsg.total_cost_usd}`
+            console.log(summary)
+            fsSync.appendFileSync('/tmp/bat-ctx.log', `${new Date().toISOString()} ${summary}\n`)
             session.metadata.inputTokens = totalInput
             session.metadata.outputTokens = totalOutput
           } else if (resultMsg.usage) {
+            const line = `[Claude ctx] usage fallback: input=${resultMsg.usage.input_tokens}, output=${resultMsg.usage.output_tokens} | prev: input=${session.metadata.inputTokens}, output=${session.metadata.outputTokens}`
+            console.log(line)
+            fsSync.appendFileSync('/tmp/bat-ctx.log', `${new Date().toISOString()} ${line}\n`)
             // Fallback: usage is session-cumulative (like total_cost_usd), assign directly
             session.metadata.inputTokens = resultMsg.usage.input_tokens || 0
             session.metadata.outputTokens = resultMsg.usage.output_tokens || 0

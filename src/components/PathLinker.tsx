@@ -64,7 +64,7 @@ function tokenize(text: string): Token[] {
     // Strip trailing punctuation that's likely not part of the URL (e.g. backtick from markdown `url`)
     let url = m[0]
     const end = m.index + m[0].length
-    while (url.length > 0 && /[`'",;:!]/.test(url[url.length - 1])) {
+    while (url.length > 0 && /[`'",;:!.*_~]/.test(url[url.length - 1])) {
       url = url.slice(0, -1)
     }
     const trimmed = m[0].length - url.length
