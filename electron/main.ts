@@ -408,15 +408,26 @@ function registerProxiedHandlers() {
   // Claude usage (5h / 7d rate limits)
   registerHandler('claude:get-usage', async () => {
     try {
-      if (process.platform !== 'darwin') return null
-      const { execSync } = await import('child_process')
-      const username = execSync('whoami', { encoding: 'utf-8' }).trim()
-      const raw = execSync(
-        `security find-generic-password -s "Claude Code-credentials" -a "${username}" -w 2>/dev/null`,
-        { encoding: 'utf-8', timeout: 3000 }
-      ).trim()
-      const creds = JSON.parse(raw)
-      const token = creds?.claudeAiOauth?.accessToken
+      let token: string | null = null
+
+      if (process.platform === 'darwin') {
+        // macOS: read from Keychain
+        const { execSync } = await import('child_process')
+        const username = execSync('whoami', { encoding: 'utf-8' }).trim()
+        const raw = execSync(
+          `security find-generic-password -s "Claude Code-credentials" -a "${username}" -w 2>/dev/null`,
+          { encoding: 'utf-8', timeout: 3000 }
+        ).trim()
+        const creds = JSON.parse(raw)
+        token = creds?.claudeAiOauth?.accessToken ?? null
+      } else {
+        // Windows / Linux: read from ~/.claude/.credentials.json
+        const credPath = path.join(app.getPath('home'), '.claude', '.credentials.json')
+        const raw = await fs.readFile(credPath, 'utf-8')
+        const creds = JSON.parse(raw)
+        token = creds?.claudeAiOauth?.accessToken ?? null
+      }
+
       if (!token || !token.startsWith('sk-ant-oat')) return null
 
       const res = await fetch('https://api.anthropic.com/api/oauth/usage', {
