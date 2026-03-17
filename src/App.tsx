@@ -4,7 +4,6 @@ import { settingsStore } from './stores/settings-store'
 import { Sidebar } from './components/Sidebar'
 import { WorkspaceView, clearInitializedWorkspaces } from './components/WorkspaceView'
 import { SettingsPanel } from './components/SettingsPanel'
-import { AboutPanel } from './components/AboutPanel'
 import { SnippetSidebar } from './components/SnippetPanel'
 import { WorkspaceEnvDialog } from './components/WorkspaceEnvDialog'
 import { ResizeHandle } from './components/ResizeHandle'
@@ -61,7 +60,6 @@ function savePanelSettings(settings: PanelSettings): void {
 export default function App() {
   const [state, setState] = useState<AppState>(workspaceStore.getState())
   const [showSettings, setShowSettings] = useState(false)
-  const [showAbout, setShowAbout] = useState(false)
   const [showProfiles, setShowProfiles] = useState(false)
   const [activeProfileName, setActiveProfileName] = useState<string>('Default')
   const [isRemoteConnected, setIsRemoteConnected] = useState(false)
@@ -436,7 +434,6 @@ export default function App() {
         isRemoteConnected={isRemoteConnected}
         onOpenProfiles={() => setShowProfiles(true)}
         onOpenSettings={() => setShowSettings(true)}
-        onOpenAbout={() => setShowAbout(true)}
       />
       <ResizeHandle
         direction="horizontal"
@@ -483,9 +480,6 @@ export default function App() {
       />
       {showSettings && (
         <SettingsPanel onClose={() => setShowSettings(false)} />
-      )}
-      {showAbout && (
-        <AboutPanel onClose={() => setShowAbout(false)} />
       )}
       {showProfiles && (
         <ProfilePanel onClose={() => setShowProfiles(false)} onSwitch={handleProfileSwitch} onSwitchNewWindow={handleProfileNewWindow} />

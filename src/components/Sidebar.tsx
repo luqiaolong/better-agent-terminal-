@@ -22,7 +22,6 @@ interface SidebarProps {
   onDetachWorkspace: (workspaceId: string) => void
   onOpenProfiles: () => void
   onOpenSettings: () => void
-  onOpenAbout: () => void
 }
 
 export function Sidebar({
@@ -44,7 +43,6 @@ export function Sidebar({
   onDetachWorkspace,
   onOpenProfiles,
   onOpenSettings,
-  onOpenAbout
 }: Readonly<SidebarProps>) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -369,9 +367,6 @@ export function Sidebar({
           </button>
           <button className="settings-btn" onClick={onOpenSettings}>
             Settings
-          </button>
-          <button className="settings-btn" onClick={onOpenAbout}>
-            About
           </button>
         </div>
       </div>

@@ -183,15 +183,8 @@ function buildMenu() {
       label: '🎉 Update Available!',
       submenu: [
         {
-          label: `Download ${updateCheckResult.latestRelease.tagName}`,
-          click: () => {
-            const url = updateCheckResult!.latestRelease!.downloadUrl || updateCheckResult!.latestRelease!.htmlUrl
-            shell.openExternal(url)
-          }
-        },
-        {
-          label: 'View Release Notes',
-          click: () => shell.openExternal(updateCheckResult!.latestRelease!.htmlUrl)
+          label: `View ${updateCheckResult.latestRelease.tagName} on GitHub`,
+          click: () => shell.openExternal(`${GITHUB_REPO_URL}/releases`)
         }
       ]
     })

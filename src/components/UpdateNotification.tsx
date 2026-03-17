@@ -43,16 +43,8 @@ export function UpdateNotification() {
 
   const { latestRelease, currentVersion } = updateInfo
 
-  const handleDownload = () => {
-    if (latestRelease.downloadUrl) {
-      window.electronAPI.shell.openExternal(latestRelease.downloadUrl)
-    } else {
-      window.electronAPI.shell.openExternal(latestRelease.htmlUrl)
-    }
-  }
-
   const handleViewRelease = () => {
-    window.electronAPI.shell.openExternal(latestRelease.htmlUrl)
+    window.electronAPI.shell.openExternal('https://github.com/tony1223/better-agent-terminal/releases')
   }
 
   // Parse changelog - extract first few lines
@@ -86,11 +78,8 @@ export function UpdateNotification() {
         </div>
 
         <div className="update-actions">
-          <button className="btn-secondary" onClick={handleViewRelease}>
-            View Release
-          </button>
-          <button className="btn-primary" onClick={handleDownload}>
-            Download Update
+          <button className="btn-primary" onClick={handleViewRelease}>
+            View on GitHub
           </button>
         </div>
       </div>
