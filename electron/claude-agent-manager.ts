@@ -752,12 +752,19 @@ export class ClaudeAgentManager {
 
   async setModel(sessionId: string, model: string): Promise<boolean> {
     const session = this.sessions.get(sessionId)
-    if (!session?.queryInstance) return false
+    if (!session?.queryInstance) {
+      console.warn(`[setModel] no queryInstance for session ${sessionId.slice(0, 8)}`)
+      return false
+    }
     try {
+      console.log(`[setModel] setting model to ${model} for session ${sessionId.slice(0, 8)}`)
       await session.queryInstance.setModel(model)
+      session.metadata.model = model
+      this.send('claude:status', sessionId, { ...session.metadata })
+      console.log(`[setModel] success: ${model}`)
       return true
     } catch (e) {
-      console.warn('setModel failed:', e)
+      console.warn('[setModel] failed:', e)
       return false
     }
   }
