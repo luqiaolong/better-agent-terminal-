@@ -98,6 +98,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
   const [claudeUsage, setClaudeUsage] = useState(workspaceStore.claudeUsage)
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([])
   const [pendingPermission, setPendingPermission] = useState<PendingPermission | null>(null)
+  const [planFileContent, setPlanFileContent] = useState<string | null>(null)
   const [permissionFocus, setPermissionFocus] = useState(0) // 0=Yes, 1=Yes always, 2=No, 3=custom text
   const [permissionCustomText, setPermissionCustomText] = useState('')
   const [pendingQuestion, setPendingQuestion] = useState<PendingAskUser | null>(null)
@@ -1043,6 +1044,17 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
     }
   }, [sessionId, pendingPermission, permissionFocus, permissionCustomText])
 
+  // Read plan file content when ExitPlanMode permission appears
+  useEffect(() => {
+    if (pendingPermission?.toolName === 'ExitPlanMode' && pendingPermission.input.planFilePath) {
+      window.electronAPI.fs.readFile(String(pendingPermission.input.planFilePath)).then(r => {
+        if (r.content) setPlanFileContent(r.content)
+      }).catch(() => {})
+    } else {
+      setPlanFileContent(null)
+    }
+  }, [pendingPermission])
+
   // Auto-focus permission card when it appears or when panel becomes active again
   useEffect(() => {
     if (isActive && pendingPermission && permissionCardRef.current) {
@@ -1388,10 +1400,9 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
 
       // ExitPlanMode / EnterPlanMode: show plan content in readable view
       if (item.toolName === 'ExitPlanMode' || item.toolName === 'EnterPlanMode') {
-        const planText = item.input.plan ? String(item.input.plan) : ''
-        const planLines = planText.split('\n')
         const resultRaw = item.result ? (typeof item.result === 'string' ? item.result : String(item.result)) : ''
         const { content: resultText, errors: resultErrors } = splitSystemReminders(resultRaw)
+        const planPath = item.input.planFilePath ? String(item.input.planFilePath) : ''
         return (
           <div key={item.id || index} className="tl-item">
             <div className={`tl-dot ${dotClass}`} />
@@ -1400,11 +1411,14 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
                 <span className="claude-tool-name">{item.toolName === 'ExitPlanMode' ? 'Exit Plan' : 'Enter Plan'}</span>
                 {item.timestamp > 0 && <span className="claude-tool-time" title={formatFullTimestamp(item.timestamp)}>{formatTimestamp(item.timestamp)}</span>}
               </div>
-              {planText && (
+              {planPath && (
                 <div className="claude-plan-block">
-                  <pre className="claude-plan-content">{planLines.slice(0, 3).join('\n')}{planLines.length > 3 ? '\n...' : ''}</pre>
-                  <div className="claude-plan-open-btn" onClick={() => setContentModal({ title: 'Plan', content: planText })}>
-                    View full plan ({planLines.length} lines)
+                  <div className="claude-plan-open-btn" onClick={() => {
+                    window.electronAPI.fs.readFile(planPath).then(r => {
+                      if (r.content) setContentModal({ title: 'Plan', content: r.content })
+                    }).catch(() => {})
+                  }}>
+                    View plan
                   </div>
                 </div>
               )}
@@ -2002,20 +2016,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
 
       {/* Permission Request Card — VS Code style vertical list */}
       {pendingPermission && (() => {
-        // For ExitPlanMode, find the most recent plan file content from Write tool calls
-        const planContent = pendingPermission.toolName === 'ExitPlanMode'
-          ? (() => {
-              for (let i = messages.length - 1; i >= 0; i--) {
-                const m = messages[i]
-                if ('toolName' in m && m.toolName === 'Write' && m.input?.file_path
-                  && String(m.input.file_path).includes('plan')
-                  && m.input?.content) {
-                  return String(m.input.content)
-                }
-              }
-              return null
-            })()
-          : null
+        const planContent = planFileContent
         return (
         <div
           ref={permissionCardRef}
