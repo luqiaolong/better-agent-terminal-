@@ -393,18 +393,22 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
         setIsInterrupted(false)
         setStreamingText('')
         setStreamingThinking('')
-        // Show result text for slash commands like /context that don't produce assistant messages
+        // Show result text only for slash commands that don't produce assistant messages
         const rd = resultData as { result?: string; subtype?: string } | undefined
         if (rd?.result && rd.subtype === 'success') {
           setMessages(prev => {
-            // Skip if any assistant message already has this content (avoid duplicates)
-            const alreadyShown = prev.some(m => 'role' in m && m.role === 'assistant' && m.content === rd.result)
+            // Skip if any assistant message contains the result text (already shown via onMessage)
+            const resultText = rd.result!
+            const alreadyShown = prev.some(m =>
+              'role' in m && m.role === 'assistant' && typeof m.content === 'string' &&
+              (m.content === resultText || m.content.includes(resultText) || resultText.includes(m.content))
+            )
             if (alreadyShown) return prev
             return [...prev, {
               id: `result-${Date.now()}`,
               sessionId,
               role: 'assistant' as const,
-              content: rd.result!,
+              content: resultText,
               timestamp: Date.now(),
             }]
           })
@@ -440,7 +444,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
         console.log(`${tag} onStatus sdkSessionId=${((meta as SessionMeta).sdkSessionId || '').slice(0, 8)}`)
         const m = meta as SessionMeta
         setSessionMeta(m)
-        if (m.model) setCurrentModel(m.model)
+        if (m.model) setCurrentModel(prev => prev || m.model!)
         // On first status, ensure bypass mode is applied
         if (!initialModeAppliedRef.current) {
           initialModeAppliedRef.current = true
@@ -542,7 +546,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
       window.electronAPI.claude.getSessionMeta(sessionId).then(meta => {
         if (meta) {
           setSessionMeta(meta as SessionMeta)
-          if ((meta as SessionMeta).model) setCurrentModel((meta as SessionMeta).model!)
+          if ((meta as SessionMeta).model) setCurrentModel(prev => prev || (meta as SessionMeta).model!)
         }
       }).catch(() => {})
     }

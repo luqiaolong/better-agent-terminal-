@@ -35,10 +35,24 @@ export function ThumbnailBar({
     ? (getAgentPreset(firstTerminal.agentPreset!)?.name || 'Agent')
     : 'Terminals'
 
-  // Drag-and-drop state
+  // All hooks must be declared before any conditional return (React rules of hooks)
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [dropTargetId, setDropTargetId] = useState<string | null>(null)
   const [dropPosition, setDropPosition] = useState<'before' | 'after'>('before')
+  const [showAddMenu, setShowAddMenu] = useState(false)
+  const addMenuRef = useRef<HTMLDivElement>(null)
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!showAddMenu) return
+    const handleClick = (e: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+        setShowAddMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showAddMenu])
 
   const handleDragStart = useCallback((e: React.DragEvent, id: string) => {
     setDraggedId(id)
@@ -119,21 +133,6 @@ export function ThumbnailBar({
       </div>
     )
   }
-
-  const [showAddMenu, setShowAddMenu] = useState(false)
-  const addMenuRef = useRef<HTMLDivElement>(null)
-
-  // Close menu on outside click
-  useEffect(() => {
-    if (!showAddMenu) return
-    const handleClick = (e: MouseEvent) => {
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
-        setShowAddMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [showAddMenu])
 
   const style = height ? { height: `${height}px`, flex: 'none' } : undefined
 
