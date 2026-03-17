@@ -573,7 +573,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
   useEffect(() => {
     workspaceStore.startUsagePolling()
     return workspaceStore.subscribe(() => {
-      setClaudeUsage(workspaceStore.claudeUsage)
+      const u = workspaceStore.claudeUsage
+      if (u) setClaudeUsage(u)
     })
   }, [])
 
