@@ -3,6 +3,7 @@
    ============================================ */
 
 .claude-agent-panel {
+  --claude-font-size: 13px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -42,7 +43,7 @@
 }
 
 .claude-pinned-text {
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -79,7 +80,7 @@
   animation: dot-pulse 1.5s ease-in-out infinite;
 }
 .claude-active-task-label {
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -87,7 +88,7 @@
   opacity: 0.8;
 }
 .claude-active-task-time {
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
   color: var(--claude-accent);
   opacity: 0.8;
@@ -195,7 +196,7 @@
 
 /* Messages */
 .claude-message-user {
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   line-height: 1.5;
   color: var(--text-primary);
   font-weight: 500;
@@ -211,7 +212,7 @@
 /* Message timestamp */
 .claude-msg-time {
   display: block;
-  font-size: 10px;
+  font-size: calc(var(--claude-font-size) - 3px);
   font-weight: 400;
   color: var(--text-secondary);
   margin-top: 4px;
@@ -236,7 +237,7 @@
   opacity: 0.4;
 }
 .claude-time-divider span {
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   color: var(--text-secondary);
   white-space: nowrap;
   opacity: 0.7;
@@ -252,7 +253,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   padding: 4px 16px;
   border-radius: 12px;
   cursor: pointer;
@@ -268,7 +269,7 @@
 }
 
 .claude-message-assistant {
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   line-height: 1.5;
   color: var(--text-primary);
   padding: 2px 0;
@@ -277,7 +278,7 @@
 }
 
 .claude-message-system {
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: var(--text-secondary);
   font-style: italic;
   padding: 2px 0;
@@ -310,7 +311,7 @@
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
   color: var(--text-primary);
-  font-size: 18px;
+  font-size: calc(var(--claude-font-size) + 5px);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -331,7 +332,7 @@
   align-items: center;
   gap: 4px;
   padding: 2px 0;
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   color: var(--text-secondary);
   font-style: italic;
 }
@@ -369,7 +370,7 @@
 }
 
 .claude-thinking-label {
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   color: var(--text-secondary);
   font-style: italic;
 }
@@ -377,7 +378,7 @@
 .claude-thinking-content {
   margin: 4px 0 4px 18px;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   line-height: 1.5;
   color: var(--text-secondary);
   background: rgba(255, 255, 255, 0.03);
@@ -398,7 +399,7 @@
   padding: 4px 0;
   cursor: pointer;
   user-select: none;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
 }
 
 .claude-tool-header:hover .claude-tool-name {
@@ -406,14 +407,14 @@
 }
 .claude-tool-time {
   margin-left: auto;
-  font-size: 10px;
+  font-size: calc(var(--claude-font-size) - 3px);
   color: var(--text-secondary);
   opacity: 0.6;
   font-weight: 400;
 }
 
 .claude-tool-chevron {
-  font-size: 9px;
+  font-size: calc(var(--claude-font-size) - 4px);
   transition: transform 0.15s ease;
   color: var(--text-secondary);
 }
@@ -426,13 +427,13 @@
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
   color: var(--claude-accent);
   font-weight: 600;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
 }
 
 .claude-tool-summary {
   color: #bbb;
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -442,7 +443,7 @@
 
 .claude-tool-status {
   margin-left: auto;
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   flex-shrink: 0;
 }
 
@@ -462,7 +463,7 @@
 /* Tool description in header */
 .claude-tool-desc {
   color: #bbb;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -472,7 +473,7 @@
 
 /* Tool badge (e.g., subagent type for Task tool) */
 .claude-tool-badge {
-  font-size: 10px;
+  font-size: calc(var(--claude-font-size) - 3px);
   padding: 1px 6px;
   border-radius: 3px;
   background: var(--bg-hover);
@@ -488,7 +489,7 @@
   flex-wrap: wrap;
 }
 .claude-task-tag {
-  font-size: 10px;
+  font-size: calc(var(--claude-font-size) - 3px);
   padding: 1px 6px;
   border-radius: 3px;
   background: var(--bg-hover);
@@ -513,7 +514,7 @@
 }
 .claude-task-section-header:hover { opacity: 1; }
 .claude-task-section-label {
-  font-size: 10px;
+  font-size: calc(var(--claude-font-size) - 3px);
   font-weight: 600;
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
   color: var(--text-secondary);
@@ -522,7 +523,7 @@
 .claude-task-prompt-text {
   padding: 0 10px 8px;
   margin: 0;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
   color: var(--text-primary);
   white-space: pre-wrap;
@@ -531,7 +532,7 @@
 }
 .claude-task-result-text {
   padding: 0 10px 8px;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
   color: var(--text-primary);
   white-space: pre-wrap;
@@ -543,7 +544,7 @@
 
 /* TaskOutput back-link to parent Task */
 .claude-taskout-link {
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   color: var(--accent-color);
   cursor: pointer;
   opacity: 0.7;
@@ -561,7 +562,7 @@
 
 /* Deny reason */
 .claude-tool-reason {
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: var(--text-secondary);
   margin: 2px 0 4px;
   font-style: italic;
@@ -569,7 +570,7 @@
 
 /* Tool interrupted label */
 .claude-tool-interrupted {
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: var(--danger-color);
   font-style: italic;
   margin: 4px 0 8px;
@@ -592,7 +593,7 @@
 .claude-in-toggle {
   color: var(--accent-color);
   cursor: pointer;
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   opacity: 0.8;
 }
 .claude-in-toggle:hover {
@@ -611,7 +612,7 @@
 .claude-plan-content {
   margin: 0;
   padding: 8px 12px;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   line-height: 1.5;
   color: var(--text-secondary);
   white-space: pre-wrap;
@@ -622,7 +623,7 @@
 }
 .claude-plan-open-btn {
   padding: 4px 12px 6px;
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   color: #5b9bd5;
   cursor: pointer;
   user-select: none;
@@ -663,7 +664,7 @@
   flex-shrink: 0;
 }
 .claude-plan-modal-title {
-  font-size: 14px;
+  font-size: calc(var(--claude-font-size) + 1px);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -671,7 +672,7 @@
   background: none;
   border: none;
   color: var(--text-secondary);
-  font-size: 20px;
+  font-size: calc(var(--claude-font-size) + 7px);
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;
@@ -684,7 +685,7 @@
   overflow-y: auto;
   padding: 16px 20px;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   line-height: 1.7;
   color: var(--text-primary);
   white-space: pre-wrap;
@@ -699,7 +700,7 @@
   overflow: hidden;
   margin-top: 4px;
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   line-height: 1.5;
 }
 .claude-diff-line {
@@ -734,7 +735,7 @@
 }
 .claude-diff-toggle {
   padding: 4px 8px;
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   color: var(--accent-color);
   cursor: pointer;
   text-align: center;
@@ -751,7 +752,7 @@
   flex-direction: column;
   gap: 2px;
   margin: 6px 0 4px;
-  font-size: 13px;
+  font-size: var(--claude-font-size);
 }
 .claude-todo-item {
   display: flex;
@@ -762,7 +763,7 @@
 }
 .claude-todo-check {
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: calc(var(--claude-font-size) + 1px);
   width: 18px;
   text-align: center;
 }
@@ -818,7 +819,7 @@
 
 .claude-tool-row-label {
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   font-weight: 600;
   color: #aaa;
   flex-shrink: 0;
@@ -828,7 +829,7 @@
 
 .claude-tool-row-content {
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: #e0e0e0;
   flex: 1;
   min-width: 0;
@@ -853,7 +854,7 @@
 }
 
 .claude-tool-row-copy {
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   color: var(--text-secondary);
   opacity: 0;
   transition: opacity 0.15s;
@@ -877,7 +878,7 @@
 }
 
 .claude-tool-label {
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -887,7 +888,7 @@
 .claude-tool-input pre,
 .claude-tool-result pre {
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   color: var(--text-primary);
   background: var(--bg-secondary);
   padding: 8px;
@@ -925,7 +926,7 @@
   border: none;
   color: var(--text-primary);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   padding: 10px 12px 6px;
   resize: none;
   min-height: 36px;
@@ -956,7 +957,7 @@
   align-items: center;
   gap: 2px;
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   color: var(--text-secondary);
 }
 
@@ -968,7 +969,7 @@
 
 .claude-input-meta {
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
-  font-size: 10px;
+  font-size: calc(var(--claude-font-size) - 3px);
   color: var(--text-secondary);
   cursor: default;
 }
@@ -980,7 +981,7 @@
   border-radius: var(--radius-sm);
   width: 28px;
   height: 28px;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1027,7 +1028,7 @@
   border-radius: 3px;
   padding: 0 4px;
   height: 22px;
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   cursor: pointer;
   outline: none;
 }
@@ -1040,7 +1041,7 @@
 }
 
 .claude-1m-toggle {
-  font-size: 10px;
+  font-size: calc(var(--claude-font-size) - 3px);
   font-weight: 600;
   opacity: 0.4;
   border: 1px solid rgba(255, 255, 255, 0.15);
@@ -1104,7 +1105,7 @@
 }
 
 .claude-permission-title {
-  font-size: 14px;
+  font-size: calc(var(--claude-font-size) + 1px);
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 6px;
@@ -1129,7 +1130,7 @@
 
 .claude-permission-command {
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: var(--text-secondary);
   margin-bottom: 4px;
   overflow: hidden;
@@ -1138,7 +1139,7 @@
 }
 
 .claude-permission-desc {
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: var(--text-secondary);
   margin-bottom: 12px;
 }
@@ -1159,7 +1160,7 @@
   cursor: pointer;
   transition: all 0.1s;
   border: 1px solid transparent;
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   color: var(--text-primary);
 }
 
@@ -1174,7 +1175,7 @@
 }
 
 .claude-permission-option-num {
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   font-weight: 500;
   color: var(--text-secondary);
   min-width: 14px;
@@ -1205,7 +1206,7 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   outline: none;
   transition: border-color 0.15s;
 }
@@ -1220,7 +1221,7 @@
 }
 
 .claude-permission-hint {
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   color: var(--text-secondary);
 }
 
@@ -1244,7 +1245,7 @@
 }
 
 .claude-ask-header {
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   font-weight: 600;
   color: var(--claude-accent);
   text-transform: uppercase;
@@ -1253,7 +1254,7 @@
 }
 
 .claude-ask-text {
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   color: var(--text-primary);
   margin-bottom: 8px;
 }
@@ -1271,7 +1272,7 @@
   border-radius: 4px;
   background: var(--bg-tertiary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -1295,7 +1296,7 @@
   border: 1px solid var(--border-color);
   border-radius: 4px;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   outline: none;
 }
 
@@ -1346,7 +1347,7 @@
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   line-height: 1;
   cursor: pointer;
   display: flex;
@@ -1368,7 +1369,7 @@
   border: 1px dashed var(--border-color);
   background: transparent;
   color: var(--text-secondary);
-  font-size: 18px;
+  font-size: calc(var(--claude-font-size) + 5px);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1432,18 +1433,18 @@
 
 .claude-resume-item-id {
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: var(--claude-accent);
   font-weight: 600;
 }
 
 .claude-resume-item-time {
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   color: var(--text-secondary);
 }
 
 .claude-resume-item-preview {
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1451,7 +1452,7 @@
 }
 
 .claude-resume-empty {
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   color: var(--text-secondary);
   text-align: center;
   padding: 20px 0;
@@ -1470,7 +1471,7 @@
   align-items: center;
   gap: 12px;
   padding: 2px 12px;
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   color: var(--text-secondary);
   min-height: 20px;
 }
@@ -1538,18 +1539,18 @@
 .claude-prompt-history-index {
   color: var(--accent-color);
   font-weight: 600;
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
 }
 .claude-prompt-history-time {
   color: rgba(255, 255, 255, 0.35);
-  font-size: 10px;
+  font-size: calc(var(--claude-font-size) - 3px);
 }
 .claude-prompt-history-copy-one {
   margin-left: auto;
   background: none;
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: rgba(255, 255, 255, 0.5);
-  font-size: 10px;
+  font-size: calc(var(--claude-font-size) - 3px);
   padding: 1px 6px;
   border-radius: 3px;
   cursor: pointer;
@@ -1567,7 +1568,7 @@
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   line-height: 1.5;
   color: rgba(255, 255, 255, 0.85);
   max-height: 200px;
@@ -1577,7 +1578,7 @@
   background: none;
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: rgba(255, 255, 255, 0.6);
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   padding: 2px 8px;
   border-radius: 3px;
   cursor: pointer;
@@ -1615,7 +1616,7 @@
 .claude-file-picker-input {
   width: 100%;
   padding: 10px 14px;
-  font-size: 14px;
+  font-size: calc(var(--claude-font-size) + 1px);
   background: var(--bg-primary);
   color: var(--text-primary);
   border: none;
@@ -1651,14 +1652,14 @@
   cursor: default;
 }
 .claude-file-picker-name {
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
   flex-shrink: 0;
 }
 .claude-file-picker-path {
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   color: var(--text-secondary);
   font-family: monospace;
   overflow: hidden;
@@ -1670,7 +1671,7 @@
   padding: 16px 14px;
   text-align: center;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--claude-font-size);
 }
 
 /* ============================================
@@ -1690,13 +1691,13 @@
   background: var(--bg-hover);
 }
 .claude-prompt-suggestion-label {
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   color: var(--claude-accent);
   font-weight: 600;
   flex-shrink: 0;
 }
 .claude-prompt-suggestion-text {
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -1724,14 +1725,14 @@
   background: var(--bg-hover);
 }
 .claude-slash-name {
-  font-size: 13px;
+  font-size: var(--claude-font-size);
   color: var(--claude-accent);
   font-weight: 600;
   font-family: monospace;
   flex-shrink: 0;
 }
 .claude-slash-desc {
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -1742,7 +1743,7 @@
    Permission Decision Reason
    ============================================ */
 .claude-permission-reason {
-  font-size: 12px;
+  font-size: calc(var(--claude-font-size) - 1px);
   color: var(--claude-accent);
   margin-bottom: 8px;
   padding: 4px 8px;
@@ -1755,6 +1756,6 @@
    Account Info Badge
    ============================================ */
 .claude-account-info {
-  font-size: 11px;
+  font-size: calc(var(--claude-font-size) - 2px);
   opacity: 0.7;
 }

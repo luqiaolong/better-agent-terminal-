@@ -145,6 +145,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
   const [userScrolledUp, setUserScrolledUp] = useState(false)
   const isNearBottomRef = useRef(true)
   const [aboveViewportUserMsgIds, setAboveViewportUserMsgIds] = useState<Set<string>>(new Set())
+  const [claudeFontSize, setClaudeFontSize] = useState(settingsStore.getSettings().fontSize)
   const userMsgRefsMap = useRef<Map<string, HTMLDivElement>>(new Map())
   const observerRef = useRef<IntersectionObserver | null>(null)
 
@@ -568,6 +569,13 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
   useEffect(() => {
     window.electronAPI.git.getBranch(cwd).then(branch => setGitBranch(branch)).catch(() => setGitBranch(null))
   }, [cwd])
+
+  // Subscribe to font size changes from settings
+  useEffect(() => {
+    return settingsStore.subscribe(() => {
+      setClaudeFontSize(settingsStore.getSettings().fontSize)
+    })
+  }, [])
 
   // Subscribe to global Claude usage from workspace store
   useEffect(() => {
@@ -1807,6 +1815,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
   return (
     <div
       className="claude-agent-panel"
+      style={{ '--claude-font-size': `${claudeFontSize}px` } as React.CSSProperties}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}

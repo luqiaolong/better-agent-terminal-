@@ -122,6 +122,10 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
       saveThumbnailSettings(updated)
       return updated
     })
+    // Trigger resize so terminals/xterm can refit after layout change
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event('resize'))
+    })
   }, [])
 
   // Reset thumbnail bar to default height
