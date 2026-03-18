@@ -33,7 +33,7 @@ interface ElectronAPI {
     getLaunchProfile: () => Promise<string | null>
   }
   tunnel: {
-    getConnection: () => Promise<{ url: string; token: string; mode: string } | { error: string }>
+    getConnection: () => Promise<{ url: string; token: string; mode: string; addresses: { ip: string; mode: string; label: string }[] } | { error: string }>
   }
 }
 

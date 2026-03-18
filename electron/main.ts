@@ -41,7 +41,7 @@ import { broadcastHub } from './remote/broadcast-hub'
 import { PROXIED_CHANNELS } from './remote/protocol'
 import { RemoteServer } from './remote/remote-server'
 import { RemoteClient } from './remote/remote-client'
-import { getConnectionUrl } from './remote/tunnel-manager'
+import { getConnectionInfo } from './remote/tunnel-manager'
 import { logger } from './logger'
 
 // Startup timing — capture module load time before anything else
@@ -736,7 +736,7 @@ function registerLocalHandlers() {
         const tokenPath = path.join(app.getPath('userData'), 'server-token.json')
         token = JSON.parse(fsSync.readFileSync(tokenPath, 'utf-8')).token
       }
-      return getConnectionUrl(port, token)
+      return getConnectionInfo(port, token)
     } catch (err: unknown) {
       return { error: err instanceof Error ? err.message : String(err) }
     }

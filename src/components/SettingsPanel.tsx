@@ -49,6 +49,9 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [qrInfo, setQrInfo] = useState<{ url: string; mode: string } | null>(null)
   const [qrLoading, setQrLoading] = useState(false)
   const [qrError, setQrError] = useState<string | null>(null)
+  const [qrAddresses, setQrAddresses] = useState<{ ip: string; mode: string; label: string }[]>([])
+  const [qrToken, setQrToken] = useState<string | null>(null)
+  const [qrPort, setQrPort] = useState<number>(9876)
 
   // Statusline config state
   const [slItems, setSlItems] = useState<StatuslineItemConfig[]>(settingsStore.getStatuslineItems())
@@ -153,6 +156,14 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     setServerStatus(ss)
   }
 
+  const generateQrForIp = useCallback(async (ip: string, mode: string, token: string, port: number) => {
+    const url = `ws://${ip}:${port}`
+    const payload = JSON.stringify({ url, token, mode })
+    const dataUrl = await QRCode.toDataURL(payload, { width: 256, margin: 2 })
+    setQrDataUrl(dataUrl)
+    setQrInfo({ url, mode })
+  }, [])
+
   const handleGenerateQR = useCallback(async () => {
     setQrLoading(true)
     setQrError(null)
@@ -162,10 +173,11 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
         setQrError(result.error)
         return
       }
-      const payload = JSON.stringify({ url: result.url, token: result.token, mode: result.mode })
-      const dataUrl = await QRCode.toDataURL(payload, { width: 256, margin: 2 })
-      setQrDataUrl(dataUrl)
-      setQrInfo({ url: result.url, mode: result.mode })
+      setQrAddresses(result.addresses)
+      setQrToken(result.token)
+      const port = parseInt(result.url.split(':').pop() || '9876')
+      setQrPort(port)
+      await generateQrForIp(result.addresses[0].ip, result.addresses[0].mode, result.token, port)
       // Refresh server status since we may have started it
       const ss = await window.electronAPI.remote.serverStatus()
       setServerStatus(ss)
@@ -175,7 +187,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     } finally {
       setQrLoading(false)
     }
-  }, [])
+  }, [generateQrForIp])
 
   const terminalColors = settingsStore.getTerminalColors()
 
@@ -669,6 +681,22 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 </>
               ) : (
                 <div style={{ textAlign: 'center', marginTop: 8 }}>
+                  {qrAddresses.length > 1 && (
+                    <select
+                      style={{ width: '100%', marginBottom: 8, fontSize: 12, padding: '4px 6px' }}
+                      value={qrInfo?.url?.split('//')[1]?.split(':')[0] || ''}
+                      onChange={async (e) => {
+                        const addr = qrAddresses.find(a => a.ip === e.target.value)
+                        if (addr && qrToken) {
+                          await generateQrForIp(addr.ip, addr.mode, qrToken, qrPort)
+                        }
+                      }}
+                    >
+                      {qrAddresses.map(addr => (
+                        <option key={addr.ip} value={addr.ip}>{addr.label}</option>
+                      ))}
+                    </select>
+                  )}
                   <img
                     src={qrDataUrl}
                     alt="QR Code"
@@ -682,7 +710,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   </p>
                   <button
                     className="profile-action-btn"
-                    onClick={() => { setQrDataUrl(null); setQrInfo(null) }}
+                    onClick={() => { setQrDataUrl(null); setQrInfo(null); setQrAddresses([]) }}
                     style={{ marginTop: 8 }}
                   >
                     Close
