@@ -93,7 +93,7 @@
       },
       "icon": "assets/icon.png",
       "category": "public.app-category.developer-tools",
-      "identity": "Developer ID Application: TonyQ CO., LTD. (8JVDJGLLYR)",
+      "identity": "TonyQ CO., LTD. (8JVDJGLLYR)",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
