@@ -488,3 +488,133 @@
   color: var(--text-primary);
   tab-size: 2;
 }
+
+/* Markdown preview mode toggle */
+.file-preview-mode-bar {
+  display: flex;
+  gap: 0;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+/* Markdown rendered content */
+.file-preview-markdown {
+  padding: 12px 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.file-preview-markdown h1 {
+  font-size: 1.6em;
+  margin: 0.6em 0 0.4em;
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.file-preview-markdown h2 {
+  font-size: 1.35em;
+  margin: 0.6em 0 0.4em;
+  padding-bottom: 0.15em;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.file-preview-markdown h3 {
+  font-size: 1.15em;
+  margin: 0.5em 0 0.3em;
+}
+
+.file-preview-markdown h4,
+.file-preview-markdown h5,
+.file-preview-markdown h6 {
+  font-size: 1em;
+  margin: 0.5em 0 0.3em;
+}
+
+.file-preview-markdown p {
+  margin: 0.4em 0;
+}
+
+.file-preview-markdown ul,
+.file-preview-markdown ol {
+  margin: 0.4em 0;
+  padding-left: 1.8em;
+}
+
+.file-preview-markdown li {
+  margin: 0.15em 0;
+}
+
+.file-preview-markdown code {
+  background: var(--bg-hover);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  font-size: 0.9em;
+  font-family: monospace;
+}
+
+.file-preview-markdown pre {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.file-preview-markdown pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.file-preview-markdown a {
+  color: var(--accent-color, #d97706);
+  text-decoration: none;
+}
+
+.file-preview-markdown a:hover {
+  text-decoration: underline;
+}
+
+.file-preview-markdown img {
+  max-width: 100%;
+  border-radius: 4px;
+}
+
+.file-preview-markdown hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 0.8em 0;
+}
+
+.file-preview-markdown blockquote {
+  margin: 0.4em 0;
+  padding: 0.2em 0.8em;
+  border-left: 3px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.file-preview-markdown table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  width: 100%;
+}
+
+.file-preview-markdown th,
+.file-preview-markdown td {
+  border: 1px solid var(--border-color);
+  padding: 4px 8px;
+  font-size: 12px;
+  text-align: left;
+}
+
+.file-preview-markdown th {
+  background: var(--bg-hover);
+  font-weight: 600;
+}

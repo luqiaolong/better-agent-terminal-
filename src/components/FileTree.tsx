@@ -121,11 +121,65 @@ function getFileIcon(name: string): string {
   }
 }
 
+function renderMarkdown(text: string): string {
+  let html = text
+    // Escape HTML
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+  // Code blocks (``` ... ```)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, _lang, code) =>
+    `<pre><code>${code.replace(/\n$/, '')}</code></pre>`)
+
+  // Headers
+  html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>')
+  html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>')
+  html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>')
+  html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
+  html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
+  html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>')
+
+  // Horizontal rule
+  html = html.replace(/^---+$/gm, '<hr/>')
+
+  // Images (before links)
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2" style="max-width:100%"/>')
+
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+
+  // Bold + italic
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>')
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+
+  // Unordered lists
+  html = html.replace(/^[\s]*[-*]\s+(.+)$/gm, '<li>$1</li>')
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
+
+  // Blockquote
+  html = html.replace(/^&gt;\s+(.+)$/gm, '<blockquote>$1</blockquote>')
+
+  // Paragraphs: wrap remaining non-tag lines
+  html = html.replace(/^(?!<[a-z/])(.*\S.*)$/gm, '<p>$1</p>')
+
+  // Clean up empty paragraphs
+  html = html.replace(/<p>\s*<\/p>/g, '')
+
+  return html
+}
+
 function FilePreview({ filePath, fileName }: { filePath: string; fileName: string }) {
   const [content, setContent] = useState<string | null>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [viewMode, setViewMode] = useState<'source' | 'rendered'>('rendered')
+  const isMarkdown = getFileExt(fileName) === 'md'
 
   useEffect(() => {
     let cancelled = false
@@ -181,7 +235,18 @@ function FilePreview({ filePath, fileName }: { filePath: string; fileName: strin
 
   if (content !== null) {
     return (
-      <HighlightedCode code={content} ext={getFileExt(fileName)} className="file-preview-text" />
+      <>
+        {isMarkdown && (
+          <div className="file-preview-mode-bar">
+            <button className={`git-diff-mode-btn${viewMode === 'rendered' ? ' active' : ''}`} onClick={() => setViewMode('rendered')}>Preview</button>
+            <button className={`git-diff-mode-btn${viewMode === 'source' ? ' active' : ''}`} onClick={() => setViewMode('source')}>Source</button>
+          </div>
+        )}
+        {isMarkdown && viewMode === 'rendered'
+          ? <div className="file-preview-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
+          : <HighlightedCode code={content} ext={getFileExt(fileName)} className="file-preview-text" />
+        }
+      </>
     )
   }
 
