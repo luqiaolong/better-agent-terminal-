@@ -906,10 +906,21 @@ export class ClaudeAgentManager {
         if (error instanceof Error && error.stack) {
           logger.error('Stack:', error.stack)
         }
-        // Include stderr hint in error message if available
-        const displayMsg = stderrOutput
-          ? `${errMsg}\n${stderrOutput.slice(0, 500)}`
-          : errMsg
+        // Detect node spawn failures and provide helpful guidance
+        const combined = `${errMsg}\n${stderrOutput}`
+        const isNodeError = /ENOENT|spawn.*node|node.*spawn|cannot find.*node|node\.exe.*not found/i.test(combined)
+          || (errMsg.includes('spawn') && getNodeExecutable() === 'node')
+        const displayMsg = isNodeError
+          ? `Node.js not found.\n\nThe Claude Agent SDK requires Node.js to run. Please install it:\n\n` +
+            (process.platform === 'win32'
+              ? `  winget install OpenJS.NodeJS.LTS\n\nor download from https://nodejs.org`
+              : process.platform === 'darwin'
+                ? `  brew install node\n\nor download from https://nodejs.org`
+                : `  Install via your package manager or https://nodejs.org`) +
+            `\n\nRestart Better Agent Terminal after installation.`
+          : stderrOutput
+            ? `${errMsg}\n${stderrOutput.slice(0, 500)}`
+            : errMsg
         this.send('claude:error', sessionId, displayMsg)
       }
     } finally {
