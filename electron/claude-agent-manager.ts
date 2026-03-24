@@ -481,6 +481,29 @@ export class ClaudeAgentManager {
         })
       }
 
+      // Load installed plugins from ~/.claude/plugins/installed_plugins.json
+      const installedPlugins: Array<{ type: 'local'; path: string }> = []
+      try {
+        const os = await import('os')
+        const pluginsJsonPath = pathModule.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json')
+        const pluginsData = JSON.parse(fsSync.readFileSync(pluginsJsonPath, 'utf-8'))
+        if (pluginsData.plugins) {
+          for (const entries of Object.values(pluginsData.plugins)) {
+            for (const entry of entries as Array<{ installPath?: string }>) {
+              if (entry.installPath) {
+                installedPlugins.push({ type: 'local', path: entry.installPath })
+              }
+            }
+          }
+        }
+        if (installedPlugins.length > 0) {
+          logger.log(`[Claude] Loaded ${installedPlugins.length} plugins: ${installedPlugins.map(p => pathModule.basename(pathModule.dirname(p.path)) + '/' + pathModule.basename(p.path)).join(', ')}`)
+        }
+      } catch (e) {
+        // No plugins file or parse error — continue without plugins
+        logger.log('[Claude] No installed plugins found or failed to parse:', e)
+      }
+
       const currentMode = session.permissionMode
       // Map app-level bypassPlan to SDK's plan mode
       const sdkMode: PermissionMode = currentMode === 'bypassPlan' ? 'plan' : currentMode
@@ -500,6 +523,7 @@ export class ClaudeAgentManager {
         agentProgressSummaries: true,
         ...(session.model ? { model: session.model } : {}),
         ...(session.enable1MContext ? { betas: ['context-1m-2025-08-07'] } : {}),
+        ...(installedPlugins.length > 0 ? { plugins: installedPlugins } : {}),
         canUseTool,
         ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
         ...(nodeExecutable !== 'node' || electronFallback ? { executable: nodeExecutable } : {}),
