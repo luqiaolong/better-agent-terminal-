@@ -196,6 +196,19 @@
     "edit": "編輯"
   },
 
+  "skills": {
+    "title": "Skills",
+    "searchSkills": "搜尋 skills...",
+    "projectCommands": "專案",
+    "globalCommands": "全域",
+    "customCommands": "自訂",
+    "bundledCommands": "內建",
+    "waitingForUpdate": "等待對話更新中... 在 Agent 對話框送出任意訊息（如 ping）即可載入 skills。",
+    "noSession": "啟動 Agent 對話後即可查看可用 skills。",
+    "noMatchingSkills": "沒有符合的 skills",
+    "expandSkills": "展開 Skills"
+  },
+
   "about": {
     "title": "關於",
     "appName": "Better Agent Terminal",

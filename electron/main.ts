@@ -452,6 +452,36 @@ function registerProxiedHandlers() {
   registerHandler('claude:get-supported-models', (sessionId: string) => claudeManager?.getSupportedModels(sessionId))
   registerHandler('claude:get-account-info', (sessionId: string) => claudeManager?.getAccountInfo(sessionId))
   registerHandler('claude:get-supported-commands', (sessionId: string) => claudeManager?.getSupportedCommands(sessionId))
+
+  // Scan .claude/commands/ directories for skill files
+  registerHandler('claude:scan-skills', async (cwd: string) => {
+    const fs = await import('fs')
+    const pathMod = await import('path')
+    const results: { name: string; description: string; scope: 'project' | 'global' }[] = []
+    const homePath = app.getPath('home')
+    const dirs: { dir: string; scope: 'project' | 'global' }[] = [
+      { dir: pathMod.join(cwd, '.claude', 'commands'), scope: 'project' },
+      { dir: pathMod.join(homePath, '.claude', 'commands'), scope: 'global' },
+    ]
+    for (const { dir, scope } of dirs) {
+      try {
+        if (!fs.existsSync(dir)) continue
+        const files = fs.readdirSync(dir).filter((f: string) => f.endsWith('.md'))
+        for (const file of files) {
+          const name = file.replace(/\.md$/, '')
+          try {
+            const content = fs.readFileSync(pathMod.join(dir, file), 'utf-8')
+            const firstLine = content.split('\n').find((l: string) => l.trim()) || ''
+            const description = firstLine.replace(/^#\s*/, '').trim()
+            results.push({ name, description, scope })
+          } catch {
+            results.push({ name, description: '', scope })
+          }
+        }
+      } catch { /* directory doesn't exist or not readable */ }
+    }
+    return results
+  })
   registerHandler('claude:get-session-meta', (sessionId: string) => claudeManager?.getSessionMeta(sessionId))
   registerHandler('claude:resolve-permission', (sessionId: string, toolUseId: string, result: { behavior: string; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[]; message?: string; dontAskAgain?: boolean }) => claudeManager?.resolvePermission(sessionId, toolUseId, result))
   registerHandler('claude:resolve-ask-user', (sessionId: string, toolUseId: string, answers: Record<string, string>) => claudeManager?.resolveAskUser(sessionId, toolUseId, answers))

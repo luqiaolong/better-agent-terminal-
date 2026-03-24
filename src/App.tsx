@@ -7,6 +7,7 @@ import { Sidebar } from './components/Sidebar'
 import { WorkspaceView, clearInitializedWorkspaces } from './components/WorkspaceView'
 import { SettingsPanel } from './components/SettingsPanel'
 import { SnippetSidebar } from './components/SnippetPanel'
+import { SkillsPanel } from './components/SkillsPanel'
 import { WorkspaceEnvDialog } from './components/WorkspaceEnvDialog'
 import { ResizeHandle } from './components/ResizeHandle'
 import { ProfilePanel } from './components/ProfilePanel'
@@ -68,8 +69,11 @@ export default function App() {
   const [isRemoteConnected, setIsRemoteConnected] = useState(false)
   const [appNotification, setAppNotification] = useState<string | null>(null)
   const [envDialogWorkspaceId, setEnvDialogWorkspaceId] = useState<string | null>(null)
-  // Snippet sidebar is always visible by default
+  // Right sidebar tabs
   const [showSnippetSidebar] = useState(true)
+  const [rightPanelTab, setRightPanelTab] = useState<'snippets' | 'skills'>(() => {
+    return (localStorage.getItem('bat-right-panel-tab') as 'snippets' | 'skills') || 'snippets'
+  })
   // Panel settings for resizable panels
   const [panelSettings, setPanelSettings] = useState<PanelSettings>(loadPanelSettings)
   // Detached workspace support
@@ -118,6 +122,20 @@ export default function App() {
       const updated = { ...prev, snippetSidebar: { ...prev.snippetSidebar, width: newWidth } }
       savePanelSettings(updated)
       return updated
+    })
+  }, [])
+
+  const handleRightPanelTabChange = useCallback((tab: 'snippets' | 'skills') => {
+    setRightPanelTab(tab)
+    localStorage.setItem('bat-right-panel-tab', tab)
+    // If collapsed, expand when switching tabs
+    setPanelSettings(prev => {
+      if (prev.snippetSidebar.collapsed) {
+        const updated = { ...prev, snippetSidebar: { ...prev.snippetSidebar, collapsed: false } }
+        savePanelSettings(updated)
+        return updated
+      }
+      return prev
     })
   }, [])
 
@@ -480,13 +498,65 @@ export default function App() {
           onDoubleClick={handleSnippetResetWidth}
         />
       )}
-      <SnippetSidebar
-        isVisible={showSnippetSidebar}
-        width={panelSettings.snippetSidebar.width}
-        collapsed={panelSettings.snippetSidebar.collapsed}
-        onCollapse={handleSnippetCollapse}
-        onPasteToTerminal={handlePasteToTerminal}
-      />
+      {/* Right sidebar: tabbed Snippets / Skills (Skills only for Claude Code terminals) */}
+      {(() => {
+        const focusedTerminal = state.focusedTerminalId ? state.terminals.find(t2 => t2.id === state.focusedTerminalId) : null
+        const isClaudeCode = focusedTerminal?.agentPreset === 'claude-code'
+        const effectiveTab = isClaudeCode ? rightPanelTab : 'snippets'
+
+        if (!showSnippetSidebar) return null
+
+        if (panelSettings.snippetSidebar.collapsed) {
+          return (
+            <div className="right-sidebar-collapsed">
+              <button className="right-sidebar-collapsed-btn" onClick={() => handleRightPanelTabChange('snippets')} title={t('snippets.expandSnippets')}>
+                {'\u{1F4DD}'}
+              </button>
+              {isClaudeCode && (
+                <button className="right-sidebar-collapsed-btn" onClick={() => handleRightPanelTabChange('skills')} title={t('skills.expandSkills')}>
+                  {'\u{26A1}'}
+                </button>
+              )}
+            </div>
+          )
+        }
+
+        return (
+          <div className="right-sidebar-wrapper" style={{ width: `${panelSettings.snippetSidebar.width}px`, minWidth: `${panelSettings.snippetSidebar.width}px`, display: 'flex', flexDirection: 'column' }}>
+            <div className="right-sidebar-tabs">
+              <button className={`right-sidebar-tab${effectiveTab === 'snippets' ? ' active' : ''}`} onClick={() => handleRightPanelTabChange('snippets')}>
+                {t('snippets.title')}
+              </button>
+              {isClaudeCode && (
+                <button className={`right-sidebar-tab${effectiveTab === 'skills' ? ' active' : ''}`} onClick={() => handleRightPanelTabChange('skills')}>
+                  {t('skills.title')}
+                </button>
+              )}
+              <button className="right-sidebar-collapse" onClick={handleSnippetCollapse} title={t('snippets.collapsePanel')}>&raquo;</button>
+            </div>
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              {effectiveTab === 'skills' ? (
+                <SkillsPanel
+                  isVisible={true}
+                  width={panelSettings.snippetSidebar.width}
+                  collapsed={false}
+                  onCollapse={handleSnippetCollapse}
+                  activeCwd={state.activeWorkspaceId ? state.workspaces.find(w => w.id === state.activeWorkspaceId)?.folderPath ?? null : null}
+                  activeSessionId={state.focusedTerminalId ?? null}
+                />
+              ) : (
+                <SnippetSidebar
+                  isVisible={true}
+                  width={panelSettings.snippetSidebar.width}
+                  collapsed={false}
+                  onCollapse={handleSnippetCollapse}
+                  onPasteToTerminal={handlePasteToTerminal}
+                />
+              )}
+            </div>
+          </div>
+        )
+      })()}
       {showSettings && (
         <SettingsPanel onClose={() => setShowSettings(false)} />
       )}

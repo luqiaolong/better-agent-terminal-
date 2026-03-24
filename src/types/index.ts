@@ -221,6 +221,18 @@ export interface AppSettings {
 }
 
 // ============================================
+//   Skill Commands
+// ============================================
+
+export interface SkillCommand {
+  name: string
+  description: string
+  argumentHint?: string
+  scope: 'project' | 'global'
+  source: 'filesystem' | 'sdk'
+}
+
+// ============================================
 //   Statusline Configuration
 // ============================================
 

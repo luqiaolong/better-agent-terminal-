@@ -196,6 +196,19 @@
     "edit": "Edit"
   },
 
+  "skills": {
+    "title": "Skills",
+    "searchSkills": "Search skills...",
+    "projectCommands": "Project",
+    "globalCommands": "Global",
+    "customCommands": "Custom",
+    "bundledCommands": "Built-in",
+    "waitingForUpdate": "Waiting for session update... Send any message in the Agent chat (e.g. ping) to load skills.",
+    "noSession": "Start an Agent session to see available skills.",
+    "noMatchingSkills": "No matching skills",
+    "expandSkills": "Expand Skills"
+  },
+
   "about": {
     "title": "About",
     "appName": "Better Agent Terminal",

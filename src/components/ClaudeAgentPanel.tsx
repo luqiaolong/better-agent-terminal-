@@ -768,7 +768,11 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
         if (info) setAccountInfo(info)
       }).catch(() => {})
       window.electronAPI.claude.getSupportedCommands(sessionId).then((cmds: SlashCommandInfo[]) => {
-        if (cmds && cmds.length > 0) setSlashCommands(cmds)
+        if (cmds && cmds.length > 0) {
+          setSlashCommands(cmds)
+          // Broadcast for SkillsPanel (in case it mounted before commands were fetched)
+          window.dispatchEvent(new CustomEvent('claude-skills-updated', { detail: { sessionId, commands: cmds } }))
+        }
       }).catch(() => {})
     }
   }, [sessionId, sessionMeta?.sdkSessionId, availableModels.length])
@@ -907,6 +911,18 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId }: Read
     inputValueRef.current = val
     if (textareaRef.current) textareaRef.current.value = val
   }, [])
+
+  // Listen for skill insertion from SkillsPanel
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (!isActive) return
+      const { name } = (e as CustomEvent).detail as { name: string }
+      setInputValue('/' + name + ' ')
+      textareaRef.current?.focus()
+    }
+    window.addEventListener('claude-insert-command', handler)
+    return () => window.removeEventListener('claude-insert-command', handler)
+  }, [isActive, setInputValue])
 
   const handleSend = useCallback(async () => {
     const trimmed = inputValueRef.current.trim()
