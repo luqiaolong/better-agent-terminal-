@@ -345,9 +345,16 @@ app.whenReady().then(async () => {
         }
       }
     } else {
-      const entry = await windowRegistry.createEntry()
-      currentWindowId = entry.id
-      logger.log(`[startup] created new window ${currentWindowId}`)
+      // All entries were empty — try to recover from workspaces.json
+      const recovered = await windowRegistry.remigrateFromWorkspacesJson()
+      if (recovered) {
+        currentWindowId = recovered.id
+        logger.log(`[startup] recovered window ${currentWindowId} from workspaces.json`)
+      } else {
+        const entry = await windowRegistry.createEntry()
+        currentWindowId = entry.id
+        logger.log(`[startup] created new window ${currentWindowId}`)
+      }
     }
   }
 

@@ -106,7 +106,10 @@ export class WindowRegistry {
         terminals: parsed.terminals || [],
         activeTerminalId: parsed.activeTerminalId || null,
       }
-    } catch { /* no existing workspaces */ }
+      logger.log(`[window-registry] Read workspaces.json: ${workspacesData.workspaces.length} workspaces, ${(workspacesData.terminals || []).length} terminals`)
+    } catch (e) {
+      logger.log(`[window-registry] No workspaces.json to migrate: ${e}`)
+    }
 
     // Read active profile ID to link the migrated window entry
     let activeProfileId: string | undefined
@@ -134,6 +137,46 @@ export class WindowRegistry {
     await this.writeAll(entries)
     logger.log(`[window-registry] Migrated ${workspacesData.workspaces.length} workspaces to window ${entry.id}`)
     return entries
+  }
+
+  /** Re-migrate from workspaces.json when windows.json has only empty entries */
+  async remigrateFromWorkspacesJson(): Promise<WindowEntry | null> {
+    logger.log('[window-registry] Attempting re-migration from workspaces.json')
+    try {
+      const raw = await fs.readFile(getWorkspacesPath(), 'utf-8')
+      const parsed = JSON.parse(raw)
+      const workspaces = parsed.workspaces || []
+      if (workspaces.length === 0) {
+        logger.log('[window-registry] workspaces.json exists but has no workspaces')
+        return null
+      }
+
+      let activeProfileId: string | undefined
+      try {
+        const profileIndexPath = path.join(app.getPath('userData'), 'profiles', 'index.json')
+        const profileIndex = JSON.parse(await fs.readFile(profileIndexPath, 'utf-8'))
+        activeProfileId = profileIndex.activeProfileId || 'default'
+      } catch {
+        activeProfileId = 'default'
+      }
+
+      const entry: WindowEntry = {
+        id: generateId(),
+        profileId: activeProfileId,
+        workspaces,
+        activeWorkspaceId: parsed.activeWorkspaceId || null,
+        activeGroup: parsed.activeGroup || null,
+        terminals: parsed.terminals || [],
+        activeTerminalId: parsed.activeTerminalId || null,
+        lastActiveAt: Date.now(),
+      }
+      await this.writeAll([entry])
+      logger.log(`[window-registry] Re-migrated ${workspaces.length} workspaces to window ${entry.id}`)
+      return entry
+    } catch (e) {
+      logger.log(`[window-registry] Re-migration failed: ${e}`)
+      return null
+    }
   }
 
   private writeQueue: Promise<void> = Promise.resolve()
