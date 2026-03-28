@@ -583,10 +583,9 @@ app.on('before-quit', () => {
 
 app.on('window-all-closed', () => {
   runCleanupOnce()
+  app.quit()
+  // Force exit — child processes (PTY shells, Claude CLI) may keep the event loop alive.
   if (process.platform !== 'darwin') {
-    app.quit()
-    // Force exit — child processes (PTY shells, Claude CLI) may keep the event loop alive.
-    // PTY kill() already called taskkill /T above; this is a final safety net.
     setTimeout(() => process.exit(0), 2000)
   }
 })
