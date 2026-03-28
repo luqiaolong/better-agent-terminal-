@@ -859,6 +859,81 @@ function registerProxiedHandlers() {
     } catch { return null }
   }
 
+  /** Extract session key and cf_clearance from Firefox cookies on macOS (plaintext, no decryption needed) */
+  async function getSessionKeyFromFirefox(): Promise<{ sessionKey: string; cfClearance: string | null } | null> {
+    if (process.platform !== 'darwin') return null
+    const now = Date.now()
+    if (_cachedSessionKey && now - _sessionKeyCacheTime < SESSION_KEY_CACHE_TTL) {
+      return { sessionKey: _cachedSessionKey, cfClearance: _cachedCfClearance }
+    }
+    try {
+      const os = await import('os')
+      const { execSync } = await import('child_process')
+
+      const ffBase = path.join(app.getPath('home'), 'Library/Application Support/Firefox/Profiles')
+      try { await fs.access(ffBase) } catch { return null }
+
+      // Find the default profile (prefer *.default-release, then *.default, then first entry)
+      let profileDir: string | null = null
+      try {
+        const entries = await fs.readdir(ffBase)
+        const chosen = entries.find(e => e.endsWith('.default-release'))
+          ?? entries.find(e => e.endsWith('.default'))
+          ?? entries[0]
+        if (chosen) profileDir = path.join(ffBase, chosen)
+      } catch { return null }
+      if (!profileDir) return null
+
+      const ffCookiePath = path.join(profileDir, 'cookies.sqlite')
+      try { await fs.access(ffCookiePath) } catch { return null }
+
+      const tmpDir = os.tmpdir()
+      const tmpDb = path.join(tmpDir, 'bat-firefox-cookies.db')
+      await fs.copyFile(ffCookiePath, tmpDb)
+      try { await fs.copyFile(ffCookiePath + '-wal', tmpDb + '-wal') } catch { /* ok */ }
+      try { await fs.copyFile(ffCookiePath + '-shm', tmpDb + '-shm') } catch { /* ok */ }
+
+      // Firefox stores cookies as plaintext in moz_cookies table
+      const rawOutput = execSync(
+        `sqlite3 "${tmpDb}" "SELECT name, value FROM moz_cookies WHERE host LIKE '%claude.ai%' AND name IN ('sessionKey','cf_clearance');"`,
+        { encoding: 'utf-8', timeout: 5000 }
+      ).trim()
+
+      try { await fs.unlink(tmpDb) } catch { /* ok */ }
+      try { await fs.unlink(tmpDb + '-wal') } catch { /* ok */ }
+      try { await fs.unlink(tmpDb + '-shm') } catch { /* ok */ }
+
+      if (!rawOutput) return null
+
+      let sessionKey: string | null = null
+      let cfClearance: string | null = null
+
+      for (const line of rawOutput.split('\n')) {
+        const pipeIdx = line.indexOf('|')
+        if (pipeIdx < 0) continue
+        const name = line.substring(0, pipeIdx)
+        const value = line.substring(pipeIdx + 1)
+        if (name === 'sessionKey' && value) {
+          const idx = value.indexOf('sk-ant-sid')
+          sessionKey = idx >= 0 ? value.substring(idx) : value
+        } else if (name === 'cf_clearance' && value) {
+          cfClearance = value
+        }
+      }
+
+      if (!sessionKey || sessionKey.length < 10) return null
+
+      _cachedSessionKey = sessionKey
+      _cachedCfClearance = cfClearance
+      _sessionKeyCacheTime = now
+      logger.log('[usage] Extracted session key from Firefox (length:', sessionKey.length, ')')
+      return { sessionKey, cfClearance }
+    } catch (e) {
+      logger.error('[usage] Failed to extract Firefox session key:', e)
+      return null
+    }
+  }
+
   /** Extract session key and cf_clearance from Chrome cookies on macOS */
   async function getSessionKeyFromChrome(): Promise<{ sessionKey: string; cfClearance: string | null } | null> {
     if (process.platform !== 'darwin') return null
@@ -973,7 +1048,7 @@ function registerProxiedHandlers() {
 
   /** Fetch usage via session key (primary — lenient rate limits) */
   async function fetchUsageViaSessionKey(): Promise<{ fiveHour: number | null; sevenDay: number | null; fiveHourReset: string | null; sevenDayReset: string | null } | null> {
-    const creds = await getSessionKeyFromChrome()
+    const creds = (await getSessionKeyFromChrome()) ?? (await getSessionKeyFromFirefox())
     if (!creds) return null
     const orgId = await getOrgId(creds.sessionKey, creds.cfClearance)
     if (!orgId) return null
