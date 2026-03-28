@@ -179,6 +179,18 @@ export default function App() {
     return () => window.removeEventListener('preview-markdown', handler)
   }, [])
 
+  // Cmd+N / Ctrl+N: open new empty window
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n' && !e.shiftKey && !e.altKey) {
+        e.preventDefault()
+        window.electronAPI.app.newWindow()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   useEffect(() => {
     const unsubscribe = workspaceStore.subscribe(() => {
       setState(workspaceStore.getState())

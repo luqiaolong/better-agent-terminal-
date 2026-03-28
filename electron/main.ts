@@ -3,6 +3,7 @@ import path from 'path'
 import * as fs from 'fs/promises'
 import * as fsSync from 'fs'
 import { execFileSync } from 'child_process'
+import { WindowRegistry } from './window-registry'
 
 // Fix PATH for GUI-launched apps on macOS.
 // When launched via .dmg / Applications, macOS gives a minimal PATH that
@@ -215,14 +216,14 @@ function buildMenu() {
   Menu.setApplicationMenu(menu)
 }
 
-function createWindow() {
+function createWindow(bounds?: { x: number; y: number; width: number; height: number }) {
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: bounds?.width || 1400,
+    height: bounds?.height || 900,
+    x: bounds?.x,
+    y: bounds?.y,
     minWidth: 800,
     minHeight: 600,
-    // Show immediately — splash screen is inline HTML/CSS, paints instantly.
-    // Using show:false throttles the Chromium renderer, adding seconds to first paint.
     show: true,
     backgroundColor: '#1a1a1a',
     webPreferences: {
@@ -253,6 +254,25 @@ function createWindow() {
 
   setupResizeThrottle(mainWindow, 'main')
 
+  // Save window bounds on move/resize (debounced)
+  let boundsTimer: ReturnType<typeof setTimeout> | null = null
+  const saveBounds = () => {
+    if (boundsTimer) clearTimeout(boundsTimer)
+    boundsTimer = setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed() || !currentWindowId) return
+      const bounds = mainWindow.getBounds()
+      windowRegistry.getEntry(currentWindowId).then(entry => {
+        if (entry) {
+          entry.bounds = bounds
+          entry.lastActiveAt = Date.now()
+          windowRegistry.saveEntry(entry)
+        }
+      })
+    }, 1000)
+  }
+  mainWindow.on('moved', saveBounds)
+  mainWindow.on('resized', saveBounds)
+
   mainWindow.on('closed', () => {
     // Close all detached windows when main window closes
     for (const [, win] of detachedWindows) {
@@ -274,21 +294,52 @@ function cleanupAllProcesses() {
   ptyManager = null
 }
 
-// Handle --profile launch argument: expose to frontend without changing global state
+// Handle launch arguments
 const profileArg = process.argv.find(a => a.startsWith('--profile='))
 const launchProfileId = profileArg ? profileArg.split('=')[1] || null : null
+const windowArg = process.argv.find(a => a.startsWith('--window='))
+let currentWindowId: string | null = windowArg ? windowArg.split('=')[1] || null : null
+
+const windowRegistry = new WindowRegistry()
 
 app.whenReady().then(async () => {
   const t0 = Date.now()
   logger.init(app.getPath('userData'))
   logger.log(`[startup] ═══════════════════════════════════════`)
   logger.log(`[startup] app.whenReady fired at +${t0 - _t0}ms from IPC reg, +${t0 - _processStart}ms from process`)
+
+  // Initialize window registry (migrate from workspaces.json on first run)
+  const entries = await windowRegistry.ensureInitialized()
+  if (currentWindowId) {
+    // Secondary window launched with --window=id
+    logger.log(`[startup] secondary window: ${currentWindowId}`)
+  } else if (launchProfileId) {
+    // Legacy --profile= launch: create a window entry linked to that profile
+    const entry = await windowRegistry.createEntry({ profileId: launchProfileId })
+    currentWindowId = entry.id
+    logger.log(`[startup] profile launch → window ${currentWindowId}`)
+  } else {
+    // Primary launch: use most recently active window entry
+    if (entries.length > 0) {
+      const sorted = [...entries].sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+      currentWindowId = sorted[0].id
+      logger.log(`[startup] restored window ${currentWindowId} (${entries.length} entries)`)
+    } else {
+      const entry = await windowRegistry.createEntry()
+      currentWindowId = entry.id
+      logger.log(`[startup] created new window ${currentWindowId}`)
+    }
+  }
+
   const t1 = Date.now()
   buildMenu()
   logger.log(`[startup] buildMenu: ${Date.now() - t1}ms`)
   remoteServer.configDir = app.getPath('userData')
+
+  // Read window bounds for position restoration
+  const windowEntry = await windowRegistry.getEntry(currentWindowId!)
   const t2 = Date.now()
-  createWindow()
+  createWindow(windowEntry?.bounds)
   logger.log(`[startup] createWindow: ${Date.now() - t2}ms`)
   if (mainWindow) {
     mainWindow.webContents.on('did-start-loading', () => {
@@ -376,8 +427,20 @@ function registerProxiedHandlers() {
   registerHandler('pty:restart', (id: string, cwd: string, shellPath?: string) => ptyManager?.restart(id, cwd, shellPath))
   registerHandler('pty:get-cwd', (id: string) => ptyManager?.getCwd(id))
 
-  // Workspace persistence
+  // Workspace persistence — save/load from window registry entry
   registerHandler('workspace:save', async (data: string) => {
+    if (!currentWindowId) return false
+    const parsed = JSON.parse(data)
+    const entry = await windowRegistry.getEntry(currentWindowId)
+    if (!entry) return false
+    entry.workspaces = parsed.workspaces || []
+    entry.activeWorkspaceId = parsed.activeWorkspaceId || null
+    entry.activeGroup = parsed.activeGroup || null
+    entry.terminals = parsed.terminals || []
+    entry.activeTerminalId = parsed.activeTerminalId || null
+    entry.lastActiveAt = Date.now()
+    await windowRegistry.saveEntry(entry)
+    // Also write workspaces.json for backward compat (profile save/load still reads it)
     const configPath = path.join(app.getPath('userData'), 'workspaces.json')
     const tmpPath = configPath + '.tmp'
     await fs.writeFile(tmpPath, data, 'utf-8')
@@ -385,6 +448,22 @@ function registerProxiedHandlers() {
     return true
   })
   registerHandler('workspace:load', async () => {
+    if (!currentWindowId) {
+      // Fallback to old workspaces.json
+      const configPath = path.join(app.getPath('userData'), 'workspaces.json')
+      try { return await fs.readFile(configPath, 'utf-8') } catch { return null }
+    }
+    const entry = await windowRegistry.getEntry(currentWindowId)
+    if (entry && (entry.workspaces.length > 0 || entry.terminals.length > 0)) {
+      return JSON.stringify({
+        workspaces: entry.workspaces,
+        activeWorkspaceId: entry.activeWorkspaceId,
+        activeGroup: entry.activeGroup,
+        terminals: entry.terminals,
+        activeTerminalId: entry.activeTerminalId,
+      })
+    }
+    // Fallback to workspaces.json for migration/compat
     const configPath = path.join(app.getPath('userData'), 'workspaces.json')
     try { return await fs.readFile(configPath, 'utf-8') } catch { return null }
   })
@@ -1090,6 +1169,7 @@ function registerLocalHandlers() {
 
   // Get the profile ID this instance was launched with (--profile= argument)
   ipcMain.handle('app:get-launch-profile', () => launchProfileId)
+  ipcMain.handle('app:get-window-id', () => currentWindowId)
 
   // Dock badge count (macOS/Linux)
   ipcMain.handle('app:set-dock-badge', (_event, count: number) => {
@@ -1100,10 +1180,20 @@ function registerLocalHandlers() {
     }
   })
 
+  // Open new empty window (Cmd+N)
+  ipcMain.handle('app:new-window', async () => {
+    const entry = await windowRegistry.createEntry()
+    const { spawn } = await import('child_process')
+    const args = [app.getAppPath(), `--window=${entry.id}`]
+    spawn(process.execPath, args, { detached: true, stdio: 'ignore' }).unref()
+    return entry.id
+  })
+
   // Open new instance with a specific profile
   ipcMain.handle('app:open-new-instance', async (_event, profileId: string) => {
+    const entry = await windowRegistry.createEntry({ profileId })
     const { spawn } = await import('child_process')
-    const args = [app.getAppPath(), `--profile=${profileId}`]
+    const args = [app.getAppPath(), `--window=${entry.id}`, `--profile=${profileId}`]
     spawn(process.execPath, args, { detached: true, stdio: 'ignore' }).unref()
   })
 
