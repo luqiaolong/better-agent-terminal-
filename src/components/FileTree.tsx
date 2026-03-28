@@ -31,10 +31,11 @@ function getFileExt(name: string): string {
   return lower.split('.').pop() || ''
 }
 
-function canPreview(name: string): 'text' | 'image' | null {
+function canPreview(name: string): 'text' | 'image' | 'pdf' | null {
   const ext = getFileExt(name)
   if (TEXT_EXTS.has(ext)) return 'text'
   if (IMAGE_EXTS.has(ext)) return 'image'
+  if (ext === 'pdf') return 'pdf'
   return null
 }
 
@@ -275,6 +276,8 @@ function FilePreview({ filePath, fileName, refreshKey }: { filePath: string; fil
         setError('Failed to load image')
         setLoading(false)
       })
+    } else if (type === 'pdf') {
+      setLoading(false)
     } else {
       setError('Preview not available for this file type')
       setLoading(false)
@@ -295,6 +298,18 @@ function FilePreview({ filePath, fileName, refreshKey }: { filePath: string; fil
     return (
       <div className="file-preview-image">
         <img src={imageUrl} alt={fileName} />
+      </div>
+    )
+  }
+
+  if (canPreview(fileName) === 'pdf') {
+    return (
+      <div className="file-preview-pdf">
+        <iframe
+          src={`file://${filePath}`}
+          style={{ width: '100%', height: '100%', border: 'none' }}
+          title={`PDF Preview: ${fileName}`}
+        />
       </div>
     )
   }
