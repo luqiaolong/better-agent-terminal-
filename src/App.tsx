@@ -223,9 +223,9 @@ export default function App() {
         // Determine which profile this window should use:
         // 1. Launch profile (--profile= argument) takes priority
         // 2. Window registry's profileId (per-window binding)
-        // 3. Global activeProfileId as fallback
+        // 3. First active profile as fallback
         const windowProfileId = await window.electronAPI.app.getWindowProfile()
-        const profileId = launchProfileId || windowProfileId || result.activeProfileId
+        const profileId = launchProfileId || windowProfileId || result.activeProfileIds[0]
         const active = result.profiles.find(p => p.id === profileId)
 
         if (active?.type === 'remote' && active.remoteHost && active.remoteToken) {

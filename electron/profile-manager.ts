@@ -16,7 +16,8 @@ export interface ProfileEntry {
 
 export interface ProfileIndex {
   profiles: ProfileEntry[]
-  activeProfileId: string
+  activeProfileIds: string[]
+  activeProfileId?: string // legacy — migrated to activeProfileIds on read
 }
 
 // V1 snapshot (legacy — single window)
@@ -75,9 +76,18 @@ async function ensureDir(): Promise<void> {
 async function readIndex(): Promise<ProfileIndex> {
   try {
     const data = await fs.readFile(getIndexPath(), 'utf-8')
-    return JSON.parse(data)
+    const raw = JSON.parse(data)
+    // Migrate legacy activeProfileId → activeProfileIds
+    if (!raw.activeProfileIds && raw.activeProfileId) {
+      raw.activeProfileIds = [raw.activeProfileId]
+      delete raw.activeProfileId
+    }
+    if (!raw.activeProfileIds) {
+      raw.activeProfileIds = ['default']
+    }
+    return raw
   } catch {
-    return { profiles: [], activeProfileId: 'default' }
+    return { profiles: [], activeProfileIds: ['default'] }
   }
 }
 
@@ -169,7 +179,7 @@ async function ensureInitialized(): Promise<ProfileIndex> {
 
   const newIndex: ProfileIndex = {
     profiles: [defaultEntry],
-    activeProfileId: 'default',
+    activeProfileIds: ['default'],
   }
 
   await writeSnapshot(snapshot)
@@ -184,9 +194,9 @@ export class ProfileManager {
     this.windowRegistry = registry
   }
 
-  async list(): Promise<{ profiles: ProfileEntry[]; activeProfileId: string }> {
+  async list(): Promise<{ profiles: ProfileEntry[]; activeProfileIds: string[] }> {
     const index = await ensureInitialized()
-    return { profiles: index.profiles, activeProfileId: index.activeProfileId }
+    return { profiles: index.profiles, activeProfileIds: index.activeProfileIds }
   }
 
   async create(name: string, options?: { type?: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string }): Promise<ProfileEntry> {
@@ -267,15 +277,13 @@ export class ProfileManager {
     return readSnapshot(profileId)
   }
 
-  // Load a profile: set as active and return snapshot (window creation handled by caller)
+  // Load a profile: mark as active and return snapshot (window creation handled by caller)
   async load(profileId: string): Promise<ProfileSnapshot | null> {
     const snapshot = await this.loadSnapshot(profileId)
     if (!snapshot) return null
 
-    // Update active profile
-    const index = await ensureInitialized()
-    index.activeProfileId = profileId
-    await writeIndex(index)
+    // Add to active profiles
+    await this.activateProfile(profileId)
 
     return snapshot
   }
@@ -289,10 +297,8 @@ export class ProfileManager {
 
     index.profiles.splice(idx, 1)
 
-    // If deleting active profile, switch to default
-    if (index.activeProfileId === profileId) {
-      index.activeProfileId = 'default'
-    }
+    // Remove from active profiles if present
+    index.activeProfileIds = index.activeProfileIds.filter(id => id !== profileId)
 
     await writeIndex(index)
 
@@ -356,14 +362,22 @@ export class ProfileManager {
     return index.profiles.find(p => p.id === profileId) || null
   }
 
-  async getActiveProfileId(): Promise<string> {
+  async getActiveProfileIds(): Promise<string[]> {
     const index = await ensureInitialized()
-    return index.activeProfileId
+    return index.activeProfileIds
   }
 
-  async setActiveProfileId(profileId: string): Promise<void> {
+  async activateProfile(profileId: string): Promise<void> {
     const index = await ensureInitialized()
-    index.activeProfileId = profileId
+    if (!index.activeProfileIds.includes(profileId)) {
+      index.activeProfileIds.push(profileId)
+      await writeIndex(index)
+    }
+  }
+
+  async deactivateProfile(profileId: string): Promise<void> {
+    const index = await ensureInitialized()
+    index.activeProfileIds = index.activeProfileIds.filter(id => id !== profileId)
     await writeIndex(index)
   }
 }

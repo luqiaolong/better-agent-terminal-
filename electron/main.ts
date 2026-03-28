@@ -319,7 +319,8 @@ function createWindow(windowId: string, bounds?: { x: number; y: number; width: 
       ).length
 
       if (profileWindowCount <= 1) {
-        // Only window in profile — preserve and just close
+        // Last window in profile — preserve snapshot but mark profile inactive
+        await profileManager.deactivateProfile(entry.profileId!)
         win.destroy()
         return
       }
@@ -339,10 +340,15 @@ function createWindow(windowId: string, bounds?: { x: number; y: number; width: 
 
       if (response === 0) {
         // Remove from profile: delete entry, then save remaining windows
-        const profileId = entry.profileId
+        const profileId = entry.profileId!
         await windowRegistry.removeEntry(windowId)
-        if (profileId) {
-          await profileManager.save(profileId).catch(() => { /* ignore */ })
+        await profileManager.save(profileId).catch(() => { /* ignore */ })
+        // If that was the last open window for this profile, deactivate it
+        const remaining = (await windowRegistry.readAll()).filter(e =>
+          e.profileId === profileId && windowMap.has(e.id) && e.id !== windowId
+        )
+        if (remaining.length === 0) {
+          await profileManager.deactivateProfile(profileId)
         }
       }
       // response === 1: Close only — keep entry in registry, no snapshot update
@@ -396,16 +402,22 @@ app.whenReady().then(async () => {
   // Collect window IDs to create
   const windowsToCreate: { id: string; bounds?: { x: number; y: number; width: number; height: number } }[] = []
 
+  // Get active profiles to determine which windows to restore
+  const activeProfileIds = await profileManager.getActiveProfileIds()
+  logger.log(`[startup] active profiles: ${activeProfileIds.join(', ') || '(none)'}`)
+
   if (launchProfileId) {
-    // Legacy --profile= launch: create a window entry linked to that profile
+    // --profile= launch: create a window entry linked to that profile
     const entry = await windowRegistry.createEntry({ profileId: launchProfileId })
     windowsToCreate.push({ id: entry.id })
     logger.log(`[startup] profile launch → window ${entry.id}`)
-  } else {
-    // Primary launch: restore all windows from registry
-    const validEntries = entries.filter(e => (e.workspaces as unknown[]).length > 0)
-    // Clean up orphans
-    const orphans = entries.filter(e => (e.workspaces as unknown[]).length === 0)
+  } else if (activeProfileIds.length > 0) {
+    // Restore windows from registry that belong to active profiles
+    const validEntries = entries.filter(e =>
+      (e.workspaces as unknown[]).length > 0 && e.profileId && activeProfileIds.includes(e.profileId)
+    )
+    // Clean up orphans (empty workspaces or inactive profiles)
+    const orphans = entries.filter(e => !validEntries.includes(e))
     for (const orphan of orphans) {
       logger.log(`[startup] removing orphan window ${orphan.id}`)
       windowRegistry.removeEntry(orphan.id)
@@ -416,35 +428,69 @@ app.whenReady().then(async () => {
       for (const entry of sorted) {
         windowsToCreate.push({ id: entry.id, bounds: entry.bounds })
       }
-      logger.log(`[startup] restoring ${sorted.length} window(s)`)
+      logger.log(`[startup] restoring ${sorted.length} window(s) from active profiles`)
     } else {
-      // All entries were empty — try to recover from workspaces.json
+      // Active profiles have no windows in registry — restore from snapshots
+      for (const pid of activeProfileIds) {
+        const snapshot = await profileManager.loadSnapshot(pid)
+        if (snapshot && snapshot.windows.length > 0) {
+          for (const winSnap of snapshot.windows) {
+            const entry = await windowRegistry.createEntry({ profileId: pid })
+            entry.workspaces = winSnap.workspaces
+            entry.activeWorkspaceId = winSnap.activeWorkspaceId
+            entry.activeGroup = winSnap.activeGroup
+            entry.terminals = winSnap.terminals
+            entry.activeTerminalId = winSnap.activeTerminalId
+            entry.bounds = winSnap.bounds
+            await windowRegistry.saveEntry(entry)
+            windowsToCreate.push({ id: entry.id, bounds: winSnap.bounds })
+          }
+          logger.log(`[startup] restored ${snapshot.windows.length} window(s) from profile ${pid} snapshot`)
+        }
+      }
+      // Still nothing — create empty window with first active profile
+      if (windowsToCreate.length === 0) {
+        const entry = await windowRegistry.createEntry({ profileId: activeProfileIds[0] })
+        windowsToCreate.push({ id: entry.id })
+        logger.log(`[startup] created empty window for profile ${activeProfileIds[0]}`)
+      }
+    }
+  } else {
+    // No active profiles — use default if it exists, otherwise first available
+    const { profiles } = await profileManager.list()
+    const fallback = profiles.find(p => p.id === 'default') || profiles.find(p => p.type === 'local') || profiles[0]
+    const fallbackId = fallback?.id || 'default'
+    logger.log(`[startup] no active profiles, falling back to ${fallbackId}`)
+
+    // Try to restore from snapshot
+    const snapshot = await profileManager.loadSnapshot(fallbackId)
+    if (snapshot && snapshot.windows.length > 0) {
+      for (const winSnap of snapshot.windows) {
+        const entry = await windowRegistry.createEntry({ profileId: fallbackId })
+        entry.workspaces = winSnap.workspaces
+        entry.activeWorkspaceId = winSnap.activeWorkspaceId
+        entry.activeGroup = winSnap.activeGroup
+        entry.terminals = winSnap.terminals
+        entry.activeTerminalId = winSnap.activeTerminalId
+        entry.bounds = winSnap.bounds
+        await windowRegistry.saveEntry(entry)
+        windowsToCreate.push({ id: entry.id, bounds: winSnap.bounds })
+      }
+    } else {
+      // Try legacy recovery
       const recovered = await windowRegistry.remigrateFromWorkspacesJson()
       if (recovered) {
         windowsToCreate.push({ id: recovered.id })
-        logger.log(`[startup] recovered window ${recovered.id} from workspaces.json`)
+        logger.log(`[startup] recovered window from workspaces.json`)
       } else {
-        const entry = await windowRegistry.createEntry()
+        const entry = await windowRegistry.createEntry({ profileId: fallbackId })
         windowsToCreate.push({ id: entry.id })
-        logger.log(`[startup] created new window ${entry.id}`)
+        logger.log(`[startup] created new empty window`)
       }
     }
-  }
 
-  // Ensure window entries have profileId (backfill for migrated entries)
-  for (const w of windowsToCreate) {
-    const entry = await windowRegistry.getEntry(w.id)
-    if (entry && !entry.profileId) {
-      try {
-        const profileIndexPath = path.join(app.getPath('userData'), 'profiles', 'index.json')
-        const profileIndex = JSON.parse(await fs.readFile(profileIndexPath, 'utf-8'))
-        if (profileIndex.activeProfileId) {
-          entry.profileId = profileIndex.activeProfileId
-          await windowRegistry.saveEntry(entry)
-          logger.log(`[startup] backfilled profileId=${entry.profileId} for window ${w.id}`)
-        }
-      } catch { /* no profile index */ }
-    }
+    // Mark the fallback profile as active
+    await profileManager.activateProfile(fallbackId)
   }
 
   const t1 = Date.now()
@@ -1112,8 +1158,9 @@ function registerProxiedHandlers() {
   // Profile (subset exposed to remote clients)
   registerHandler('profile:list', (_ctx) => profileManager.list())
   registerHandler('profile:load', (_ctx, profileId: string) => profileManager.load(profileId))
-  registerHandler('profile:get-active-id', (_ctx) => profileManager.getActiveProfileId())
-  registerHandler('profile:set-active', (_ctx, profileId: string) => profileManager.setActiveProfileId(profileId))
+  registerHandler('profile:get-active-ids', (_ctx) => profileManager.getActiveProfileIds())
+  registerHandler('profile:activate', (_ctx, profileId: string) => profileManager.activateProfile(profileId))
+  registerHandler('profile:deactivate', (_ctx, profileId: string) => profileManager.deactivateProfile(profileId))
 }
 
 // ── Bind all proxied handlers to ipcMain ──
@@ -1293,7 +1340,7 @@ function registerLocalHandlers() {
     }
   })
 
-  // Profile handlers (local-only — list/load/set-active/get-active-id are proxied)
+  // Profile handlers (local-only — list/load/activate/deactivate/get-active-ids are proxied)
   ipcMain.handle('profile:create', async (_event, name: string, options?: { type?: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string }) => profileManager.create(name, options))
   ipcMain.handle('profile:save', async (_event, profileId: string) => profileManager.save(profileId))
   ipcMain.handle('profile:delete', async (_event, profileId: string) => profileManager.delete(profileId))
@@ -1352,6 +1399,9 @@ function registerLocalHandlers() {
       win.focus()
       return { alreadyOpen: true, windowId: mostRecent.id }
     }
+
+    // Mark profile as active
+    await profileManager.activateProfile(profileId)
 
     // Load profile snapshot and open all its windows
     const snapshot = await profileManager.loadSnapshot(profileId)

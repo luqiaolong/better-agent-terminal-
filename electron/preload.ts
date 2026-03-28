@@ -223,7 +223,7 @@ const electronAPI = {
     },
   },
   profile: {
-    list: () => ipcRenderer.invoke('profile:list') as Promise<{ profiles: { id: string; name: string; type: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; createdAt: number; updatedAt: number }[]; activeProfileId: string }>,
+    list: () => ipcRenderer.invoke('profile:list') as Promise<{ profiles: { id: string; name: string; type: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; createdAt: number; updatedAt: number }[]; activeProfileIds: string[] }>,
     create: (name: string, options?: { type?: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string }) =>
       ipcRenderer.invoke('profile:create', name, options) as Promise<{ id: string; name: string; type: 'local' | 'remote'; createdAt: number; updatedAt: number }>,
     save: (profileId: string) => ipcRenderer.invoke('profile:save', profileId) as Promise<boolean>,
@@ -233,8 +233,9 @@ const electronAPI = {
     update: (profileId: string, updates: { remoteHost?: string; remotePort?: number; remoteToken?: string }) => ipcRenderer.invoke('profile:update', profileId, updates) as Promise<boolean>,
     duplicate: (profileId: string, newName: string) => ipcRenderer.invoke('profile:duplicate', profileId, newName) as Promise<{ id: string; name: string; createdAt: number; updatedAt: number } | null>,
     get: (profileId: string) => ipcRenderer.invoke('profile:get', profileId) as Promise<{ id: string; name: string; type: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; createdAt: number; updatedAt: number } | null>,
-    getActiveId: () => ipcRenderer.invoke('profile:get-active-id') as Promise<string>,
-    setActiveId: (profileId: string) => ipcRenderer.invoke('profile:set-active', profileId) as Promise<void>,
+    getActiveIds: () => ipcRenderer.invoke('profile:get-active-ids') as Promise<string[]>,
+    activate: (profileId: string) => ipcRenderer.invoke('profile:activate', profileId) as Promise<void>,
+    deactivate: (profileId: string) => ipcRenderer.invoke('profile:deactivate', profileId) as Promise<void>,
   },
   remote: {
     startServer: (port?: number, token?: string) =>

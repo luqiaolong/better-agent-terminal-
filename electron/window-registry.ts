@@ -116,7 +116,8 @@ export class WindowRegistry {
     try {
       const profileIndexPath = path.join(app.getPath('userData'), 'profiles', 'index.json')
       const profileIndex = JSON.parse(await fs.readFile(profileIndexPath, 'utf-8'))
-      activeProfileId = profileIndex.activeProfileId || 'default'
+      // Support both old (activeProfileId) and new (activeProfileIds) formats
+      activeProfileId = profileIndex.activeProfileIds?.[0] || profileIndex.activeProfileId || 'default'
     } catch {
       activeProfileId = 'default'
     }
@@ -155,7 +156,7 @@ export class WindowRegistry {
       try {
         const profileIndexPath = path.join(app.getPath('userData'), 'profiles', 'index.json')
         const profileIndex = JSON.parse(await fs.readFile(profileIndexPath, 'utf-8'))
-        activeProfileId = profileIndex.activeProfileId || 'default'
+        activeProfileId = profileIndex.activeProfileIds?.[0] || profileIndex.activeProfileId || 'default'
       } catch {
         activeProfileId = 'default'
       }

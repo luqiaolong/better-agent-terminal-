@@ -21,7 +21,8 @@ interface ProfilePanelProps {
 export function ProfilePanel({ onClose, onSwitchNewWindow }: ProfilePanelProps) {
   const { t } = useTranslation()
   const [profiles, setProfiles] = useState<ProfileEntry[]>([])
-  const [activeProfileId, setActiveProfileId] = useState<string>('default')
+  const [activeProfileIds, setActiveProfileIds] = useState<string[]>(['default'])
+  const [windowProfileId, setWindowProfileId] = useState<string | null>(null)
   const [creating, setCreating] = useState<'local' | 'remote' | false>(false)
   const [newName, setNewName] = useState('')
   const [remoteHost, setRemoteHost] = useState('')
@@ -42,7 +43,9 @@ export function ProfilePanel({ onClose, onSwitchNewWindow }: ProfilePanelProps) 
   const loadProfiles = useCallback(async () => {
     const result = await window.electronAPI.profile.list()
     setProfiles(result.profiles)
-    setActiveProfileId(result.activeProfileId)
+    setActiveProfileIds(result.activeProfileIds)
+    const wpId = await window.electronAPI.app.getWindowProfile()
+    setWindowProfileId(wpId)
   }, [])
 
   useEffect(() => {
@@ -160,12 +163,14 @@ export function ProfilePanel({ onClose, onSwitchNewWindow }: ProfilePanelProps) 
   }, [])
 
   const handleSaveCurrent = async () => {
-    await window.electronAPI.profile.save(activeProfileId)
-    loadProfiles()
+    if (windowProfileId) {
+      await window.electronAPI.profile.save(windowProfileId)
+      loadProfiles()
+    }
   }
 
   const handleSwitchRequest = (profileId: string) => {
-    if (profileId === activeProfileId) return
+    if (profileId === windowProfileId) return
     onSwitchNewWindow(profileId)
   }
 
@@ -247,7 +252,7 @@ export function ProfilePanel({ onClose, onSwitchNewWindow }: ProfilePanelProps) 
             {profiles.map(profile => (
               <div
                 key={profile.id}
-                className={`profile-item ${profile.id === activeProfileId ? 'active' : ''}`}
+                className={`profile-item ${profile.id === windowProfileId ? 'active' : ''} ${activeProfileIds.includes(profile.id) ? 'running' : ''}`}
                 onClick={() => handleSwitchRequest(profile.id)}
               >
                 <div className="profile-item-info">
@@ -268,7 +273,7 @@ export function ProfilePanel({ onClose, onSwitchNewWindow }: ProfilePanelProps) 
                   ) : (
                     <>
                       <span className="profile-item-name">
-                        {profile.id === activeProfileId && <span className="profile-active-dot" />}
+                        {profile.id === windowProfileId && <span className="profile-active-dot" />}
                         {profile.name}
                         {(profile.type === 'remote') && (
                           <span style={{ fontSize: 10, color: '#58a6ff', marginLeft: 6, opacity: 0.8 }}>{t('profiles.remote')}</span>
