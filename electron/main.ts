@@ -92,7 +92,7 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('org.tonyq.better-agent-terminal')
 }
 
-let mainWindow: BrowserWindow | null = null
+const windowMap = new Map<string, BrowserWindow>() // windowId → BrowserWindow
 let ptyManager: PtyManager | null = null
 let claudeManager: ClaudeAgentManager | null = null
 let updateCheckResult: UpdateCheckResult | null = null
@@ -124,11 +124,21 @@ function setupResizeThrottle(win: BrowserWindow, label: string) {
 
 function getAllWindows(): BrowserWindow[] {
   const wins: BrowserWindow[] = []
-  if (mainWindow && !mainWindow.isDestroyed()) wins.push(mainWindow)
+  for (const win of windowMap.values()) {
+    if (!win.isDestroyed()) wins.push(win)
+  }
   for (const win of detachedWindows.values()) {
     if (!win.isDestroyed()) wins.push(win)
   }
   return wins
+}
+
+/** Reverse lookup: find windowId from a WebContents (for IPC sender context) */
+function getWindowIdByWebContents(wc: Electron.WebContents): string | null {
+  for (const [id, win] of windowMap) {
+    if (!win.isDestroyed() && win.webContents === wc) return id
+  }
+  return null
 }
 
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
@@ -187,12 +197,15 @@ function buildMenu() {
         {
           label: 'About',
           click: () => {
-            dialog.showMessageBox(mainWindow!, {
-              type: 'info',
-              title: 'About Better Agent Terminal',
-              message: 'Better Agent Terminal',
-              detail: `Version: ${app.getVersion()}\n\nA terminal aggregator with multi-workspace support and Claude Code integration.\n\nAuthor: TonyQ`
-            })
+            const focusedWin = BrowserWindow.getFocusedWindow() || [...windowMap.values()][0]
+            if (focusedWin) {
+              dialog.showMessageBox(focusedWin, {
+                type: 'info',
+                title: 'About Better Agent Terminal',
+                message: 'Better Agent Terminal',
+                detail: `Version: ${app.getVersion()}\n\nA terminal aggregator with multi-workspace support and Claude Code integration.\n\nAuthor: TonyQ`
+              })
+            }
           }
         }
       ]
@@ -216,8 +229,8 @@ function buildMenu() {
   Menu.setApplicationMenu(menu)
 }
 
-function createWindow(bounds?: { x: number; y: number; width: number; height: number }) {
-  mainWindow = new BrowserWindow({
+function createWindow(windowId: string, bounds?: { x: number; y: number; width: number; height: number }) {
+  const win = new BrowserWindow({
     width: bounds?.width || 1400,
     height: bounds?.height || 900,
     x: bounds?.x,
@@ -237,50 +250,59 @@ function createWindow(bounds?: { x: number; y: number; width: number; height: nu
     icon: nativeImage.createFromPath(path.join(__dirname, process.platform === 'win32' ? '../assets/icon.ico' : '../assets/icon.png'))
   })
 
+  windowMap.set(windowId, win)
+
   if (process.platform === 'darwin') {
     const dockIcon = nativeImage.createFromPath(path.join(__dirname, '../assets/icon.png'))
     app.dock.setIcon(dockIcon)
   }
 
-  ptyManager = new PtyManager(getAllWindows)
-  claudeManager = new ClaudeAgentManager(getAllWindows)
+  // Create managers once (shared across all windows)
+  if (!ptyManager) ptyManager = new PtyManager(getAllWindows)
+  if (!claudeManager) claudeManager = new ClaudeAgentManager(getAllWindows)
 
+  const urlParam = `?windowId=${encodeURIComponent(windowId)}`
   if (VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(VITE_DEV_SERVER_URL)
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
+    win.loadURL(VITE_DEV_SERVER_URL + urlParam)
+    if (windowMap.size === 1) win.webContents.openDevTools({ mode: 'detach' })
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    win.loadFile(path.join(__dirname, '../dist/index.html'), { search: urlParam })
   }
 
-  setupResizeThrottle(mainWindow, 'main')
+  setupResizeThrottle(win, `window-${windowId.slice(0, 12)}`)
 
   // Save window bounds on move/resize (debounced)
   let boundsTimer: ReturnType<typeof setTimeout> | null = null
   const saveBounds = () => {
     if (boundsTimer) clearTimeout(boundsTimer)
     boundsTimer = setTimeout(() => {
-      if (!mainWindow || mainWindow.isDestroyed() || !currentWindowId) return
-      const bounds = mainWindow.getBounds()
-      windowRegistry.getEntry(currentWindowId).then(entry => {
+      if (win.isDestroyed()) return
+      const b = win.getBounds()
+      windowRegistry.getEntry(windowId).then(entry => {
         if (entry) {
-          entry.bounds = bounds
+          entry.bounds = b
           entry.lastActiveAt = Date.now()
           windowRegistry.saveEntry(entry)
         }
       })
     }, 1000)
   }
-  mainWindow.on('moved', saveBounds)
-  mainWindow.on('resized', saveBounds)
+  win.on('moved', saveBounds)
+  win.on('resized', saveBounds)
 
-  mainWindow.on('closed', () => {
-    // Close all detached windows when main window closes
-    for (const [, win] of detachedWindows) {
-      if (!win.isDestroyed()) win.close()
+  win.on('closed', () => {
+    windowMap.delete(windowId)
+    // Close detached windows that were opened from this window
+    // (for now close all detached — same as before)
+    if (windowMap.size === 0) {
+      for (const [, dw] of detachedWindows) {
+        if (!dw.isDestroyed()) dw.close()
+      }
+      detachedWindows.clear()
     }
-    detachedWindows.clear()
-    mainWindow = null
   })
+
+  return win
 }
 
 function cleanupAllProcesses() {
@@ -294,11 +316,9 @@ function cleanupAllProcesses() {
   ptyManager = null
 }
 
-// Handle launch arguments
+// Handle launch arguments (kept for backward compat but no longer spawns processes)
 const profileArg = process.argv.find(a => a.startsWith('--profile='))
 const launchProfileId = profileArg ? profileArg.split('=')[1] || null : null
-const windowArg = process.argv.find(a => a.startsWith('--window='))
-let currentWindowId: string | null = windowArg ? windowArg.split('=')[1] || null : null
 
 const windowRegistry = new WindowRegistry()
 
@@ -310,17 +330,17 @@ app.whenReady().then(async () => {
 
   // Initialize window registry (migrate from workspaces.json on first run)
   const entries = await windowRegistry.ensureInitialized()
-  if (currentWindowId) {
-    // Secondary window launched with --window=id
-    logger.log(`[startup] secondary window: ${currentWindowId}`)
-  } else if (launchProfileId) {
+
+  // Collect window IDs to create
+  const windowsToCreate: { id: string; bounds?: { x: number; y: number; width: number; height: number } }[] = []
+
+  if (launchProfileId) {
     // Legacy --profile= launch: create a window entry linked to that profile
     const entry = await windowRegistry.createEntry({ profileId: launchProfileId })
-    currentWindowId = entry.id
-    logger.log(`[startup] profile launch → window ${currentWindowId}`)
+    windowsToCreate.push({ id: entry.id })
+    logger.log(`[startup] profile launch → window ${entry.id}`)
   } else {
     // Primary launch: restore all windows from registry
-    // Filter out empty orphan entries, keep entries with workspaces
     const validEntries = entries.filter(e => (e.workspaces as unknown[]).length > 0)
     // Clean up orphans
     const orphans = entries.filter(e => (e.workspaces as unknown[]).length === 0)
@@ -330,37 +350,28 @@ app.whenReady().then(async () => {
     }
 
     if (validEntries.length > 0) {
-      // This process takes the most recently active entry
       const sorted = [...validEntries].sort((a, b) => b.lastActiveAt - a.lastActiveAt)
-      currentWindowId = sorted[0].id
-      logger.log(`[startup] restored window ${currentWindowId} (${validEntries.length} windows)`)
-
-      // Spawn separate processes for remaining windows
-      if (sorted.length > 1) {
-        const { spawn } = await import('child_process')
-        for (let i = 1; i < sorted.length; i++) {
-          const args = [app.getAppPath(), `--window=${sorted[i].id}`]
-          logger.log(`[startup] spawning window ${sorted[i].id}`)
-          spawn(process.execPath, args, { detached: true, stdio: 'ignore' }).unref()
-        }
+      for (const entry of sorted) {
+        windowsToCreate.push({ id: entry.id, bounds: entry.bounds })
       }
+      logger.log(`[startup] restoring ${sorted.length} window(s)`)
     } else {
       // All entries were empty — try to recover from workspaces.json
       const recovered = await windowRegistry.remigrateFromWorkspacesJson()
       if (recovered) {
-        currentWindowId = recovered.id
-        logger.log(`[startup] recovered window ${currentWindowId} from workspaces.json`)
+        windowsToCreate.push({ id: recovered.id })
+        logger.log(`[startup] recovered window ${recovered.id} from workspaces.json`)
       } else {
         const entry = await windowRegistry.createEntry()
-        currentWindowId = entry.id
-        logger.log(`[startup] created new window ${currentWindowId}`)
+        windowsToCreate.push({ id: entry.id })
+        logger.log(`[startup] created new window ${entry.id}`)
       }
     }
   }
 
-  // Ensure current window entry has profileId (backfill for migrated entries)
-  if (currentWindowId) {
-    const entry = await windowRegistry.getEntry(currentWindowId)
+  // Ensure window entries have profileId (backfill for migrated entries)
+  for (const w of windowsToCreate) {
+    const entry = await windowRegistry.getEntry(w.id)
     if (entry && !entry.profileId) {
       try {
         const profileIndexPath = path.join(app.getPath('userData'), 'profiles', 'index.json')
@@ -368,7 +379,7 @@ app.whenReady().then(async () => {
         if (profileIndex.activeProfileId) {
           entry.profileId = profileIndex.activeProfileId
           await windowRegistry.saveEntry(entry)
-          logger.log(`[startup] backfilled profileId=${entry.profileId} for window ${currentWindowId}`)
+          logger.log(`[startup] backfilled profileId=${entry.profileId} for window ${w.id}`)
         }
       } catch { /* no profile index */ }
     }
@@ -379,27 +390,28 @@ app.whenReady().then(async () => {
   logger.log(`[startup] buildMenu: ${Date.now() - t1}ms`)
   remoteServer.configDir = app.getPath('userData')
 
-  // Read window bounds for position restoration
-  const windowEntry = await windowRegistry.getEntry(currentWindowId!)
-  const t2 = Date.now()
-  createWindow(windowEntry?.bounds)
-  logger.log(`[startup] createWindow: ${Date.now() - t2}ms`)
-  if (mainWindow) {
-    mainWindow.webContents.on('did-start-loading', () => {
-      logger.log(`[startup] did-start-loading: +${Date.now() - t0}ms from whenReady`)
-    })
-    mainWindow.webContents.on('dom-ready', () => {
-      logger.log(`[startup] dom-ready: +${Date.now() - t0}ms from whenReady`)
-    })
-    mainWindow.webContents.on('did-finish-load', () => {
-      logger.log(`[startup] did-finish-load: +${Date.now() - t0}ms from whenReady`)
-    })
-    // Track when renderer sends its first IPC (= JS bundle has executed)
-    const ipcSub = () => {
-      logger.log(`[startup] first-renderer-ipc: +${Date.now() - t0}ms from whenReady`)
-      mainWindow?.webContents.removeListener('ipc-message', ipcSub)
+  // Create all windows in this process
+  for (const w of windowsToCreate) {
+    const t2 = Date.now()
+    const win = createWindow(w.id, w.bounds)
+    logger.log(`[startup] createWindow ${w.id}: ${Date.now() - t2}ms`)
+    // Startup instrumentation on first window only
+    if (windowMap.size === 1) {
+      win.webContents.on('did-start-loading', () => {
+        logger.log(`[startup] did-start-loading: +${Date.now() - t0}ms from whenReady`)
+      })
+      win.webContents.on('dom-ready', () => {
+        logger.log(`[startup] dom-ready: +${Date.now() - t0}ms from whenReady`)
+      })
+      win.webContents.on('did-finish-load', () => {
+        logger.log(`[startup] did-finish-load: +${Date.now() - t0}ms from whenReady`)
+      })
+      const ipcSub = () => {
+        logger.log(`[startup] first-renderer-ipc: +${Date.now() - t0}ms from whenReady`)
+        win.webContents.removeListener('ipc-message', ipcSub)
+      }
+      win.webContents.on('ipc-message', ipcSub)
     }
-    mainWindow.webContents.on('ipc-message', ipcSub)
   }
 
   // Listen for system resume from sleep/hibernate
@@ -448,9 +460,10 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('activate', () => {
+app.on('activate', async () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
+    const entry = await windowRegistry.createEntry()
+    createWindow(entry.id)
   }
 })
 
@@ -460,21 +473,21 @@ function registerProxiedHandlers() {
   const MESSAGE_ARCHIVE_DIR = path.join(app.getPath('userData'), 'message-archives')
 
   // PTY
-  registerHandler('pty:create', (options: unknown) => ptyManager?.create(options as import('../src/types').CreatePtyOptions))
-  registerHandler('pty:write', (id: string, data: string) => ptyManager?.write(id, data))
-  registerHandler('pty:resize', (id: string, cols: number, rows: number) => {
+  registerHandler('pty:create', (_ctx, options: unknown) => ptyManager?.create(options as import('../src/types').CreatePtyOptions))
+  registerHandler('pty:write', (_ctx, id: string, data: string) => ptyManager?.write(id, data))
+  registerHandler('pty:resize', (_ctx, id: string, cols: number, rows: number) => {
     logger.log(`[resize] pty:resize id=${id} cols=${cols} rows=${rows}`)
     return ptyManager?.resize(id, cols, rows)
   })
-  registerHandler('pty:kill', (id: string) => ptyManager?.kill(id))
-  registerHandler('pty:restart', (id: string, cwd: string, shellPath?: string) => ptyManager?.restart(id, cwd, shellPath))
-  registerHandler('pty:get-cwd', (id: string) => ptyManager?.getCwd(id))
+  registerHandler('pty:kill', (_ctx, id: string) => ptyManager?.kill(id))
+  registerHandler('pty:restart', (_ctx, id: string, cwd: string, shellPath?: string) => ptyManager?.restart(id, cwd, shellPath))
+  registerHandler('pty:get-cwd', (_ctx, id: string) => ptyManager?.getCwd(id))
 
   // Workspace persistence — save/load from window registry entry
-  registerHandler('workspace:save', async (data: string) => {
-    if (!currentWindowId) return false
+  registerHandler('workspace:save', async (ctx, data: string) => {
+    if (!ctx.windowId) return false
     const parsed = JSON.parse(data)
-    const entry = await windowRegistry.getEntry(currentWindowId)
+    const entry = await windowRegistry.getEntry(ctx.windowId)
     if (!entry) return false
     entry.workspaces = parsed.workspaces || []
     entry.activeWorkspaceId = parsed.activeWorkspaceId || null
@@ -490,9 +503,9 @@ function registerProxiedHandlers() {
     await fs.rename(tmpPath, configPath)
     return true
   })
-  registerHandler('workspace:load', async () => {
-    if (!currentWindowId) return null
-    const entry = await windowRegistry.getEntry(currentWindowId)
+  registerHandler('workspace:load', async (ctx) => {
+    if (!ctx.windowId) return null
+    const entry = await windowRegistry.getEntry(ctx.windowId)
     if (!entry) return null
     return JSON.stringify({
       workspaces: entry.workspaces,
@@ -504,17 +517,17 @@ function registerProxiedHandlers() {
   })
 
   // Settings persistence
-  registerHandler('settings:save', async (data: string) => {
+  registerHandler('settings:save', async (_ctx, data: string) => {
     const configPath = path.join(app.getPath('userData'), 'settings.json')
     await fs.writeFile(configPath, data, 'utf-8')
     return true
   })
-  registerHandler('settings:load', async () => {
+  registerHandler('settings:load', async (_ctx) => {
     const configPath = path.join(app.getPath('userData'), 'settings.json')
     try { return await fs.readFile(configPath, 'utf-8') } catch { return null }
   })
   const shellPathCache = new Map<string, string>()
-  registerHandler('settings:get-shell-path', (shellType: string) => {
+  registerHandler('settings:get-shell-path', (_ctx, shellType: string) => {
     const cached = shellPathCache.get(shellType)
     if (cached) return cached
 
@@ -555,20 +568,20 @@ function registerProxiedHandlers() {
   })
 
   // Claude Agent SDK
-  registerHandler('claude:start-session', (sessionId: string, options: { cwd: string; prompt?: string; permissionMode?: string; model?: string; effort?: string }) => claudeManager?.startSession(sessionId, options))
-  registerHandler('claude:send-message', (sessionId: string, prompt: string, images?: string[]) => claudeManager?.sendMessage(sessionId, prompt, images))
-  registerHandler('claude:stop-session', (sessionId: string) => claudeManager?.stopSession(sessionId))
-  registerHandler('claude:set-permission-mode', (sessionId: string, mode: string) => claudeManager?.setPermissionMode(sessionId, mode as import('@anthropic-ai/claude-agent-sdk').PermissionMode))
-  registerHandler('claude:set-model', (sessionId: string, model: string) => claudeManager?.setModel(sessionId, model))
-  registerHandler('claude:set-effort', (sessionId: string, effort: string) => claudeManager?.setEffort(sessionId, effort as 'low' | 'medium' | 'high' | 'max'))
-  registerHandler('claude:set-1m-context', (sessionId: string, enable: boolean) => claudeManager?.set1MContext(sessionId, enable))
-  registerHandler('claude:reset-session', (sessionId: string) => claudeManager?.resetSession(sessionId))
-  registerHandler('claude:get-supported-models', (sessionId: string) => claudeManager?.getSupportedModels(sessionId))
-  registerHandler('claude:get-account-info', (sessionId: string) => claudeManager?.getAccountInfo(sessionId))
-  registerHandler('claude:get-supported-commands', (sessionId: string) => claudeManager?.getSupportedCommands(sessionId))
+  registerHandler('claude:start-session', (_ctx, sessionId: string, options: { cwd: string; prompt?: string; permissionMode?: string; model?: string; effort?: string }) => claudeManager?.startSession(sessionId, options))
+  registerHandler('claude:send-message', (_ctx, sessionId: string, prompt: string, images?: string[]) => claudeManager?.sendMessage(sessionId, prompt, images))
+  registerHandler('claude:stop-session', (_ctx, sessionId: string) => claudeManager?.stopSession(sessionId))
+  registerHandler('claude:set-permission-mode', (_ctx, sessionId: string, mode: string) => claudeManager?.setPermissionMode(sessionId, mode as import('@anthropic-ai/claude-agent-sdk').PermissionMode))
+  registerHandler('claude:set-model', (_ctx, sessionId: string, model: string) => claudeManager?.setModel(sessionId, model))
+  registerHandler('claude:set-effort', (_ctx, sessionId: string, effort: string) => claudeManager?.setEffort(sessionId, effort as 'low' | 'medium' | 'high' | 'max'))
+  registerHandler('claude:set-1m-context', (_ctx, sessionId: string, enable: boolean) => claudeManager?.set1MContext(sessionId, enable))
+  registerHandler('claude:reset-session', (_ctx, sessionId: string) => claudeManager?.resetSession(sessionId))
+  registerHandler('claude:get-supported-models', (_ctx, sessionId: string) => claudeManager?.getSupportedModels(sessionId))
+  registerHandler('claude:get-account-info', (_ctx, sessionId: string) => claudeManager?.getAccountInfo(sessionId))
+  registerHandler('claude:get-supported-commands', (_ctx, sessionId: string) => claudeManager?.getSupportedCommands(sessionId))
 
   // Scan .claude/commands/ directories for skill files
-  registerHandler('claude:scan-skills', async (cwd: string) => {
+  registerHandler('claude:scan-skills', async (_ctx, cwd: string) => {
     const fs = await import('fs')
     const pathMod = await import('path')
     const results: { name: string; description: string; scope: 'project' | 'global' }[] = []
@@ -596,26 +609,26 @@ function registerProxiedHandlers() {
     }
     return results
   })
-  registerHandler('claude:get-session-meta', (sessionId: string) => claudeManager?.getSessionMeta(sessionId))
-  registerHandler('claude:resolve-permission', (sessionId: string, toolUseId: string, result: { behavior: string; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[]; message?: string; dontAskAgain?: boolean }) => claudeManager?.resolvePermission(sessionId, toolUseId, result))
-  registerHandler('claude:resolve-ask-user', (sessionId: string, toolUseId: string, answers: Record<string, string>) => claudeManager?.resolveAskUser(sessionId, toolUseId, answers))
-  registerHandler('claude:list-sessions', (cwd: string) => claudeManager?.listSessions(cwd))
-  registerHandler('claude:resume-session', (sessionId: string, sdkSessionId: string, cwd: string, model?: string) => claudeManager?.resumeSession(sessionId, sdkSessionId, cwd, model))
-  registerHandler('claude:fork-session', (sessionId: string) => claudeManager?.forkSession(sessionId))
-  registerHandler('claude:stop-task', (sessionId: string, taskId: string) => claudeManager?.stopTask(sessionId, taskId))
-  registerHandler('claude:rest-session', (sessionId: string) => claudeManager?.restSession(sessionId))
-  registerHandler('claude:wake-session', (sessionId: string) => claudeManager?.wakeSession(sessionId))
-  registerHandler('claude:is-resting', (sessionId: string) => claudeManager?.isResting(sessionId) ?? false)
+  registerHandler('claude:get-session-meta', (_ctx, sessionId: string) => claudeManager?.getSessionMeta(sessionId))
+  registerHandler('claude:resolve-permission', (_ctx, sessionId: string, toolUseId: string, result: { behavior: string; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[]; message?: string; dontAskAgain?: boolean }) => claudeManager?.resolvePermission(sessionId, toolUseId, result))
+  registerHandler('claude:resolve-ask-user', (_ctx, sessionId: string, toolUseId: string, answers: Record<string, string>) => claudeManager?.resolveAskUser(sessionId, toolUseId, answers))
+  registerHandler('claude:list-sessions', (_ctx, cwd: string) => claudeManager?.listSessions(cwd))
+  registerHandler('claude:resume-session', (_ctx, sessionId: string, sdkSessionId: string, cwd: string, model?: string) => claudeManager?.resumeSession(sessionId, sdkSessionId, cwd, model))
+  registerHandler('claude:fork-session', (_ctx, sessionId: string) => claudeManager?.forkSession(sessionId))
+  registerHandler('claude:stop-task', (_ctx, sessionId: string, taskId: string) => claudeManager?.stopTask(sessionId, taskId))
+  registerHandler('claude:rest-session', (_ctx, sessionId: string) => claudeManager?.restSession(sessionId))
+  registerHandler('claude:wake-session', (_ctx, sessionId: string) => claudeManager?.wakeSession(sessionId))
+  registerHandler('claude:is-resting', (_ctx, sessionId: string) => claudeManager?.isResting(sessionId) ?? false)
 
   // Message archiving
-  registerHandler('claude:archive-messages', async (sessionId: string, messages: unknown[]) => {
+  registerHandler('claude:archive-messages', async (_ctx, sessionId: string, messages: unknown[]) => {
     await fs.mkdir(MESSAGE_ARCHIVE_DIR, { recursive: true })
     const filePath = path.join(MESSAGE_ARCHIVE_DIR, `${sessionId}.jsonl`)
     const lines = messages.map(m => JSON.stringify(m)).join('\n') + '\n'
     await fs.appendFile(filePath, lines, 'utf-8')
     return true
   })
-  registerHandler('claude:load-archived', async (sessionId: string, offset: number, limit: number) => {
+  registerHandler('claude:load-archived', async (_ctx, sessionId: string, offset: number, limit: number) => {
     const filePath = path.join(MESSAGE_ARCHIVE_DIR, `${sessionId}.jsonl`)
     try {
       const content = await fs.readFile(filePath, 'utf-8')
@@ -628,7 +641,7 @@ function registerProxiedHandlers() {
       return { messages: slice.map(l => JSON.parse(l)), total, hasMore: start > 0 }
     } catch { return { messages: [], total: 0, hasMore: false } }
   })
-  registerHandler('claude:clear-archive', async (sessionId: string) => {
+  registerHandler('claude:clear-archive', async (_ctx, sessionId: string) => {
     const filePath = path.join(MESSAGE_ARCHIVE_DIR, `${sessionId}.jsonl`)
     try { await fs.unlink(filePath) } catch { /* ignore */ }
     return true
@@ -872,7 +885,7 @@ function registerProxiedHandlers() {
     }
   }
 
-  registerHandler('claude:get-usage', async () => {
+  registerHandler('claude:get-usage', async (_ctx) => {
     try {
       // Try session key first (lenient rate limits on claude.ai)
       const sessionResult = await fetchUsageViaSessionKey()
@@ -891,7 +904,7 @@ function registerProxiedHandlers() {
   })
 
   // Git
-  registerHandler('git:get-github-url', async (folderPath: string) => {
+  registerHandler('git:get-github-url', async (_ctx, folderPath: string) => {
     try {
       const { execSync } = await import('child_process')
       const remote = execSync('git remote get-url origin', { cwd: folderPath, encoding: 'utf-8', timeout: 3000 }).trim()
@@ -902,13 +915,13 @@ function registerProxiedHandlers() {
       return null
     } catch { return null }
   })
-  registerHandler('git:branch', async (cwd: string) => {
+  registerHandler('git:branch', async (_ctx, cwd: string) => {
     try {
       const { execSync } = await import('child_process')
       return execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'] }).trim() || null
     } catch { return null }
   })
-  registerHandler('git:log', async (cwd: string, count: number = 50) => {
+  registerHandler('git:log', async (_ctx, cwd: string, count: number = 50) => {
     try {
       const { execFileSync } = await import('child_process')
       const safeCount = Math.max(1, Math.min(Math.floor(Number(count)) || 50, 500))
@@ -920,7 +933,7 @@ function registerProxiedHandlers() {
       })
     } catch { return [] }
   })
-  registerHandler('git:diff', async (cwd: string, commitHash?: string, filePath?: string) => {
+  registerHandler('git:diff', async (_ctx, cwd: string, commitHash?: string, filePath?: string) => {
     try {
       const { execFileSync } = await import('child_process')
       const args = commitHash && commitHash !== 'working'
@@ -930,7 +943,7 @@ function registerProxiedHandlers() {
       return execFileSync('git', args, { cwd, encoding: 'utf-8', timeout: 10000, maxBuffer: 1024 * 1024 * 5 })
     } catch { return '' }
   })
-  registerHandler('git:diff-files', async (cwd: string, commitHash?: string) => {
+  registerHandler('git:diff-files', async (_ctx, cwd: string, commitHash?: string) => {
     try {
       const { execFileSync } = await import('child_process')
       const args = commitHash && commitHash !== 'working'
@@ -944,13 +957,13 @@ function registerProxiedHandlers() {
       })
     } catch { return [] }
   })
-  registerHandler('git:getRoot', async (cwd: string) => {
+  registerHandler('git:getRoot', async (_ctx, cwd: string) => {
     try {
       const { execSync } = await import('child_process')
       return execSync('git rev-parse --show-toplevel', { cwd, encoding: 'utf-8', timeout: 5000 }).trim()
     } catch { return null }
   })
-  registerHandler('git:status', async (cwd: string) => {
+  registerHandler('git:status', async (_ctx, cwd: string) => {
     try {
       const { execSync } = await import('child_process')
       const raw = execSync('git status --porcelain -uall', { cwd, encoding: 'utf-8', timeout: 5000 })
@@ -962,7 +975,7 @@ function registerProxiedHandlers() {
   // File system
   // File watcher for auto-refresh
   const fileWatchers = new Map<string, ReturnType<typeof fsSync.watch>>()
-  registerHandler('fs:watch', (_dirPath: string) => {
+  registerHandler('fs:watch', (_ctx, _dirPath: string) => {
     if (fileWatchers.has(_dirPath)) return true
     try {
       let debounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -979,7 +992,7 @@ function registerProxiedHandlers() {
       return true
     } catch { return false }
   })
-  registerHandler('fs:unwatch', (_dirPath: string) => {
+  registerHandler('fs:unwatch', (_ctx, _dirPath: string) => {
     const watcher = fileWatchers.get(_dirPath)
     if (watcher) {
       watcher.close()
@@ -988,7 +1001,7 @@ function registerProxiedHandlers() {
     return true
   })
 
-  registerHandler('fs:readdir', async (dirPath: string) => {
+  registerHandler('fs:readdir', async (_ctx, dirPath: string) => {
     const IGNORED = new Set(['.git', 'node_modules', '.next', 'dist', 'dist-electron', '.cache', '__pycache__', '.DS_Store'])
     try {
       const entries = await fs.readdir(dirPath, { withFileTypes: true })
@@ -998,7 +1011,7 @@ function registerProxiedHandlers() {
         .map(e => ({ name: e.name, path: path.join(dirPath, e.name), isDirectory: e.isDirectory() }))
     } catch { return [] }
   })
-  registerHandler('fs:readFile', async (filePath: string) => {
+  registerHandler('fs:readFile', async (_ctx, filePath: string) => {
     try {
       const stat = await fs.stat(filePath)
       if (stat.size > 512 * 1024) return { error: 'File too large', size: stat.size }
@@ -1006,7 +1019,7 @@ function registerProxiedHandlers() {
       return { content }
     } catch { return { error: 'Failed to read file' } }
   })
-  registerHandler('fs:search', async (dirPath: string, query: string) => {
+  registerHandler('fs:search', async (_ctx, dirPath: string, query: string) => {
     const IGNORED = new Set(['.git', 'node_modules', '.next', 'dist', 'dist-electron', '.cache', '__pycache__', '.DS_Store', 'release'])
     const results: { name: string; path: string; isDirectory: boolean }[] = []
     const lowerQuery = query.toLowerCase()
@@ -1028,33 +1041,34 @@ function registerProxiedHandlers() {
   })
 
   // Snippets
-  registerHandler('snippet:getAll', () => snippetDb.getAll())
-  registerHandler('snippet:getById', (id: number) => snippetDb.getById(id))
-  registerHandler('snippet:create', (input: CreateSnippetInput) => snippetDb.create(input))
-  registerHandler('snippet:update', (id: number, updates: Partial<CreateSnippetInput>) => snippetDb.update(id, updates))
-  registerHandler('snippet:delete', (id: number) => snippetDb.delete(id))
-  registerHandler('snippet:toggleFavorite', (id: number) => snippetDb.toggleFavorite(id))
-  registerHandler('snippet:search', (query: string) => snippetDb.search(query))
-  registerHandler('snippet:getCategories', () => snippetDb.getCategories())
-  registerHandler('snippet:getFavorites', () => snippetDb.getFavorites())
+  registerHandler('snippet:getAll', (_ctx) => snippetDb.getAll())
+  registerHandler('snippet:getById', (_ctx, id: number) => snippetDb.getById(id))
+  registerHandler('snippet:create', (_ctx, input: CreateSnippetInput) => snippetDb.create(input))
+  registerHandler('snippet:update', (_ctx, id: number, updates: Partial<CreateSnippetInput>) => snippetDb.update(id, updates))
+  registerHandler('snippet:delete', (_ctx, id: number) => snippetDb.delete(id))
+  registerHandler('snippet:toggleFavorite', (_ctx, id: number) => snippetDb.toggleFavorite(id))
+  registerHandler('snippet:search', (_ctx, query: string) => snippetDb.search(query))
+  registerHandler('snippet:getCategories', (_ctx) => snippetDb.getCategories())
+  registerHandler('snippet:getFavorites', (_ctx) => snippetDb.getFavorites())
 
   // Profile (subset exposed to remote clients)
-  registerHandler('profile:list', () => profileManager.list())
-  registerHandler('profile:load', (profileId: string) => profileManager.load(profileId))
-  registerHandler('profile:get-active-id', () => profileManager.getActiveProfileId())
-  registerHandler('profile:set-active', (profileId: string) => profileManager.setActiveProfileId(profileId))
+  registerHandler('profile:list', (_ctx) => profileManager.list())
+  registerHandler('profile:load', (_ctx, profileId: string) => profileManager.load(profileId))
+  registerHandler('profile:get-active-id', (_ctx) => profileManager.getActiveProfileId())
+  registerHandler('profile:set-active', (_ctx, profileId: string) => profileManager.setActiveProfileId(profileId))
 }
 
 // ── Bind all proxied handlers to ipcMain ──
 
 function bindProxiedHandlersToIpc() {
   for (const channel of PROXIED_CHANNELS) {
-    ipcMain.handle(channel, async (_event, ...args: unknown[]) => {
+    ipcMain.handle(channel, async (event, ...args: unknown[]) => {
       // If remote client is connected, route to remote server
       if (remoteClient?.isConnected) {
         return remoteClient.invoke(channel, args)
       }
-      return invokeHandler(channel, args)
+      const windowId = getWindowIdByWebContents(event.sender)
+      return invokeHandler(channel, args, windowId)
     })
   }
 }
@@ -1067,16 +1081,18 @@ ipcMain.on('debug:log', (_event, ...args: unknown[]) => {
 // ── Local-only IPC handlers (not proxied) ──
 
 function registerLocalHandlers() {
-  ipcMain.handle('dialog:select-folder', async () => {
-    const result = await dialog.showOpenDialog(mainWindow!, {
+  ipcMain.handle('dialog:select-folder', async (event) => {
+    const parentWin = BrowserWindow.fromWebContents(event.sender)
+    const result = await dialog.showOpenDialog(parentWin!, {
       defaultPath: app.getPath('home'),
       properties: ['openDirectory', 'createDirectory'],
     })
     return result.canceled ? null : result.filePaths[0]
   })
 
-  ipcMain.handle('dialog:select-images', async () => {
-    const result = await dialog.showOpenDialog(mainWindow!, {
+  ipcMain.handle('dialog:select-images', async (event) => {
+    const parentWin = BrowserWindow.fromWebContents(event.sender)
+    const result = await dialog.showOpenDialog(parentWin!, {
       defaultPath: app.getPath('home'),
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }],
       properties: ['openFile', 'multiSelections'],
@@ -1084,16 +1100,18 @@ function registerLocalHandlers() {
     return result.canceled ? [] : result.filePaths
   })
 
-  ipcMain.handle('dialog:select-files', async () => {
-    const result = await dialog.showOpenDialog(mainWindow!, {
+  ipcMain.handle('dialog:select-files', async (event) => {
+    const parentWin = BrowserWindow.fromWebContents(event.sender)
+    const result = await dialog.showOpenDialog(parentWin!, {
       defaultPath: app.getPath('home'),
       properties: ['openFile', 'multiSelections'],
     })
     return result.canceled ? [] : result.filePaths
   })
 
-  ipcMain.handle('dialog:confirm', async (_event, message: string, title?: string) => {
-    const result = await dialog.showMessageBox(mainWindow!, {
+  ipcMain.handle('dialog:confirm', async (event, message: string, title?: string) => {
+    const parentWin = BrowserWindow.fromWebContents(event.sender)
+    const result = await dialog.showMessageBox(parentWin!, {
       type: 'warning',
       buttons: ['OK', 'Cancel'],
       defaultId: 1,
@@ -1228,7 +1246,7 @@ function registerLocalHandlers() {
 
   // Get the profile ID this instance was launched with (--profile= argument)
   ipcMain.handle('app:get-launch-profile', () => launchProfileId)
-  ipcMain.handle('app:get-window-id', () => currentWindowId)
+  ipcMain.handle('app:get-window-id', (event) => getWindowIdByWebContents(event.sender))
 
   // Dock badge count (macOS/Linux)
   ipcMain.handle('app:set-dock-badge', (_event, count: number) => {
@@ -1242,34 +1260,36 @@ function registerLocalHandlers() {
   // Open new empty window (Cmd+N)
   ipcMain.handle('app:new-window', async () => {
     const entry = await windowRegistry.createEntry()
-    const { spawn } = await import('child_process')
-    const args = [app.getAppPath(), `--window=${entry.id}`]
-    spawn(process.execPath, args, { detached: true, stdio: 'ignore' }).unref()
+    createWindow(entry.id)
     return entry.id
   })
 
-  // Open new instance with a specific profile (skip if already open)
+  // Open new instance with a specific profile (focus if already open)
   ipcMain.handle('app:open-new-instance', async (_event, profileId: string) => {
-    // Check if a window with this profile is already open
     const entries = await windowRegistry.readAll()
     const existing = entries.find(e => e.profileId === profileId)
     if (existing) {
+      // Focus the existing window instead of showing "already open" dialog
+      const win = windowMap.get(existing.id)
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore()
+        win.focus()
+      }
       return { alreadyOpen: true, windowId: existing.id }
     }
     const entry = await windowRegistry.createEntry({ profileId })
-    const { spawn } = await import('child_process')
-    const args = [app.getAppPath(), `--window=${entry.id}`, `--profile=${profileId}`]
-    spawn(process.execPath, args, { detached: true, stdio: 'ignore' }).unref()
+    createWindow(entry.id)
     return { alreadyOpen: false, windowId: entry.id }
   })
 
   // Workspace detach/reattach (local window management)
-  ipcMain.handle('workspace:detach', async (_event, workspaceId: string) => {
+  ipcMain.handle('workspace:detach', async (event, workspaceId: string) => {
     if (detachedWindows.has(workspaceId)) {
       const existing = detachedWindows.get(workspaceId)!
       if (!existing.isDestroyed()) existing.focus()
       return true
     }
+    const parentWin = BrowserWindow.fromWebContents(event.sender)
     const detachedWin = new BrowserWindow({
       width: 900, height: 700, minWidth: 600, minHeight: 400,
       webPreferences: { preload: path.join(__dirname, 'preload.js'), nodeIntegration: false, contextIsolation: true },
@@ -1282,9 +1302,9 @@ function registerLocalHandlers() {
     else { detachedWin.loadFile(path.join(__dirname, '../dist/index.html'), { search: urlParam }) }
     detachedWin.on('closed', () => {
       detachedWindows.delete(workspaceId)
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:reattached', workspaceId)
+      if (parentWin && !parentWin.isDestroyed()) parentWin.webContents.send('workspace:reattached', workspaceId)
     })
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:detached', workspaceId)
+    if (parentWin && !parentWin.isDestroyed()) parentWin.webContents.send('workspace:detached', workspaceId)
     return true
   })
 
