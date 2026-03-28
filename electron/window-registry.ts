@@ -136,11 +136,16 @@ export class WindowRegistry {
     return entries
   }
 
+  private writeQueue: Promise<void> = Promise.resolve()
+
   private async writeAll(entries: WindowEntry[]): Promise<void> {
-    const filePath = getRegistryPath()
-    const tmpPath = filePath + '.tmp'
-    await fs.writeFile(tmpPath, JSON.stringify(entries, null, 2), 'utf-8')
-    await fs.rename(tmpPath, filePath)
+    // Serialize writes to prevent race conditions
+    this.writeQueue = this.writeQueue.then(async () => {
+      await fs.writeFile(getRegistryPath(), JSON.stringify(entries, null, 2), 'utf-8')
+    }).catch(e => {
+      logger.error('[window-registry] writeAll failed:', e)
+    })
+    await this.writeQueue
     this.cachedEntries = entries
   }
 }
