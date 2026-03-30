@@ -591,7 +591,17 @@ export default function App() {
         <SettingsPanel onClose={() => setShowSettings(false)} />
       )}
       {showProfiles && (
-        <ProfilePanel onClose={() => setShowProfiles(false)} onSwitchNewWindow={handleProfileNewWindow} />
+        <ProfilePanel
+          onClose={() => setShowProfiles(false)}
+          onSwitchNewWindow={handleProfileNewWindow}
+          onProfileRenamed={async (profileId, newName) => {
+            const wpId = await window.electronAPI.app.getWindowProfile()
+            if (wpId === profileId) {
+              const winIdx = await window.electronAPI.app.getWindowIndex()
+              setActiveProfileName(`${newName}:${winIdx}`)
+            }
+          }}
+        />
       )}
       {envDialogWorkspace && (
         <WorkspaceEnvDialog

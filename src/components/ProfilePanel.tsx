@@ -16,9 +16,10 @@ interface ProfilePanelProps {
   onClose: () => void
   onSwitch?: (profileId: string) => void  // deprecated, kept for compat
   onSwitchNewWindow: (profileId: string) => void
+  onProfileRenamed?: (profileId: string, newName: string) => void
 }
 
-export function ProfilePanel({ onClose, onSwitchNewWindow }: ProfilePanelProps) {
+export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: ProfilePanelProps) {
   const { t } = useTranslation()
   const [profiles, setProfiles] = useState<ProfileEntry[]>([])
   const [activeProfileIds, setActiveProfileIds] = useState<string[]>(['default'])
@@ -109,6 +110,7 @@ export function ProfilePanel({ onClose, onSwitchNewWindow }: ProfilePanelProps) 
     setEditingId(null)
     setEditValue('')
     loadProfiles()
+    onProfileRenamed?.(profileId, trimmed)
   }
 
   const handleStartEditRemote = (profile: ProfileEntry) => {
