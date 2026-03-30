@@ -57,6 +57,7 @@ interface ModelInfo {
   value: string
   displayName: string
   description: string
+  source?: 'builtin' | 'sdk'
 }
 
 interface PendingPermission {
@@ -2588,18 +2589,38 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
             <div className="claude-resume-empty">No models available</div>
           ) : (
             <div className="claude-resume-list">
-              {availableModels.map(m => (
-                <div
-                  key={m.value}
-                  className={`claude-resume-item${m.value === currentModel ? ' active' : ''}`}
-                  onClick={() => handleModelSelect(m.value)}
-                >
-                  <div className="claude-resume-item-header">
-                    <span className="claude-resume-item-id">{m.displayName}</span>
+              {(() => {
+                const builtins = availableModels.filter(m => m.source !== 'sdk')
+                const sdkModels = availableModels.filter(m => m.source === 'sdk')
+                const renderItem = (m: ModelInfo) => (
+                  <div
+                    key={m.value}
+                    className={`claude-resume-item${m.value === currentModel ? ' active' : ''}`}
+                    onClick={() => handleModelSelect(m.value)}
+                  >
+                    <div className="claude-resume-item-header">
+                      <span className="claude-resume-item-id">{m.displayName}</span>
+                    </div>
+                    <div className="claude-resume-item-preview">{m.description}</div>
                   </div>
-                  <div className="claude-resume-item-preview">{m.description}</div>
-                </div>
-              ))}
+                )
+                return (
+                  <>
+                    {builtins.length > 0 && (
+                      <>
+                        <div className="claude-model-group-label">Better Agent Terminal</div>
+                        {builtins.map(renderItem)}
+                      </>
+                    )}
+                    {sdkModels.length > 0 && (
+                      <>
+                        <div className="claude-model-group-label">Claude Code</div>
+                        {sdkModels.map(renderItem)}
+                      </>
+                    )}
+                  </>
+                )
+              })()}
             </div>
           )}
           <div className="claude-permission-hint">{t('claude.escToCancel')}</div>

@@ -1682,6 +1682,16 @@
   font-style: italic;
 }
 
+.claude-model-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  padding: 8px 12px 4px;
+  opacity: 0.7;
+}
+
 /* Status Line Bar — attached to input-area when visible, standalone otherwise */
 .claude-statusline-bar {
   flex-shrink: 0;

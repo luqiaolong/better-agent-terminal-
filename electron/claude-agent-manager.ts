@@ -13,6 +13,20 @@ import { getNodeExecutable, isElectronFallback } from './node-resolver'
 type AppPermissionMode = PermissionMode | 'bypassPlan'
 import { broadcastHub } from './remote/broadcast-hub'
 
+// BAT built-in curated model list (always available, shown first)
+const BAT_BUILTIN_MODELS: Array<{ value: string; displayName: string; description: string }> = [
+  { value: 'claude-opus-4-6',     displayName: 'Opus 4.6 (200k)',  description: 'claude-opus-4-6 · 200k context' },
+  { value: 'claude-opus-4-6[1m]', displayName: 'Opus 4.6 (1M)',   description: 'claude-opus-4-6 · 1M context (beta)' },
+  { value: 'claude-sonnet-4-6',     displayName: 'Sonnet 4.6 (200k)',  description: 'claude-sonnet-4-6 · 200k context' },
+  { value: 'claude-sonnet-4-6[1m]', displayName: 'Sonnet 4.6 (1M)',   description: 'claude-sonnet-4-6 · 1M context (beta)' },
+  { value: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'claude-haiku-4-5 · fast & lightweight' },
+]
+
+// Strip [1m] suffix from a model value to get the real API model ID
+function stripContextSuffix(model: string): string {
+  return model.replace(/\[1m\]$/, '')
+}
+
 // Lazy import the SDK (it's an ES module)
 let queryFn: typeof import('@anthropic-ai/claude-agent-sdk').query | null = null
 let listSessionsFn: typeof import('@anthropic-ai/claude-agent-sdk').listSessions | null = null
@@ -301,7 +315,7 @@ export class ClaudeAgentManager {
         pendingAskUser: new Map(),
         permissionMode: options.permissionMode || 'default',
         effort: options.effort || 'medium',
-        enable1MContext: false,
+        enable1MContext: options.model?.endsWith('[1m]') ?? false,
         model: options.model,
         messageQueue: [],
         activeTasks: new Map(),
@@ -523,7 +537,7 @@ export class ClaudeAgentManager {
         effort: session.effort,
         toolConfig: { askUserQuestion: { previewFormat: 'html' } },
         agentProgressSummaries: true,
-        ...(session.model ? { model: session.model } : {}),
+        ...(session.model ? { model: stripContextSuffix(session.model) } : {}),
         ...(session.enable1MContext ? { betas: ['context-1m-2025-08-07'] } : {}),
         ...(installedPlugins.length > 0 ? { plugins: installedPlugins } : {}),
         canUseTool,
@@ -1169,24 +1183,27 @@ export class ClaudeAgentManager {
     const session = this.sessions.get(sessionId)
     if (!session || !model) return false
 
-    // Always persist the model on the session so the next runQuery picks it up
+    const has1M = model.endsWith('[1m]')
+    const baseModel = stripContextSuffix(model)
+
+    // Persist the full model value (including [1m] suffix) for UI state
     session.model = model
     session.metadata.model = model
+    // Auto-set 1M context based on suffix
+    session.enable1MContext = has1M
 
     if (!session.queryInstance) {
-      // No active query yet — model will be used when the next query starts
-      logger.log(`[setModel] stored model ${model} for session ${sessionId.slice(0, 8)} (no active query)`)
+      logger.log(`[setModel] stored model ${model} (1M=${has1M}) for session ${sessionId.slice(0, 8)} (no active query)`)
       return true
     }
 
     try {
-      logger.log(`[setModel] setting model to ${model} for session ${sessionId.slice(0, 8)}`)
-      await session.queryInstance.setModel(model)
+      logger.log(`[setModel] setting model to ${baseModel} (1M=${has1M}) for session ${sessionId.slice(0, 8)}`)
+      await session.queryInstance.setModel(baseModel)
       this.send('claude:status', sessionId, { ...session.metadata })
-      logger.log(`[setModel] success: ${model}`)
+      logger.log(`[setModel] success: ${baseModel}`)
       return true
     } catch (e) {
-      // Model is already stored on the session — it will take effect on the next query
       logger.warn(`[setModel] SDK call failed (model stored for next query):`, e)
       return true
     }
@@ -1206,14 +1223,21 @@ export class ClaudeAgentManager {
     return true
   }
 
-  async getSupportedModels(_sessionId: string): Promise<Array<{ value: string; displayName: string; description: string }>> {
+  async getSupportedModels(_sessionId: string): Promise<Array<{ value: string; displayName: string; description: string; source: 'builtin' | 'sdk' }>> {
+    const builtinValues = new Set(BAT_BUILTIN_MODELS.map(m => m.value))
+    const builtins = BAT_BUILTIN_MODELS.map(m => ({ ...m, source: 'builtin' as const }))
     try {
       const query = await getQuery()
       const instance = query({ prompt: '', cwd: '/' })
-      return await instance.supportedModels()
+      const sdkModels = await instance.supportedModels()
+      // Exclude from SDK list any model already covered by builtins (including [1m] variants)
+      const sdkFiltered = sdkModels
+        .filter(m => !builtinValues.has(m.value) && !builtinValues.has(`${m.value}[1m]`))
+        .map(m => ({ ...m, source: 'sdk' as const }))
+      return [...builtins, ...sdkFiltered]
     } catch (e) {
-      logger.warn('getSupportedModels failed:', e)
-      return []
+      logger.warn('getSupportedModels failed, returning builtins only:', e)
+      return builtins
     }
   }
 
