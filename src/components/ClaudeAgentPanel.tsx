@@ -2192,8 +2192,9 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
               {item.result && (() => {
                 const raw = typeof item.result === 'string' ? item.result : String(item.result)
                 const { content: outText, reminders, errors } = splitSystemReminders(raw)
-                // Hide output by default for read-only tools (Read, Glob, Grep, LS, NotebookRead)
+                // Collapse by default for read-only tools; collapse all if setting enabled
                 const isReadOnlyTool = ['Read', 'Glob', 'Grep', 'LS', 'NotebookRead'].includes(item.toolName)
+                const shouldCollapse = isReadOnlyTool || settingsStore.getSettings().collapseToolOutputs
                 const isOutExpanded = expandedTools.has(outBlockId)
                 return (
                   <>
@@ -2203,7 +2204,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                         <span className="claude-tool-row-content">{err}</span>
                       </div>
                     ))}
-                    {outText && isReadOnlyTool && (
+                    {outText && shouldCollapse && (
                       <div
                         className="claude-tool-row"
                         onClick={() => toggleTool(outBlockId)}
@@ -2218,7 +2219,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                         <span className={`claude-tool-chevron ${isOutExpanded ? 'expanded' : ''}`}>&#9654;</span>
                       </div>
                     )}
-                    {outText && !isReadOnlyTool && (
+                    {outText && !shouldCollapse && (
                       <div
                         className="claude-tool-row"
                         onClick={() => handleCopyBlock(outText, outBlockId)}
