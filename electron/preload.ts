@@ -280,9 +280,9 @@ const electronAPI = {
   snippet: {
     getAll: () => ipcRenderer.invoke('snippet:getAll'),
     getById: (id: number) => ipcRenderer.invoke('snippet:getById', id),
-    create: (input: { title: string; content: string; format?: string; category?: string; tags?: string; isFavorite?: boolean }) =>
+    create: (input: { title: string; content: string; format?: string; category?: string; tags?: string; isFavorite?: boolean; workspaceId?: string }) =>
       ipcRenderer.invoke('snippet:create', input),
-    update: (id: number, updates: { title?: string; content?: string; format?: string; category?: string; tags?: string; isFavorite?: boolean }) =>
+    update: (id: number, updates: { title?: string; content?: string; format?: string; category?: string; tags?: string; isFavorite?: boolean; workspaceId?: string }) =>
       ipcRenderer.invoke('snippet:update', id, updates),
     delete: (id: number) => ipcRenderer.invoke('snippet:delete', id),
     toggleFavorite: (id: number) => ipcRenderer.invoke('snippet:toggleFavorite', id),
