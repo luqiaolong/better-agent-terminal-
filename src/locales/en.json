@@ -302,6 +302,8 @@
     "addFile": "Attach file",
     "attachFiles": "Attach files (max 10)",
     "effortLevel": "Effort level",
+    "switchToV2": "Switch to Claude Code V2 (SDK Session)",
+    "switchToV1": "Switch to Claude Code V1 (Query)",
     "forkSession": "Fork: create a new tab from current conversation",
     "forkButton": "Fork from current progress",
     "attachImages": "Attach images (max 5)",

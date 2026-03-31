@@ -289,6 +289,8 @@
     "addFile": "附加文件",
     "attachFiles": "附加文件（最多 10 个）",
     "effortLevel": "投入程度",
+    "switchToV2": "切换至 Claude Code V2（SDK Session）",
+    "switchToV1": "切换至 Claude Code V1（Query）",
     "forkSession": "分支：从当前对话创建新标签页",
     "forkButton": "用当前进度分支",
     "attachImages": "附加图片（最多 5 张）",

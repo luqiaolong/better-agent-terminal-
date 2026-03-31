@@ -350,6 +350,25 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
     }
   }, [terminals])
 
+  const handleSwitchApiVersion = useCallback(async (id: string) => {
+    const terminal = terminals.find(t => t.id === id)
+    if (!terminal || (terminal.agentPreset !== 'claude-code' && terminal.agentPreset !== 'claude-code-v2')) return
+    // Stop current session
+    await window.electronAPI.claude.stopSession(id)
+    // Switch agentPreset in store
+    const newPreset = workspaceStore.switchTerminalApiVersion(id)
+    if (!newPreset) return
+    const newApiVersion = newPreset === 'claude-code-v2' ? 'v2' as const : 'v1' as const
+    // Resume with the same sdkSessionId but new API version
+    const sdkSessionId = terminal.sdkSessionId
+    if (sdkSessionId) {
+      await window.electronAPI.claude.resumeSession(id, sdkSessionId, terminal.cwd, terminal.model, newApiVersion)
+    } else {
+      await window.electronAPI.claude.startSession(id, { cwd: terminal.cwd, apiVersion: newApiVersion })
+    }
+    workspaceStore.save()
+  }, [terminals])
+
   const handleFocus = useCallback((id: string) => {
     workspaceStore.setFocusedTerminal(id)
     // Switch back to terminal tab when clicking a terminal thumbnail
@@ -406,6 +425,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
                 isActive={isActive && activeTab === 'terminal' && terminal.id === mainTerminal?.id}
                 onClose={handleCloseTerminal}
                 onRestart={handleRestart}
+                onSwitchApiVersion={handleSwitchApiVersion}
                 workspaceId={workspace.id}
               />
             </div>

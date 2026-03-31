@@ -302,6 +302,8 @@
     "addFile": "附加檔案",
     "attachFiles": "附加檔案（最多 10 個）",
     "effortLevel": "投入程度",
+    "switchToV2": "切換至 Claude Code V2（SDK Session）",
+    "switchToV1": "切換至 Claude Code V1（Query）",
     "forkSession": "分支：從目前對話建立新分頁",
     "forkButton": "用目前進度分支",
     "attachImages": "附加圖片（最多 5 張）",

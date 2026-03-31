@@ -414,6 +414,21 @@ class WorkspaceStore {
     this.notify()
   }
 
+  switchTerminalApiVersion(id: string): 'claude-code' | 'claude-code-v2' | null {
+    const terminal = this.state.terminals.find(t => t.id === id)
+    if (!terminal) return null
+    const newPreset = terminal.agentPreset === 'claude-code' ? 'claude-code-v2' as const : 'claude-code' as const
+    const newTitle = newPreset === 'claude-code-v2' ? 'Claude Code V2' : 'Claude Code'
+    this.state = {
+      ...this.state,
+      terminals: this.state.terminals.map(t =>
+        t.id === id ? { ...t, agentPreset: newPreset, title: t.alias || newTitle } : t
+      )
+    }
+    this.notify()
+    return newPreset
+  }
+
   renameTerminal(id: string, title: string): void {
     this.state = {
       ...this.state,
