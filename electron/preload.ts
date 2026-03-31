@@ -81,7 +81,7 @@ const electronAPI = {
     writeImage: (filePath: string) => ipcRenderer.invoke('clipboard:writeImage', filePath),
   },
   claude: {
-    startSession: (sessionId: string, options: { cwd: string; prompt?: string; permissionMode?: string; model?: string; effort?: string }) =>
+    startSession: (sessionId: string, options: { cwd: string; prompt?: string; permissionMode?: string; model?: string; effort?: string; apiVersion?: 'v1' | 'v2' }) =>
       ipcRenderer.invoke('claude:start-session', sessionId, options),
     sendMessage: (sessionId: string, prompt: string, images?: string[]) =>
       ipcRenderer.invoke('claude:send-message', sessionId, prompt, images),

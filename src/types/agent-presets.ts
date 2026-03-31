@@ -11,15 +11,21 @@ export interface AgentPreset {
   command?: string;  // 可選的自動啟動命令
 }
 
-export type AgentPresetId = 'claude-code' | 'gemini-cli' | 'codex-cli' | 'copilot-cli' | 'none';
+export type AgentPresetId = 'claude-code' | 'claude-code-v2' | 'gemini-cli' | 'codex-cli' | 'copilot-cli' | 'none';
 
 export const AGENT_PRESETS: AgentPreset[] = [
-  { 
-    id: 'claude-code', 
-    name: 'Claude Code', 
-    icon: '✦', 
-    color: '#d97706', 
+  {
+    id: 'claude-code',
+    name: 'Claude Code',
+    icon: '✦',
+    color: '#d97706',
     command: 'claude --continue'
+  },
+  {
+    id: 'claude-code-v2',
+    name: 'Claude Code V2',
+    icon: '✦',
+    color: '#eab308',
   },
   {
     id: 'gemini-cli', 

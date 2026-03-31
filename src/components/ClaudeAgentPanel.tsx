@@ -126,6 +126,9 @@ const startedSessions = new Set<string>()
 
 export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUserMsg = true, showAssistantMsg = true, showToolMsg = true, showThinkingMsg = true }: Readonly<ClaudeAgentPanelProps>) {
   const { t } = useTranslation()
+  // Determine if this is a V2 session based on agentPreset
+  const terminal = workspaceStore.getState().terminals.find(t => t.id === sessionId)
+  const isV2Session = terminal?.agentPreset === 'claude-code-v2'
   const [messages, setMessages] = useState<MessageItem[]>([])
   const inputValueRef = useRef('')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -760,8 +763,9 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
       const terminal = workspaceStore.getState().terminals.find(t => t.id === sessionId)
       const savedSdkSessionId = terminal?.sdkSessionId
       const savedModel = terminal?.model
+      const apiVersion = terminal?.agentPreset === 'claude-code-v2' ? 'v2' as const : 'v1' as const
       const globalSettings = settingsStore.getSettings()
-      dlog(`${stag} sdkSessionId=${savedSdkSessionId?.slice(0, 8)} pendingPrompt="${terminal?.pendingPrompt || ''}"`)
+      dlog(`${stag} sdkSessionId=${savedSdkSessionId?.slice(0, 8)} pendingPrompt="${terminal?.pendingPrompt || ''}" apiVersion=${apiVersion}`)
 
       // Restore saved model to UI, or use global default
       const effectiveModel = savedModel || globalSettings.defaultModel
@@ -777,7 +781,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         window.electronAPI.claude.resumeSession(sessionId, savedSdkSessionId, cwd, savedModel)
       } else {
         dlog(`${stag} FRESH startSession`)
-        window.electronAPI.claude.startSession(sessionId, { cwd, permissionMode, model: effectiveModel, effort: effectiveEffort as 'low' | 'medium' | 'high' | 'max' })
+        window.electronAPI.claude.startSession(sessionId, { cwd, permissionMode, model: effectiveModel, effort: effectiveEffort as 'low' | 'medium' | 'high' | 'max', apiVersion })
       }
     }
     return () => {
@@ -2881,16 +2885,18 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                 {'</>'} {currentModel}{sessionMeta && sessionMeta.contextWindow > 0 ? ` (${sessionMeta.contextWindow >= 1000000 ? `${Math.round(sessionMeta.contextWindow / 1000000)}M` : `${Math.round(sessionMeta.contextWindow / 1000)}k`})` : ''}
               </span>
             )}
-            <select
-              className="claude-effort-select"
-              value={effortLevel}
-              onChange={handleEffortChange}
-              title={t('claude.effortLevel')}
-            >
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-            </select>
+            {!isV2Session && (
+              <select
+                className="claude-effort-select"
+                value={effortLevel}
+                onChange={handleEffortChange}
+                title={t('claude.effortLevel')}
+              >
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+            )}
             {accountInfo?.organization && (
               <span className="claude-status-btn claude-account-info" title={`${accountInfo.email || ''} (${accountInfo.subscriptionType || 'unknown'})`}>
                 {accountInfo.organization}

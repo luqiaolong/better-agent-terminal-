@@ -6,6 +6,7 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "cross-env BAT_DEBUG=1 vite",
+    "dev-runtime": "cross-env BAT_DEBUG=1 BAT_RUNTIME=1 vite",
     "compile": "vite build",
     "start": "electron .",
     "build": "vite build && electron-builder",

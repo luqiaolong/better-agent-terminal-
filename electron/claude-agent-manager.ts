@@ -4,7 +4,7 @@ import * as fsSync from 'fs'
 import * as fsPromises from 'fs/promises'
 import * as pathModule from 'path'
 import type { ClaudeMessage, ClaudeToolCall, ClaudeSessionState } from '../src/types/claude-agent'
-import type { Query, PermissionMode, CanUseTool, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
+import type { Query, PermissionMode, CanUseTool, SlashCommand, SDKSession } from '@anthropic-ai/claude-agent-sdk'
 import { logger } from './logger'
 import { getNodeExecutable, isElectronFallback } from './node-resolver'
 
@@ -36,6 +36,19 @@ async function getQuery() {
     getSessionMessagesFn = sdk.getSessionMessages
   }
   return queryFn
+}
+
+// V2 SDK lazy imports
+let createSessionFn: typeof import('@anthropic-ai/claude-agent-sdk').unstable_v2_createSession | null = null
+let resumeSessionV2Fn: typeof import('@anthropic-ai/claude-agent-sdk').unstable_v2_resumeSession | null = null
+
+async function getV2Api() {
+  if (!createSessionFn) {
+    const sdk = await import('@anthropic-ai/claude-agent-sdk')
+    createSessionFn = sdk.unstable_v2_createSession
+    resumeSessionV2Fn = sdk.unstable_v2_resumeSession
+  }
+  return { createSession: createSessionFn!, resumeSession: resumeSessionV2Fn! }
 }
 
 // Parse a data URL (data:image/png;base64,...) into a content block
@@ -139,6 +152,9 @@ interface SessionInstance {
   currentPrompt?: string  // Track the currently running prompt for abort context
   isResting?: boolean
   activeTasks: Map<string, ActiveTask>
+  apiVersion: 'v1' | 'v2'
+  v2Session?: SDKSession  // V2 persistent session object
+  v2SessionModel?: string // Model the V2 session was created with (to detect changes)
 }
 
 // Persists SDK session IDs across stop/restart so we can resume conversations
@@ -270,7 +286,7 @@ export class ClaudeAgentManager {
     this.send('claude:tool-result', sessionId, { id: toolId, ...updates })
   }
 
-  async startSession(sessionId: string, options: { cwd: string; prompt?: string; sdkSessionId?: string; permissionMode?: AppPermissionMode; model?: string; effort?: 'low' | 'medium' | 'high' | 'max' }): Promise<boolean> {
+  async startSession(sessionId: string, options: { cwd: string; prompt?: string; sdkSessionId?: string; permissionMode?: AppPermissionMode; model?: string; effort?: 'low' | 'medium' | 'high' | 'max'; apiVersion?: 'v1' | 'v2' }): Promise<boolean> {
     // Prevent duplicate session creation
     if (this.sessions.has(sessionId)) {
       return true
@@ -313,6 +329,7 @@ export class ClaudeAgentManager {
         model: options.model,
         messageQueue: [],
         activeTasks: new Map(),
+        apiVersion: options.apiVersion || 'v1',
       })
 
       // If no initial prompt, just set up session and wait
@@ -388,6 +405,10 @@ export class ClaudeAgentManager {
   private async runQuery(sessionId: string, prompt: string, images?: string[]) {
     const session = this.sessions.get(sessionId)
     if (!session) return
+
+    if (session.apiVersion === 'v2') {
+      return this.runQueryV2(sessionId, prompt, images)
+    }
 
     session.state.isStreaming = true
     session.abortController = new AbortController()
@@ -589,408 +610,7 @@ export class ClaudeAgentManager {
       for await (const message of generator) {
         // Check abort
         if (session.abortController.signal.aborted) break
-
-        // Debug: log all message types
-        const msgSubtype = (message as { subtype?: string }).subtype
-        if (message.type !== 'stream_event' && message.type !== 'assistant') {
-          logger.log(`[claude:msg] type=${message.type} subtype=${msgSubtype || ''} parent_tool_use_id=${(message as { parent_tool_use_id?: string }).parent_tool_use_id || 'none'}`)
-        }
-        if (message.type === 'rate_limit_event') {
-          logger.log(`[claude:rate_limit_event] ${JSON.stringify(message)}`)
-        }
-        if (message.type === 'assistant') {
-          const blocks = (message as { message?: { content?: unknown[] } }).message?.content
-          if (Array.isArray(blocks)) {
-            const toolBlocks = blocks.filter((b: unknown) => (b as { type?: string }).type === 'tool_use')
-            if (toolBlocks.length > 0) {
-              for (const tb of toolBlocks) {
-                const t = tb as { name?: string; id?: string }
-                logger.log(`[claude:tool_use] name=${t.name} id=${t.id?.slice(0, 12)} parent_tool_use_id=${(message as { parent_tool_use_id?: string }).parent_tool_use_id || 'none'}`)
-              }
-            }
-          }
-        }
-
-        if (message.type === 'system' && message.subtype === 'init') {
-          // Capture and persist the SDK session ID
-          const initMsg = message as { session_id: string; model?: string; cwd?: string; permissionMode?: string }
-          session.sdkSessionId = initMsg.session_id
-          sdkSessionIds.set(sessionId, initMsg.session_id)
-
-          // Extract metadata from init message
-          session.metadata.model = initMsg.model
-          session.metadata.sdkSessionId = initMsg.session_id
-          session.metadata.cwd = initMsg.cwd || session.cwd
-          // SDK reports 'plan' for bypassPlan (since we map bypassPlan→plan before sending to SDK).
-          // Only override SDK's value when we detect this specific mismatch to avoid masking other bugs.
-          const reportedMode = (initMsg.permissionMode === 'plan' && session.permissionMode === 'bypassPlan')
-            ? session.permissionMode
-            : (initMsg.permissionMode || 'default')
-          logger.log(`[claude:status] EMIT sessionId=${sessionId.slice(0, 8)} sdkSessionId=${session.metadata.sdkSessionId?.slice(0, 8)} sdkMode=${initMsg.permissionMode} appMode=${session.permissionMode} reported=${reportedMode}`)
-          this.send('claude:status', sessionId, {
-            ...session.metadata,
-            permissionMode: reportedMode,
-          })
-
-        }
-
-        if (message.type === 'assistant') {
-          const content = message.message?.content
-          if (Array.isArray(content)) {
-            // Collect thinking text from thinking blocks
-            const thinkingParts: string[] = []
-            for (const block of content) {
-              if ('type' in block && block.type === 'thinking' && 'thinking' in block) {
-                thinkingParts.push((block as { thinking: string }).thinking)
-              }
-            }
-            const thinkingText = thinkingParts.join('\n') || undefined
-
-            for (const block of content) {
-              if ('text' in block && block.text) {
-                this.addMessage(sessionId, {
-                  id: message.uuid || `asst-${Date.now()}`,
-                  sessionId,
-                  role: 'assistant',
-                  content: block.text,
-                  thinking: thinkingText,
-                  parentToolUseId: message.parent_tool_use_id,
-                  timestamp: Date.now(),
-                })
-                // Keep parent active task alive when subagent produces messages
-                if (message.parent_tool_use_id) {
-                  const parentTask = Array.from(session.activeTasks.values())
-                    .find(t => t.toolUseId === message.parent_tool_use_id)
-                  if (parentTask) {
-                    parentTask.lastProgressTime = Date.now()
-                    parentTask.stalled = false
-                  }
-                }
-              }
-              if ('type' in block && block.type === 'tool_use') {
-                const toolBlock = block as { id: string; name: string; input: Record<string, unknown> }
-                this.addToolCall(sessionId, {
-                  id: toolBlock.id,
-                  sessionId,
-                  toolName: toolBlock.name,
-                  input: toolBlock.input || {},
-                  status: 'running',
-                  parentToolUseId: message.parent_tool_use_id,
-                  timestamp: Date.now(),
-                })
-                // Update parent active task progress when subagent uses tools
-                if (message.parent_tool_use_id) {
-                  const parentTask = Array.from(session.activeTasks.values())
-                    .find(t => t.toolUseId === message.parent_tool_use_id)
-                  if (parentTask) {
-                    parentTask.lastProgressTime = Date.now()
-                    parentTask.stalled = false
-                    const toolLabel = toolBlock.name === 'Bash'
-                      ? `Bash: ${((toolBlock.input as Record<string, unknown>)?.command as string)?.slice(0, 40) || '...'}`
-                      : toolBlock.name === 'Read' || toolBlock.name === 'Write' || toolBlock.name === 'Edit'
-                        ? `${toolBlock.name}: ${((toolBlock.input as Record<string, unknown>)?.file_path as string)?.split('/').pop() || '...'}`
-                        : toolBlock.name === 'Grep'
-                          ? `Grep: ${((toolBlock.input as Record<string, unknown>)?.pattern as string)?.slice(0, 30) || '...'}`
-                          : toolBlock.name === 'Glob'
-                            ? `Glob: ${((toolBlock.input as Record<string, unknown>)?.pattern as string)?.slice(0, 30) || '...'}`
-                            : toolBlock.name
-                    parentTask.summary = toolLabel
-                    this.updateToolCall(sessionId, parentTask.toolUseId, {
-                      description: toolLabel,
-                    } as Partial<ClaudeToolCall>)
-                  }
-                }
-                // Track Agent/Task tool calls in activeTasks for stop support
-                // (task_started events may not always be emitted by the SDK)
-                if ((toolBlock.name === 'Agent' || toolBlock.name === 'Task') && !message.parent_tool_use_id) {
-                  const desc = (toolBlock.input as { description?: string }).description || toolBlock.name
-                  session.activeTasks.set(toolBlock.id, {
-                    toolUseId: toolBlock.id,
-                    description: desc,
-                    lastProgressTime: Date.now(),
-                  })
-                  logger.log(`[activeTasks] Registered ${toolBlock.name} tool_use_id=${toolBlock.id.slice(0, 12)} desc=${desc.slice(0, 60)}`)
-                }
-                // Detect plan mode transitions and notify UI
-                if (toolBlock.name === 'EnterPlanMode') {
-                  // Preserve bypassPlan if already in it; otherwise set to plan
-                  if (session.permissionMode !== 'bypassPlan') {
-                    session.permissionMode = 'plan'
-                  }
-                  this.send('claude:modeChange', sessionId, session.permissionMode)
-                }
-                // ExitPlanMode mode transition is handled by canUseTool resolve callbacks
-              }
-              if ('type' in block && block.type === 'tool_result') {
-                const resultBlock = block as { tool_use_id: string; content?: string; is_error?: boolean }
-                const resultContent = typeof resultBlock.content === 'string'
-                  ? resultBlock.content
-                  : JSON.stringify(resultBlock.content)
-                // Check if this is a tracked Agent/Task tool
-                const activeTask = Array.from(session.activeTasks.entries()).find(([, t]) => t.toolUseId === resultBlock.tool_use_id)
-                if (activeTask && resultContent) {
-                  // Agent/Task returned a result — mark as completed and clean up
-                  logger.log(`[activeTasks] Completed ${resultBlock.tool_use_id.slice(0, 12)} is_error=${resultBlock.is_error}`)
-                  session.activeTasks.delete(activeTask[0])
-                }
-                const hasActiveTask = session.activeTasks.has(resultBlock.tool_use_id)
-                this.updateToolCall(sessionId, resultBlock.tool_use_id, {
-                  status: hasActiveTask ? 'running' : (resultBlock.is_error ? 'error' : 'completed'),
-                  result: resultContent,
-                })
-              }
-            }
-          }
-        }
-
-        if (message.type === 'user') {
-          // User messages in SDK are tool results
-          const content = message.message?.content
-          if (Array.isArray(content)) {
-            for (const block of content) {
-              if ('type' in block && block.type === 'tool_result') {
-                const resultBlock = block as { tool_use_id: string; content?: unknown; is_error?: boolean }
-                const resultStr = typeof resultBlock.content === 'string'
-                  ? resultBlock.content
-                  : JSON.stringify(resultBlock.content)
-                // Check if this is a tracked Agent/Task tool completing
-                const activeTask = Array.from(session.activeTasks.entries()).find(([, t]) => t.toolUseId === resultBlock.tool_use_id)
-                if (activeTask && resultStr) {
-                  logger.log(`[activeTasks] Completed (user msg) ${resultBlock.tool_use_id.slice(0, 12)} is_error=${resultBlock.is_error}`)
-                  session.activeTasks.delete(activeTask[0])
-                }
-                const hasActiveTask = session.activeTasks.has(resultBlock.tool_use_id)
-                this.updateToolCall(sessionId, resultBlock.tool_use_id, {
-                  status: hasActiveTask ? 'running' : (resultBlock.is_error ? 'error' : 'completed'),
-                  result: resultStr?.slice(0, 2000), // Truncate long results
-                })
-              }
-            }
-          }
-        }
-
-        if (message.type === 'stream_event') {
-          // Partial streaming content
-          const event = message.event as {
-            type?: string
-            delta?: { text?: string; thinking?: string }
-            content_block?: { type?: string; id?: string; name?: string; input?: string }
-            usage?: { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; output_tokens?: number }
-            message?: { usage?: { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; output_tokens?: number } }
-          }
-          // Track context usage from message_start and message_delta (includes cached tokens)
-          const eventUsage = event.usage || event.message?.usage
-          if (eventUsage && (event.type === 'message_delta' || event.type === 'message_start') && !message.parent_tool_use_id) {
-            const contextTokens = (eventUsage.input_tokens || 0)
-              + (eventUsage.cache_creation_input_tokens || 0)
-              + (eventUsage.cache_read_input_tokens || 0)
-            if (contextTokens > session.metadata.inputTokens) {
-              session.metadata.inputTokens = contextTokens
-            }
-            if (eventUsage.output_tokens && eventUsage.output_tokens > session.metadata.outputTokens) {
-              session.metadata.outputTokens = eventUsage.output_tokens
-            }
-            this.send('claude:status', sessionId, { ...session.metadata })
-          }
-          if (event.type === 'content_block_delta') {
-            if (event.delta?.text) {
-              this.send('claude:stream', sessionId, {
-                text: event.delta.text,
-                parentToolUseId: message.parent_tool_use_id,
-              })
-            }
-            if (event.delta?.thinking) {
-              this.send('claude:stream', sessionId, {
-                thinking: event.delta.thinking,
-                parentToolUseId: message.parent_tool_use_id,
-              })
-            }
-            // Keep parent active task alive during subagent streaming
-            if (message.parent_tool_use_id && (event.delta?.text || event.delta?.thinking)) {
-              const parentTask = Array.from(session.activeTasks.values())
-                .find(t => t.toolUseId === message.parent_tool_use_id)
-              if (parentTask) {
-                parentTask.lastProgressTime = Date.now()
-                parentTask.stalled = false
-              }
-            }
-          }
-        }
-
-        if (message.type === 'compact') {
-          const compactMsg = message as { displayText?: string }
-          // Strip ANSI escape codes from SDK display text
-          const rawText = compactMsg.displayText || 'Context compacted'
-          const cleanText = rawText.replace(/\x1b\[[0-9;]*m/g, '')
-          this.addMessage(sessionId, {
-            id: `sys-compact-${Date.now()}`,
-            sessionId,
-            role: 'system',
-            content: cleanText,
-            timestamp: Date.now(),
-          })
-        }
-
-        if (message.type === 'prompt_suggestion') {
-          const suggestion = (message as { suggestion?: string }).suggestion
-          if (suggestion) {
-            this.send('claude:prompt-suggestion', sessionId, suggestion)
-          }
-        }
-
-        // API retry notifications
-        if (message.type === 'system' && (message as { subtype?: string }).subtype === 'api_retry') {
-          const retry = message as { attempt?: number; maxAttempts?: number; delay?: number; status?: number; error?: string }
-          const parts = [`API retrying`]
-          if (retry.attempt) parts.push(`(attempt ${retry.attempt}${retry.maxAttempts ? `/${retry.maxAttempts}` : ''})`)
-          if (retry.delay) parts.push(`${retry.delay}ms`)
-          if (retry.status) parts.push(`HTTP ${retry.status}`)
-          if (retry.error) parts.push(`- ${retry.error}`)
-          this.addMessage(sessionId, {
-            id: `sys-retry-${Date.now()}`,
-            sessionId,
-            role: 'system',
-            content: parts.join(' '),
-            timestamp: Date.now(),
-          })
-        }
-
-        // Agent progress events (subagent lifecycle) — type is 'system' with task subtypes
-        if (message.type === 'system') {
-          const subtype = (message as { subtype?: string }).subtype
-          // Log all system subtypes for debugging agent dispatch
-          logger.log(`[claude:system] subtype=${subtype} keys=${Object.keys(message).join(',')}`)
-          if (subtype === 'task_started' || subtype === 'task_progress' || subtype === 'task_notification') {
-            const agentMsg = message as {
-              subtype: string
-              task_id?: string
-              tool_use_id?: string
-              description?: string
-              summary?: string
-              status?: string
-              usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number }
-              last_tool_name?: string
-            }
-            logger.log(`[agent-progress] ${subtype} task_id=${agentMsg.task_id} tool_use_id=${agentMsg.tool_use_id} desc=${agentMsg.description?.slice(0, 60)} status=${agentMsg.status}`)
-            if (subtype === 'task_started' && agentMsg.task_id) {
-              session.activeTasks.set(agentMsg.task_id, {
-                toolUseId: agentMsg.tool_use_id || '',
-                description: agentMsg.description || '',
-                lastProgressTime: Date.now(),
-              })
-              if (agentMsg.tool_use_id) {
-                this.updateToolCall(sessionId, agentMsg.tool_use_id, {
-                  description: agentMsg.description,
-                } as Partial<ClaudeToolCall>)
-              }
-            } else if (subtype === 'task_progress' && agentMsg.task_id) {
-              const task = session.activeTasks.get(agentMsg.task_id)
-              if (task) {
-                task.lastProgressTime = Date.now()
-                task.summary = agentMsg.description || agentMsg.summary
-                task.stalled = false
-                if (agentMsg.last_tool_name) {
-                  task.lastToolName = agentMsg.last_tool_name
-                }
-                if (task.toolUseId) {
-                  const desc = agentMsg.description || task.description
-                  const toolSuffix = task.lastToolName ? ` [${task.lastToolName}]` : ''
-                  this.updateToolCall(sessionId, task.toolUseId, {
-                    description: desc + toolSuffix,
-                  } as Partial<ClaudeToolCall>)
-                }
-              }
-            } else if (subtype === 'task_notification' && agentMsg.task_id) {
-              const task = session.activeTasks.get(agentMsg.task_id)
-              if (task && task.toolUseId) {
-                const statusLabel = agentMsg.status === 'completed' ? 'completed' : agentMsg.status === 'failed' ? 'failed' : 'stopped'
-                this.updateToolCall(sessionId, task.toolUseId, {
-                  status: agentMsg.status === 'failed' ? 'error' : 'completed',
-                  description: `[${statusLabel}] ${agentMsg.summary || task.description}`,
-                } as Partial<ClaudeToolCall>)
-              }
-              session.activeTasks.delete(agentMsg.task_id)
-            }
-          }
-        }
-
-        if (message.type === 'result') {
-          const resultMsg = message as {
-            subtype: string
-            total_cost_usd?: number
-            usage?: { input_tokens?: number; output_tokens?: number }
-            duration_ms?: number
-            num_turns?: number
-            result?: string
-            errors?: string[]
-            modelUsage?: Record<string, { contextWindow?: number; inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; maxOutputTokens?: number }>
-          }
-
-          // Log raw result for debugging context window issues
-          logger.log(`[Claude result] raw: subtype=${resultMsg.subtype}, cost=${resultMsg.total_cost_usd}, turns=${resultMsg.num_turns}, duration=${resultMsg.duration_ms}, result=${resultMsg.result ? JSON.stringify(resultMsg.result.slice(0, 300)) : 'null'}`)
-          logger.log(`[Claude result] usage=${JSON.stringify(resultMsg.usage)}, modelUsage=${JSON.stringify(resultMsg.modelUsage)}`)
-
-          session.state.totalCost = resultMsg.total_cost_usd
-          session.state.totalTokens =
-            (resultMsg.usage?.input_tokens || 0) + (resultMsg.usage?.output_tokens || 0)
-
-          // Update metadata — most fields from result are session-cumulative
-          session.metadata.totalCost = resultMsg.total_cost_usd ?? session.metadata.totalCost
-          session.metadata.durationMs += resultMsg.duration_ms || 0
-          session.metadata.numTurns += resultMsg.num_turns || 0
-
-          // Token counts: use modelUsage (cumulative per-model) as primary source
-          if (resultMsg.modelUsage) {
-            let totalInput = 0
-            let totalOutput = 0
-            for (const [model, modelStats] of Object.entries(resultMsg.modelUsage)) {
-              const stats = modelStats as { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; contextWindow?: number }
-              const cacheRead = stats.cacheReadInputTokens || 0
-              const cacheCreate = stats.cacheCreationInputTokens || 0
-              const line = `[Claude ctx] modelUsage[${model}]: input=${stats.inputTokens}, output=${stats.outputTokens}, cacheRead=${cacheRead}, cacheCreate=${cacheCreate}, contextWindow=${stats.contextWindow}`
-              logger.log(line)
-              totalInput += (stats.inputTokens || 0) + cacheRead + cacheCreate
-              totalOutput += stats.outputTokens || 0
-              if (stats.contextWindow) {
-                session.metadata.contextWindow = stats.contextWindow
-              }
-              if ((modelStats as { maxOutputTokens?: number }).maxOutputTokens) {
-                session.metadata.maxOutputTokens = (modelStats as { maxOutputTokens?: number }).maxOutputTokens!
-              }
-            }
-            const summary = `[Claude ctx] prev: input=${session.metadata.inputTokens}, output=${session.metadata.outputTokens} | new: input=${totalInput}, output=${totalOutput} | cost=${resultMsg.total_cost_usd}`
-            logger.log(summary)
-            session.metadata.inputTokens = totalInput
-            session.metadata.outputTokens = totalOutput
-          } else if (resultMsg.usage) {
-            const usageFull = resultMsg.usage as { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
-            const cacheRead = usageFull.cache_read_input_tokens || 0
-            const cacheCreate = usageFull.cache_creation_input_tokens || 0
-            const totalInput = (usageFull.input_tokens || 0) + cacheRead + cacheCreate
-            const line = `[Claude ctx] usage fallback: input=${usageFull.input_tokens}, output=${usageFull.output_tokens}, cacheRead=${cacheRead}, cacheCreate=${cacheCreate} | prev: input=${session.metadata.inputTokens}, output=${session.metadata.outputTokens}`
-            logger.log(line)
-            session.metadata.inputTokens = totalInput
-            session.metadata.outputTokens = usageFull.output_tokens || 0
-          }
-
-          // Per-turn usage.input_tokens reflects actual current context size
-          if (resultMsg.usage?.input_tokens) {
-            session.metadata.contextTokens = resultMsg.usage.input_tokens
-          }
-
-          this.send('claude:status', sessionId, { ...session.metadata })
-
-          this.send('claude:result', sessionId, {
-            subtype: resultMsg.subtype,
-            totalCost: resultMsg.total_cost_usd,
-            totalTokens: session.state.totalTokens,
-            result: resultMsg.result,
-            errors: resultMsg.errors,
-          })
-
-          // Send system notification on agent completion
-          this.sendCompletionNotification(session, resultMsg.result)
-        }
+        this.processMessage(sessionId, session, message)
       }
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error)
@@ -1069,12 +689,577 @@ export class ClaudeAgentManager {
     }
   }
 
+  // Shared message processing for both V1 and V2 streams
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private processMessage(sessionId: string, session: SessionInstance, message: any) {
+    // Debug: log all message types
+    const msgSubtype = (message as { subtype?: string }).subtype
+    if (message.type !== 'stream_event' && message.type !== 'assistant') {
+      logger.log(`[claude:msg] type=${message.type} subtype=${msgSubtype || ''} parent_tool_use_id=${(message as { parent_tool_use_id?: string }).parent_tool_use_id || 'none'}`)
+    }
+    if (message.type === 'rate_limit_event') {
+      logger.log(`[claude:rate_limit_event] ${JSON.stringify(message)}`)
+    }
+    if (message.type === 'assistant') {
+      const blocks = (message as { message?: { content?: unknown[] } }).message?.content
+      if (Array.isArray(blocks)) {
+        const toolBlocks = blocks.filter((b: unknown) => (b as { type?: string }).type === 'tool_use')
+        if (toolBlocks.length > 0) {
+          for (const tb of toolBlocks) {
+            const t = tb as { name?: string; id?: string }
+            logger.log(`[claude:tool_use] name=${t.name} id=${t.id?.slice(0, 12)} parent_tool_use_id=${(message as { parent_tool_use_id?: string }).parent_tool_use_id || 'none'}`)
+          }
+        }
+      }
+    }
+
+    if (message.type === 'system' && message.subtype === 'init') {
+      const initMsg = message as { session_id: string; model?: string; cwd?: string; permissionMode?: string }
+      session.sdkSessionId = initMsg.session_id
+      sdkSessionIds.set(sessionId, initMsg.session_id)
+      session.metadata.model = initMsg.model
+      session.metadata.sdkSessionId = initMsg.session_id
+      session.metadata.cwd = initMsg.cwd || session.cwd
+      const reportedMode = (initMsg.permissionMode === 'plan' && session.permissionMode === 'bypassPlan')
+        ? session.permissionMode
+        : (initMsg.permissionMode || 'default')
+      logger.log(`[claude:status] EMIT sessionId=${sessionId.slice(0, 8)} sdkSessionId=${session.metadata.sdkSessionId?.slice(0, 8)} sdkMode=${initMsg.permissionMode} appMode=${session.permissionMode} reported=${reportedMode}`)
+      this.send('claude:status', sessionId, {
+        ...session.metadata,
+        permissionMode: reportedMode,
+      })
+    }
+
+    if (message.type === 'assistant') {
+      const content = message.message?.content
+      if (Array.isArray(content)) {
+        const thinkingParts: string[] = []
+        for (const block of content) {
+          if ('type' in block && block.type === 'thinking' && 'thinking' in block) {
+            thinkingParts.push((block as { thinking: string }).thinking)
+          }
+        }
+        const thinkingText = thinkingParts.join('\n') || undefined
+
+        for (const block of content) {
+          if ('text' in block && block.text) {
+            this.addMessage(sessionId, {
+              id: message.uuid || `asst-${Date.now()}`,
+              sessionId,
+              role: 'assistant',
+              content: block.text,
+              thinking: thinkingText,
+              parentToolUseId: message.parent_tool_use_id,
+              timestamp: Date.now(),
+            })
+            if (message.parent_tool_use_id) {
+              const parentTask = Array.from(session.activeTasks.values())
+                .find(t => t.toolUseId === message.parent_tool_use_id)
+              if (parentTask) {
+                parentTask.lastProgressTime = Date.now()
+                parentTask.stalled = false
+              }
+            }
+          }
+          if ('type' in block && block.type === 'tool_use') {
+            const toolBlock = block as { id: string; name: string; input: Record<string, unknown> }
+            this.addToolCall(sessionId, {
+              id: toolBlock.id,
+              sessionId,
+              toolName: toolBlock.name,
+              input: toolBlock.input || {},
+              status: 'running',
+              parentToolUseId: message.parent_tool_use_id,
+              timestamp: Date.now(),
+            })
+            if (message.parent_tool_use_id) {
+              const parentTask = Array.from(session.activeTasks.values())
+                .find(t => t.toolUseId === message.parent_tool_use_id)
+              if (parentTask) {
+                parentTask.lastProgressTime = Date.now()
+                parentTask.stalled = false
+                const toolLabel = toolBlock.name === 'Bash'
+                  ? `Bash: ${((toolBlock.input as Record<string, unknown>)?.command as string)?.slice(0, 40) || '...'}`
+                  : toolBlock.name === 'Read' || toolBlock.name === 'Write' || toolBlock.name === 'Edit'
+                    ? `${toolBlock.name}: ${((toolBlock.input as Record<string, unknown>)?.file_path as string)?.split('/').pop() || '...'}`
+                    : toolBlock.name === 'Grep'
+                      ? `Grep: ${((toolBlock.input as Record<string, unknown>)?.pattern as string)?.slice(0, 30) || '...'}`
+                      : toolBlock.name === 'Glob'
+                        ? `Glob: ${((toolBlock.input as Record<string, unknown>)?.pattern as string)?.slice(0, 30) || '...'}`
+                        : toolBlock.name
+                parentTask.summary = toolLabel
+                this.updateToolCall(sessionId, parentTask.toolUseId, {
+                  description: toolLabel,
+                } as Partial<ClaudeToolCall>)
+              }
+            }
+            if ((toolBlock.name === 'Agent' || toolBlock.name === 'Task') && !message.parent_tool_use_id) {
+              const desc = (toolBlock.input as { description?: string }).description || toolBlock.name
+              session.activeTasks.set(toolBlock.id, {
+                toolUseId: toolBlock.id,
+                description: desc,
+                lastProgressTime: Date.now(),
+              })
+              logger.log(`[activeTasks] Registered ${toolBlock.name} tool_use_id=${toolBlock.id.slice(0, 12)} desc=${desc.slice(0, 60)}`)
+            }
+            if (toolBlock.name === 'EnterPlanMode') {
+              if (session.permissionMode !== 'bypassPlan') {
+                session.permissionMode = 'plan'
+              }
+              this.send('claude:modeChange', sessionId, session.permissionMode)
+            }
+          }
+          if ('type' in block && block.type === 'tool_result') {
+            const resultBlock = block as { tool_use_id: string; content?: string; is_error?: boolean }
+            const resultContent = typeof resultBlock.content === 'string'
+              ? resultBlock.content
+              : JSON.stringify(resultBlock.content)
+            const activeTask = Array.from(session.activeTasks.entries()).find(([, t]) => t.toolUseId === resultBlock.tool_use_id)
+            if (activeTask && resultContent) {
+              logger.log(`[activeTasks] Completed ${resultBlock.tool_use_id.slice(0, 12)} is_error=${resultBlock.is_error}`)
+              session.activeTasks.delete(activeTask[0])
+            }
+            const hasActiveTask = session.activeTasks.has(resultBlock.tool_use_id)
+            this.updateToolCall(sessionId, resultBlock.tool_use_id, {
+              status: hasActiveTask ? 'running' : (resultBlock.is_error ? 'error' : 'completed'),
+              result: resultContent,
+            })
+          }
+        }
+      }
+    }
+
+    if (message.type === 'user') {
+      const content = message.message?.content
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if ('type' in block && block.type === 'tool_result') {
+            const resultBlock = block as { tool_use_id: string; content?: unknown; is_error?: boolean }
+            const resultStr = typeof resultBlock.content === 'string'
+              ? resultBlock.content
+              : JSON.stringify(resultBlock.content)
+            const activeTask = Array.from(session.activeTasks.entries()).find(([, t]) => t.toolUseId === resultBlock.tool_use_id)
+            if (activeTask && resultStr) {
+              logger.log(`[activeTasks] Completed (user msg) ${resultBlock.tool_use_id.slice(0, 12)} is_error=${resultBlock.is_error}`)
+              session.activeTasks.delete(activeTask[0])
+            }
+            const hasActiveTask = session.activeTasks.has(resultBlock.tool_use_id)
+            this.updateToolCall(sessionId, resultBlock.tool_use_id, {
+              status: hasActiveTask ? 'running' : (resultBlock.is_error ? 'error' : 'completed'),
+              result: resultStr?.slice(0, 2000),
+            })
+          }
+        }
+      }
+    }
+
+    if (message.type === 'stream_event') {
+      const event = message.event as {
+        type?: string
+        delta?: { text?: string; thinking?: string }
+        content_block?: { type?: string; id?: string; name?: string; input?: string }
+        usage?: { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; output_tokens?: number }
+        message?: { usage?: { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; output_tokens?: number } }
+      }
+      const eventUsage = event.usage || event.message?.usage
+      if (eventUsage && (event.type === 'message_delta' || event.type === 'message_start') && !message.parent_tool_use_id) {
+        const contextTokens = (eventUsage.input_tokens || 0)
+          + (eventUsage.cache_creation_input_tokens || 0)
+          + (eventUsage.cache_read_input_tokens || 0)
+        if (contextTokens > session.metadata.inputTokens) {
+          session.metadata.inputTokens = contextTokens
+        }
+        if (eventUsage.output_tokens && eventUsage.output_tokens > session.metadata.outputTokens) {
+          session.metadata.outputTokens = eventUsage.output_tokens
+        }
+        this.send('claude:status', sessionId, { ...session.metadata })
+      }
+      if (event.type === 'content_block_delta') {
+        if (event.delta?.text) {
+          this.send('claude:stream', sessionId, {
+            text: event.delta.text,
+            parentToolUseId: message.parent_tool_use_id,
+          })
+        }
+        if (event.delta?.thinking) {
+          this.send('claude:stream', sessionId, {
+            thinking: event.delta.thinking,
+            parentToolUseId: message.parent_tool_use_id,
+          })
+        }
+        if (message.parent_tool_use_id && (event.delta?.text || event.delta?.thinking)) {
+          const parentTask = Array.from(session.activeTasks.values())
+            .find(t => t.toolUseId === message.parent_tool_use_id)
+          if (parentTask) {
+            parentTask.lastProgressTime = Date.now()
+            parentTask.stalled = false
+          }
+        }
+      }
+    }
+
+    if (message.type === 'compact') {
+      const compactMsg = message as { displayText?: string }
+      const rawText = compactMsg.displayText || 'Context compacted'
+      const cleanText = rawText.replace(/\x1b\[[0-9;]*m/g, '')
+      this.addMessage(sessionId, {
+        id: `sys-compact-${Date.now()}`,
+        sessionId,
+        role: 'system',
+        content: cleanText,
+        timestamp: Date.now(),
+      })
+    }
+
+    if (message.type === 'prompt_suggestion') {
+      const suggestion = (message as { suggestion?: string }).suggestion
+      if (suggestion) {
+        this.send('claude:prompt-suggestion', sessionId, suggestion)
+      }
+    }
+
+    if (message.type === 'system' && (message as { subtype?: string }).subtype === 'api_retry') {
+      const retry = message as { attempt?: number; maxAttempts?: number; delay?: number; status?: number; error?: string }
+      const parts = [`API retrying`]
+      if (retry.attempt) parts.push(`(attempt ${retry.attempt}${retry.maxAttempts ? `/${retry.maxAttempts}` : ''})`)
+      if (retry.delay) parts.push(`${retry.delay}ms`)
+      if (retry.status) parts.push(`HTTP ${retry.status}`)
+      if (retry.error) parts.push(`- ${retry.error}`)
+      this.addMessage(sessionId, {
+        id: `sys-retry-${Date.now()}`,
+        sessionId,
+        role: 'system',
+        content: parts.join(' '),
+        timestamp: Date.now(),
+      })
+    }
+
+    if (message.type === 'system') {
+      const subtype = (message as { subtype?: string }).subtype
+      logger.log(`[claude:system] subtype=${subtype} keys=${Object.keys(message).join(',')}`)
+      if (subtype === 'task_started' || subtype === 'task_progress' || subtype === 'task_notification') {
+        const agentMsg = message as {
+          subtype: string
+          task_id?: string
+          tool_use_id?: string
+          description?: string
+          summary?: string
+          status?: string
+          usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number }
+          last_tool_name?: string
+        }
+        logger.log(`[agent-progress] ${subtype} task_id=${agentMsg.task_id} tool_use_id=${agentMsg.tool_use_id} desc=${agentMsg.description?.slice(0, 60)} status=${agentMsg.status}`)
+        if (subtype === 'task_started' && agentMsg.task_id) {
+          session.activeTasks.set(agentMsg.task_id, {
+            toolUseId: agentMsg.tool_use_id || '',
+            description: agentMsg.description || '',
+            lastProgressTime: Date.now(),
+          })
+          if (agentMsg.tool_use_id) {
+            this.updateToolCall(sessionId, agentMsg.tool_use_id, {
+              description: agentMsg.description,
+            } as Partial<ClaudeToolCall>)
+          }
+        } else if (subtype === 'task_progress' && agentMsg.task_id) {
+          const task = session.activeTasks.get(agentMsg.task_id)
+          if (task) {
+            task.lastProgressTime = Date.now()
+            task.summary = agentMsg.description || agentMsg.summary
+            task.stalled = false
+            if (agentMsg.last_tool_name) {
+              task.lastToolName = agentMsg.last_tool_name
+            }
+            if (task.toolUseId) {
+              const desc = agentMsg.description || task.description
+              const toolSuffix = task.lastToolName ? ` [${task.lastToolName}]` : ''
+              this.updateToolCall(sessionId, task.toolUseId, {
+                description: desc + toolSuffix,
+              } as Partial<ClaudeToolCall>)
+            }
+          }
+        } else if (subtype === 'task_notification' && agentMsg.task_id) {
+          const task = session.activeTasks.get(agentMsg.task_id)
+          if (task && task.toolUseId) {
+            const statusLabel = agentMsg.status === 'completed' ? 'completed' : agentMsg.status === 'failed' ? 'failed' : 'stopped'
+            this.updateToolCall(sessionId, task.toolUseId, {
+              status: agentMsg.status === 'failed' ? 'error' : 'completed',
+              description: `[${statusLabel}] ${agentMsg.summary || task.description}`,
+            } as Partial<ClaudeToolCall>)
+          }
+          session.activeTasks.delete(agentMsg.task_id)
+        }
+      }
+    }
+
+    if (message.type === 'result') {
+      const resultMsg = message as {
+        subtype: string
+        total_cost_usd?: number
+        usage?: { input_tokens?: number; output_tokens?: number }
+        duration_ms?: number
+        num_turns?: number
+        result?: string
+        errors?: string[]
+        modelUsage?: Record<string, { contextWindow?: number; inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; maxOutputTokens?: number }>
+      }
+
+      logger.log(`[Claude result] raw: subtype=${resultMsg.subtype}, cost=${resultMsg.total_cost_usd}, turns=${resultMsg.num_turns}, duration=${resultMsg.duration_ms}, result=${resultMsg.result ? JSON.stringify(resultMsg.result.slice(0, 300)) : 'null'}`)
+      logger.log(`[Claude result] usage=${JSON.stringify(resultMsg.usage)}, modelUsage=${JSON.stringify(resultMsg.modelUsage)}`)
+
+      session.state.totalCost = resultMsg.total_cost_usd
+      session.state.totalTokens =
+        (resultMsg.usage?.input_tokens || 0) + (resultMsg.usage?.output_tokens || 0)
+
+      session.metadata.totalCost = resultMsg.total_cost_usd ?? session.metadata.totalCost
+      session.metadata.durationMs += resultMsg.duration_ms || 0
+      session.metadata.numTurns += resultMsg.num_turns || 0
+
+      if (resultMsg.modelUsage) {
+        let totalInput = 0
+        let totalOutput = 0
+        for (const [model, modelStats] of Object.entries(resultMsg.modelUsage)) {
+          const stats = modelStats as { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; contextWindow?: number }
+          const cacheRead = stats.cacheReadInputTokens || 0
+          const cacheCreate = stats.cacheCreationInputTokens || 0
+          const line = `[Claude ctx] modelUsage[${model}]: input=${stats.inputTokens}, output=${stats.outputTokens}, cacheRead=${cacheRead}, cacheCreate=${cacheCreate}, contextWindow=${stats.contextWindow}`
+          logger.log(line)
+          totalInput += (stats.inputTokens || 0) + cacheRead + cacheCreate
+          totalOutput += stats.outputTokens || 0
+          if (stats.contextWindow) {
+            session.metadata.contextWindow = stats.contextWindow
+          }
+          if ((modelStats as { maxOutputTokens?: number }).maxOutputTokens) {
+            session.metadata.maxOutputTokens = (modelStats as { maxOutputTokens?: number }).maxOutputTokens!
+          }
+        }
+        const summary = `[Claude ctx] prev: input=${session.metadata.inputTokens}, output=${session.metadata.outputTokens} | new: input=${totalInput}, output=${totalOutput} | cost=${resultMsg.total_cost_usd}`
+        logger.log(summary)
+        session.metadata.inputTokens = totalInput
+        session.metadata.outputTokens = totalOutput
+      } else if (resultMsg.usage) {
+        const usageFull = resultMsg.usage as { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
+        const cacheRead = usageFull.cache_read_input_tokens || 0
+        const cacheCreate = usageFull.cache_creation_input_tokens || 0
+        const totalInput = (usageFull.input_tokens || 0) + cacheRead + cacheCreate
+        const line = `[Claude ctx] usage fallback: input=${usageFull.input_tokens}, output=${usageFull.output_tokens}, cacheRead=${cacheRead}, cacheCreate=${cacheCreate} | prev: input=${session.metadata.inputTokens}, output=${session.metadata.outputTokens}`
+        logger.log(line)
+        session.metadata.inputTokens = totalInput
+        session.metadata.outputTokens = usageFull.output_tokens || 0
+      }
+
+      if (resultMsg.usage?.input_tokens) {
+        session.metadata.contextTokens = resultMsg.usage.input_tokens
+      }
+
+      this.send('claude:status', sessionId, { ...session.metadata })
+
+      this.send('claude:result', sessionId, {
+        subtype: resultMsg.subtype,
+        totalCost: resultMsg.total_cost_usd,
+        totalTokens: session.state.totalTokens,
+        result: resultMsg.result,
+        errors: resultMsg.errors,
+      })
+
+      this.sendCompletionNotification(session, resultMsg.result)
+    }
+  }
+
+  // V2 session-based query — persistent session, multi-turn without process restart
+  private async runQueryV2(sessionId: string, prompt: string, _images?: string[]) {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+
+    session.state.isStreaming = true
+    session.abortController = new AbortController()
+    session.currentPrompt = prompt
+    this.send('claude:streaming', sessionId, true)
+
+    try {
+      const claudeCodePath = resolveClaudeCodePath()
+      const nodeExecutable = getNodeExecutable()
+      const electronFallback = isElectronFallback()
+      if (electronFallback) {
+        process.env.ELECTRON_RUN_AS_NODE = '1'
+      }
+
+      // Build canUseTool (same logic as V1)
+      const canUseTool: CanUseTool = async (toolName, input, opts) => {
+        if (toolName === 'AskUserQuestion') {
+          return new Promise((resolve) => {
+            session.pendingAskUser.set(opts.toolUseID, { resolve })
+            this.send('claude:ask-user', sessionId, {
+              toolUseId: opts.toolUseID,
+              questions: (input as Record<string, unknown>).questions,
+            })
+          })
+        }
+        if (session.permissionMode === 'bypassPlan') {
+          if (toolName === 'ExitPlanMode') {
+            return new Promise((resolve) => {
+              session.pendingPermissions.set(opts.toolUseID, {
+                resolve: (result: unknown) => {
+                  if ((result as { behavior: string }).behavior === 'allow') {
+                    session.permissionMode = 'bypassPermissions'
+                    this.send('claude:modeChange', sessionId, 'bypassPermissions')
+                  }
+                  resolve(result)
+                }
+              })
+              this.send('claude:permission-request', sessionId, {
+                toolUseId: opts.toolUseID,
+                toolName,
+                input,
+                suggestions: opts.suggestions,
+                decisionReason: 'Exit plan mode and switch to bypass execution?',
+              })
+            })
+          }
+          return { behavior: 'allow', updatedInput: input as Record<string, unknown> }
+        }
+        if (session.permissionMode === 'bypassPermissions') {
+          return { behavior: 'allow', updatedInput: input as Record<string, unknown> }
+        }
+        if (session.permissionMode === 'acceptEdits') {
+          const autoApprovedTools = ['Write', 'Edit', 'NotebookEdit', 'Read', 'Glob', 'Grep']
+          if (autoApprovedTools.includes(toolName)) {
+            return { behavior: 'allow', updatedInput: input as Record<string, unknown> }
+          }
+        }
+        return new Promise((resolve) => {
+          const wrappedResolve = toolName === 'ExitPlanMode'
+            ? (result: unknown) => {
+                if ((result as { behavior: string }).behavior === 'allow') {
+                  if ((result as { dontAskAgain?: boolean }).dontAskAgain) {
+                    session.permissionMode = 'acceptEdits'
+                  } else {
+                    session.permissionMode = 'default'
+                  }
+                  this.send('claude:modeChange', sessionId, session.permissionMode)
+                }
+                resolve(result)
+              }
+            : resolve
+          session.pendingPermissions.set(opts.toolUseID, { resolve: wrappedResolve })
+          this.send('claude:permission-request', sessionId, {
+            toolUseId: opts.toolUseID,
+            toolName,
+            input,
+            suggestions: opts.suggestions,
+          })
+        })
+      }
+
+      const currentMode = session.permissionMode
+      const sdkMode: PermissionMode = currentMode === 'bypassPlan' ? 'plan' : currentMode as PermissionMode
+
+      // Create or reuse V2 session; recreate if model changed
+      const effectiveModel = session.model || 'sonnet'
+      if (session.v2Session && session.v2SessionModel !== effectiveModel) {
+        logger.log(`[Claude V2] Model changed: ${session.v2SessionModel} → ${effectiveModel}, recreating session`)
+        try { session.v2Session.close() } catch { /* ignore */ }
+        session.v2Session = undefined
+      }
+      if (!session.v2Session) {
+        const { createSession, resumeSession } = await getV2Api()
+        const v2Options = {
+          model: effectiveModel,
+          permissionMode: sdkMode,
+          canUseTool,
+          ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
+          ...(nodeExecutable !== 'node' || electronFallback ? { executable: nodeExecutable } : {}),
+        }
+
+        logger.log(`[Claude V2] Creating session: model=${v2Options.model}, permissionMode=${v2Options.permissionMode}, resumeId=${session.sdkSessionId || 'none'}`)
+
+        if (session.sdkSessionId) {
+          session.v2Session = resumeSession(session.sdkSessionId, v2Options)
+        } else {
+          session.v2Session = createSession(v2Options)
+        }
+        session.v2SessionModel = effectiveModel
+      }
+
+      // Send message
+      await session.v2Session.send(prompt || ' ')
+
+      // Stream messages — reuse shared processMessage()
+      for await (const message of session.v2Session.stream()) {
+        if (session.abortController.signal.aborted) {
+          session.v2Session.close()
+          session.v2Session = undefined
+          break
+        }
+        this.processMessage(sessionId, session, message)
+      }
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error)
+      const isAbort = errMsg === 'aborted' || errMsg.includes('aborted') || session?.abortController.signal.aborted
+      if (!isAbort) {
+        logger.error('[Claude V2] query error:', error)
+        if (error instanceof Error && error.stack) {
+          logger.error('Stack:', error.stack)
+        }
+        // If resume failed, retry fresh
+        if (session.sdkSessionId && errMsg.includes('exited with code')) {
+          logger.warn('[Claude V2] Resume failed, retrying fresh')
+          session.sdkSessionId = undefined
+          session.v2Session = undefined
+          sdkSessionIds.delete(sessionId)
+          session.state.isStreaming = false
+          this.addMessage(sessionId, {
+            id: `sys-retry-${Date.now()}`,
+            sessionId,
+            role: 'system',
+            content: 'Previous V2 session could not be resumed. Starting fresh...',
+            timestamp: Date.now(),
+          })
+          return this.runQueryV2(sessionId, prompt, _images)
+        }
+        this.send('claude:error', sessionId, errMsg)
+      }
+    } finally {
+      if (isElectronFallback()) {
+        delete process.env.ELECTRON_RUN_AS_NODE
+      }
+      if (session) {
+        session.state.isStreaming = false
+        session.currentPrompt = undefined
+        session.activeTasks.clear()
+        for (const msg of session.state.messages) {
+          if ('toolName' in msg && (msg as ClaudeToolCall).status === 'running') {
+            const toolMsg = msg as ClaudeToolCall
+            toolMsg.status = 'error'
+            toolMsg.result = toolMsg.result || 'Agent terminated unexpectedly'
+            this.send('claude:tool-result', sessionId, {
+              id: toolMsg.id,
+              status: 'error',
+              result: toolMsg.result,
+            })
+          }
+        }
+        this.send('claude:streaming', sessionId, false)
+        const next = session.messageQueue.shift()
+        if (next) {
+          this.runQueryV2(sessionId, next.prompt, next.images)
+        }
+      }
+    }
+  }
+
   async stopSession(sessionId: string): Promise<boolean> {
     const session = this.sessions.get(sessionId)
     if (session) {
       session.messageQueue.length = 0
-      // Use graceful interrupt if the query is active, fallback to abort
-      if (session.queryInstance && session.state.isStreaming) {
+      // V2: close the persistent session
+      if (session.apiVersion === 'v2' && session.v2Session) {
+        try {
+          session.v2Session.close()
+        } catch { /* ignore close errors */ }
+        session.v2Session = undefined
+        session.abortController.abort()
+      } else if (session.queryInstance && session.state.isStreaming) {
+        // V1: Use graceful interrupt if the query is active, fallback to abort
         try {
           await session.queryInstance.interrupt()
         } catch {
@@ -1180,6 +1365,13 @@ export class ClaudeAgentManager {
     // Persist the full model value (including [1m] suffix) — SDK handles it natively
     session.model = model
     session.metadata.model = model
+
+    if (session.apiVersion === 'v2') {
+      // V2: model change takes effect on next send (session will be recreated in runQueryV2)
+      logger.log(`[setModel] V2 stored model ${model} for session ${sessionId.slice(0, 8)} (takes effect on next message)`)
+      this.send('claude:status', sessionId, { ...session.metadata })
+      return true
+    }
 
     if (!session.queryInstance) {
       logger.log(`[setModel] stored model ${model} for session ${sessionId.slice(0, 8)} (no active query)`)

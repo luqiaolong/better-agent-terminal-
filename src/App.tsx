@@ -566,7 +566,7 @@ export default function App() {
       {/* Right sidebar: tabbed Snippets / Skills (Skills only for Claude Code terminals) */}
       {(() => {
         const focusedTerminal = state.focusedTerminalId ? state.terminals.find(t2 => t2.id === state.focusedTerminalId) : null
-        const isClaudeCode = focusedTerminal?.agentPreset === 'claude-code'
+        const isClaudeCode = focusedTerminal?.agentPreset === 'claude-code' || focusedTerminal?.agentPreset === 'claude-code-v2'
         const effectiveTab = isClaudeCode ? rightPanelTab : 'snippets'
 
         if (!showSnippetSidebar) return null

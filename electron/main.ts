@@ -87,15 +87,33 @@ app.commandLine.appendSwitch('disable-features', 'ServiceWorker')
 // Set app name (shown in dock/taskbar instead of "Electron" during dev)
 app.setName('BetterAgentTerminal')
 
+// --runtime=N or BAT_RUNTIME=N: allow multiple independent instances with separate data directories
+// Each runtime gets its own user data path and single-instance lock
+// CLI arg takes precedence over env var; env var works reliably in dev mode (vite-plugin-electron)
+const runtimeArg = process.argv.find(a => a.startsWith('--runtime='))
+const runtimeId = runtimeArg ? runtimeArg.split('=')[1] : (process.env.BAT_RUNTIME || undefined)
+if (runtimeId) {
+  const basePath = app.getPath('userData')
+  const runtimePath = path.join(path.dirname(basePath), `${path.basename(basePath)}-runtime-${runtimeId}`)
+  app.setPath('userData', runtimePath)
+  console.log(`[runtime] BAT_RUNTIME=${runtimeId}, userData=${runtimePath}`)
+} else {
+  console.log(`[runtime] default instance, userData=${app.getPath('userData')}`)
+}
+
 // Set AppUserModelId for Windows taskbar pinning (must be before app.whenReady)
 if (process.platform === 'win32') {
-  app.setAppUserModelId('org.tonyq.better-agent-terminal')
+  const appModelId = runtimeId
+    ? `org.tonyq.better-agent-terminal.runtime-${runtimeId}`
+    : 'org.tonyq.better-agent-terminal'
+  app.setAppUserModelId(appModelId)
 }
 
 // Single instance lock — if a second instance is launched, focus existing and open new window
+// Each --runtime=N has its own lock (via separate userData path)
 const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
-  // Another instance is already running — it will handle second-instance event
+  // Another instance with the same runtime is already running
   app.quit()
 }
 
@@ -735,7 +753,7 @@ function registerProxiedHandlers() {
   })
 
   // Claude Agent SDK
-  registerHandler('claude:start-session', (_ctx, sessionId: string, options: { cwd: string; prompt?: string; permissionMode?: string; model?: string; effort?: string }) => claudeManager?.startSession(sessionId, options))
+  registerHandler('claude:start-session', (_ctx, sessionId: string, options: { cwd: string; prompt?: string; permissionMode?: string; model?: string; effort?: string; apiVersion?: 'v1' | 'v2' }) => claudeManager?.startSession(sessionId, options))
   registerHandler('claude:send-message', (_ctx, sessionId: string, prompt: string, images?: string[]) => claudeManager?.sendMessage(sessionId, prompt, images))
   registerHandler('claude:stop-session', (_ctx, sessionId: string) => claudeManager?.stopSession(sessionId))
   registerHandler('claude:set-permission-mode', (_ctx, sessionId: string, mode: string) => claudeManager?.setPermissionMode(sessionId, mode as import('@anthropic-ai/claude-agent-sdk').PermissionMode))

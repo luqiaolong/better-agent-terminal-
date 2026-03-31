@@ -10,6 +10,7 @@ interface ThumbnailBarProps {
   onFocus: (id: string) => void
   onAddTerminal?: () => void
   onAddClaudeAgent?: () => void
+  onAddClaudeAgentV2?: () => void
   onReorder?: (orderedIds: string[]) => void
   showAddButton: boolean
   height?: number
@@ -23,6 +24,7 @@ export function ThumbnailBar({
   onFocus,
   onAddTerminal,
   onAddClaudeAgent,
+  onAddClaudeAgentV2,
   onReorder,
   showAddButton,
   height,
@@ -168,6 +170,15 @@ export function ThumbnailBar({
                     >
                       <span className="thumbnail-add-menu-icon" style={{ color: '#d97706' }}>✦</span>
                       Claude Code
+                    </div>
+                  )}
+                  {onAddClaudeAgentV2 && (
+                    <div
+                      className="thumbnail-add-menu-item"
+                      onClick={() => { onAddClaudeAgentV2(); setShowAddMenu(false) }}
+                    >
+                      <span className="thumbnail-add-menu-icon" style={{ color: '#eab308' }}>✦</span>
+                      Claude Code V2
                     </div>
                   )}
                 </div>
