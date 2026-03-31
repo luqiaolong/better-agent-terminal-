@@ -1184,10 +1184,12 @@ export class ClaudeAgentManager {
           ...(nodeExecutable !== 'node' || electronFallback ? { executable: nodeExecutable } : {}),
         }
 
-        logger.log(`[Claude V2] Creating session: model=${v2Options.model}, permissionMode=${v2Options.permissionMode}, resumeId=${session.sdkSessionId || 'none'}`)
+        // Only resume if the sdkSessionId was created by a V2 session
+        const v2ResumeId = session.v2SessionModel ? session.sdkSessionId : undefined
+        logger.log(`[Claude V2] Creating session: model=${v2Options.model}, permissionMode=${v2Options.permissionMode}, resumeId=${v2ResumeId || 'none'}`)
 
-        if (session.sdkSessionId) {
-          session.v2Session = resumeSession(session.sdkSessionId, v2Options)
+        if (v2ResumeId) {
+          session.v2Session = resumeSession(v2ResumeId, v2Options)
         } else {
           session.v2Session = createSession(v2Options)
         }
@@ -1214,8 +1216,8 @@ export class ClaudeAgentManager {
         if (error instanceof Error && error.stack) {
           logger.error('Stack:', error.stack)
         }
-        // If resume failed, retry fresh
-        if (session.sdkSessionId && errMsg.includes('exited with code')) {
+        // If resume failed (process exit or invalid session ID), retry fresh
+        if (session.sdkSessionId && (errMsg.includes('exited with code') || errMsg.includes('No conversation found'))) {
           logger.warn('[Claude V2] Resume failed, retrying fresh')
           session.sdkSessionId = undefined
           session.v2Session = undefined
