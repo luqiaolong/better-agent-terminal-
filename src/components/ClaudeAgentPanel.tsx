@@ -2490,7 +2490,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         )}
       </div>
 
-      {/* Permission Request Card — VS Code style vertical list */}
+      {/* Permission Request Card — vertical list */}
       {pendingPermission && (() => {
         const planContent = planFileContent
         return (

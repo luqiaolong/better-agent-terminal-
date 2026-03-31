@@ -52,7 +52,7 @@ Manage multiple project terminals in one window, with a built-in Claude Code age
 - **Double-click to rename**, right-click context menu for all workspace actions
 
 ### Terminal
-- **Google Meet-style layout** — 70% main panel + 30% scrollable thumbnail bar showing all terminals
+- **Split-panel layout** — 70% main panel + 30% scrollable thumbnail bar showing all terminals
 - **Multiple terminals per workspace** — Powered by xterm.js with full Unicode/CJK support
 - **Agent presets** — Pre-configured terminal roles: Claude Code, Gemini CLI, Codex, GitHub Copilot, or plain terminal
 - **Tab navigation** — Switch between Terminal, Files, and Git views per workspace
