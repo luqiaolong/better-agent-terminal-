@@ -172,7 +172,13 @@
     "changedFiles": "變更檔案",
     "comments": "留言",
     "reviews": "審查",
-    "fetchError": "從 GitHub 擷取資料失敗"
+    "fetchError": "從 GitHub 擷取資料失敗",
+    "openInGitHub": "在 GitHub 開啟",
+    "copyGitHubLink": "複製 GitHub 連結",
+    "addComment": "新增留言...",
+    "submitComment": "留言",
+    "commentPosted": "已發佈留言",
+    "commentError": "發佈留言失敗"
   },
 
   "terminal": {

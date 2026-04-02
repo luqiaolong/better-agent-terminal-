@@ -1430,6 +1430,24 @@ function registerProxiedHandlers() {
       return { error: e instanceof Error ? e.message : String(e) }
     }
   })
+  registerHandler('github:pr-comment', async (_ctx, cwd: string, number: number, body: string) => {
+    try {
+      const { execFileSync } = await import('child_process')
+      execFileSync('gh', ['pr', 'comment', String(number), '--body', body], { cwd, encoding: 'utf-8', timeout: 15000 })
+      return { success: true }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+  registerHandler('github:issue-comment', async (_ctx, cwd: string, number: number, body: string) => {
+    try {
+      const { execFileSync } = await import('child_process')
+      execFileSync('gh', ['issue', 'comment', String(number), '--body', body], { cwd, encoding: 'utf-8', timeout: 15000 })
+      return { success: true }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
 
   // File system
   // File watcher for auto-refresh

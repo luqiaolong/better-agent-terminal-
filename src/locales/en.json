@@ -172,7 +172,13 @@
     "changedFiles": "Changed Files",
     "comments": "Comments",
     "reviews": "Reviews",
-    "fetchError": "Failed to fetch data from GitHub"
+    "fetchError": "Failed to fetch data from GitHub",
+    "openInGitHub": "Open in GitHub",
+    "copyGitHubLink": "Copy GitHub Link",
+    "addComment": "Add a comment...",
+    "submitComment": "Comment",
+    "commentPosted": "Comment posted",
+    "commentError": "Failed to post comment"
   },
 
   "terminal": {

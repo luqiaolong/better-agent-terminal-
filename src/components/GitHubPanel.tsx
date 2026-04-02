@@ -97,6 +97,10 @@ export function GitHubPanel({ workspaceFolderPath, onSendToClaude }: Readonly<Gi
   const [detailLoading, setDetailLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sentMessage, setSentMessage] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: GitHubPR | GitHubIssue } | null>(null)
+  const [commentBody, setCommentBody] = useState('')
+  const [commentPosting, setCommentPosting] = useState(false)
+  const [commentStatus, setCommentStatus] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -137,6 +141,7 @@ export function GitHubPanel({ workspaceFolderPath, onSendToClaude }: Readonly<Gi
   // Load detail when item selected
   useEffect(() => {
     if (!selectedItem) { setDetail(null); return }
+    setCommentBody('')
     setDetailLoading(true)
     const promise = selectedItem.type === 'pr'
       ? window.electronAPI.github.viewPR(workspaceFolderPath, selectedItem.number)
@@ -197,6 +202,35 @@ export function GitHubPanel({ workspaceFolderPath, onSendToClaude }: Readonly<Gi
     }
   }
 
+  const getItemUrl = async (item: GitHubPR | GitHubIssue) => {
+    const repoUrl = await window.electronAPI.git.getGithubUrl(workspaceFolderPath)
+    if (!repoUrl) return null
+    const type = 'isDraft' in item ? 'pull' : 'issues'
+    return `${repoUrl}/${type}/${item.number}`
+  }
+
+  const handlePostComment = async () => {
+    if (!selectedItem || !commentBody.trim()) return
+    setCommentPosting(true)
+    try {
+      const fn = selectedItem.type === 'pr'
+        ? window.electronAPI.github.commentPR
+        : window.electronAPI.github.commentIssue
+      const result = await fn(workspaceFolderPath, selectedItem.number, commentBody.trim())
+      if (result && 'error' in result) {
+        setCommentStatus(t('github.commentError'))
+      } else {
+        setCommentBody('')
+        setCommentStatus(t('github.commentPosted'))
+        // Reload detail to show the new comment
+        setSelectedItem(prev => prev ? { ...prev } : null)
+      }
+    } finally {
+      setCommentPosting(false)
+      setTimeout(() => setCommentStatus(null), 2000)
+    }
+  }
+
   // Consent screen
   if (!consentGiven) {
     return (
@@ -233,6 +267,24 @@ export function GitHubPanel({ workspaceFolderPath, onSendToClaude }: Readonly<Gi
 
   return (
     <div className="github-panel">
+      {contextMenu && (
+        <>
+          <div className="context-menu-backdrop" onClick={() => setContextMenu(null)} />
+          <div
+            className="workspace-context-menu"
+            style={{ position: 'fixed', left: contextMenu.x, top: contextMenu.y, zIndex: 1000 }}
+          >
+            <div className="context-menu-item" onClick={() => {
+              getItemUrl(contextMenu.item).then(url => { if (url) window.electronAPI.shell.openExternal(url) })
+              setContextMenu(null)
+            }}>{t('github.openInGitHub')}</div>
+            <div className="context-menu-item" onClick={() => {
+              getItemUrl(contextMenu.item).then(url => { if (url) navigator.clipboard.writeText(url) })
+              setContextMenu(null)
+            }}>{t('github.copyGitHubLink')}</div>
+          </div>
+        </>
+      )}
       {/* Left column: list */}
       <div className="github-list-col">
         <div className="github-sub-tabs">
@@ -264,6 +316,7 @@ export function GitHubPanel({ workspaceFolderPath, onSendToClaude }: Readonly<Gi
                 key={item.number}
                 className={`github-item ${selectedItem?.number === item.number ? 'active' : ''}`}
                 onClick={() => setSelectedItem({ type: subTab === 'prs' ? 'pr' : 'issue', number: item.number })}
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, item }) }}
               >
                 <div className="github-item-header">
                   <span className="github-item-number">#{item.number}</span>
@@ -378,6 +431,26 @@ export function GitHubPanel({ workspaceFolderPath, onSendToClaude }: Readonly<Gi
                 ))}
               </div>
             )}
+            <div className="github-detail-section github-comment-input-section">
+              <textarea
+                className="github-comment-textarea"
+                placeholder={t('github.addComment')}
+                value={commentBody}
+                onChange={e => setCommentBody(e.target.value)}
+                rows={3}
+                disabled={commentPosting}
+              />
+              <div className="github-comment-actions">
+                {commentStatus && <span className="github-comment-status">{commentStatus}</span>}
+                <button
+                  className="github-send-btn"
+                  onClick={handlePostComment}
+                  disabled={commentPosting || !commentBody.trim()}
+                >
+                  {commentPosting ? t('github.loading') : t('github.submitComment')}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

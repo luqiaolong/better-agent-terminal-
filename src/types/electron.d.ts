@@ -37,6 +37,28 @@ interface ElectronAPI {
   tunnel: {
     getConnection: () => Promise<{ url: string; token: string; mode: string; addresses: { ip: string; mode: string; label: string }[] } | { error: string }>
   }
+  shell: {
+    openExternal: (url: string) => Promise<void>
+    openPath: (folderPath: string) => Promise<void>
+  }
+  git: {
+    getGithubUrl: (folderPath: string) => Promise<string | null>
+    getBranch: (cwd: string) => Promise<string | null>
+    getLog: (cwd: string, count?: number) => Promise<{ hash: string; author: string; date: string; message: string }[]>
+    getDiff: (cwd: string, commitHash?: string, filePath?: string) => Promise<string>
+    getDiffFiles: (cwd: string, commitHash?: string) => Promise<{ path: string; status: string }[]>
+    getStatus: (cwd: string) => Promise<{ path: string; status: string }[]>
+    getRoot: (cwd: string) => Promise<string | null>
+  }
+  github: {
+    checkCli: () => Promise<{ installed: boolean; authenticated: boolean }>
+    listPRs: (cwd: string) => Promise<unknown>
+    listIssues: (cwd: string) => Promise<unknown>
+    viewPR: (cwd: string, number: number) => Promise<unknown>
+    viewIssue: (cwd: string, number: number) => Promise<unknown>
+    commentPR: (cwd: string, number: number, body: string) => Promise<{ success: true } | { error: string }>
+    commentIssue: (cwd: string, number: number, body: string) => Promise<{ success: true } | { error: string }>
+  }
 }
 
 declare global {

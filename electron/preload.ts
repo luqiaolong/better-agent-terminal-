@@ -227,6 +227,8 @@ const electronAPI = {
     listIssues: (cwd: string) => ipcRenderer.invoke('github:issue-list', cwd),
     viewPR: (cwd: string, number: number) => ipcRenderer.invoke('github:pr-view', cwd, number),
     viewIssue: (cwd: string, number: number) => ipcRenderer.invoke('github:issue-view', cwd, number),
+    commentPR: (cwd: string, number: number, body: string) => ipcRenderer.invoke('github:pr-comment', cwd, number, body) as Promise<{ success: true } | { error: string }>,
+    commentIssue: (cwd: string, number: number, body: string) => ipcRenderer.invoke('github:issue-comment', cwd, number, body) as Promise<{ success: true } | { error: string }>,
   },
   git: {
     getGithubUrl: (folderPath: string) => ipcRenderer.invoke('git:get-github-url', folderPath) as Promise<string | null>,
