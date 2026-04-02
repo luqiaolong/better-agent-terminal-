@@ -701,12 +701,13 @@ class WorkspaceStore {
         // Restore terminals with empty runtime fields
         const workspaces: Workspace[] = parsed.workspaces || []
         const workspaceMap = new Map(workspaces.map((w: Workspace) => [w.id, w]))
-        const terminals: TerminalInstance[] = (parsed.terminals || []).map((t: Partial<TerminalInstance>) => {
+        const terminals = (parsed.terminals || []).map((t: Partial<TerminalInstance>): TerminalInstance | null => {
           const ws = t.workspaceId ? workspaceMap.get(t.workspaceId) : undefined
-          const cwd = ws?.folderPath || t.cwd || ''
-          if (!cwd) {
-            window.electronAPI?.debug?.log?.(`[workspace-store] Warning: terminal ${t.id} has no cwd and no workspace folderPath`)
+          if (!ws?.folderPath) {
+            window.electronAPI?.debug?.log?.(`[workspace-store] Warning: terminal ${t.id} has no valid workspace, skipping`)
+            return null
           }
+          const cwd = ws.folderPath
           return {
             id: t.id || '',
             workspaceId: t.workspaceId || '',
@@ -721,7 +722,7 @@ class WorkspaceStore {
             scrollbackBuffer: [],
             pid: undefined,
           }
-        })
+        }).filter((t: TerminalInstance | null): t is TerminalInstance => t !== null)
         this.state = {
           ...this.state,
           workspaces,
