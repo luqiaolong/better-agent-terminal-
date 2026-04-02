@@ -18,6 +18,7 @@ export interface ClaudeToolCall {
   description?: string
   denyReason?: string
   denied?: boolean
+  isDeferred?: boolean
   parentToolUseId?: string
   timestamp: number
 }

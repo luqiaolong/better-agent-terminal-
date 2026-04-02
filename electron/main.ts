@@ -805,6 +805,7 @@ function registerProxiedHandlers() {
   registerHandler('claude:rest-session', (_ctx, sessionId: string) => claudeManager?.restSession(sessionId))
   registerHandler('claude:wake-session', (_ctx, sessionId: string) => claudeManager?.wakeSession(sessionId))
   registerHandler('claude:is-resting', (_ctx, sessionId: string) => claudeManager?.isResting(sessionId) ?? false)
+  registerHandler('claude:fetch-subagent-messages', (_ctx, sessionId: string, agentToolUseId: string) => claudeManager?.fetchSubagentMessages(sessionId, agentToolUseId) ?? [])
 
   // Message archiving
   registerHandler('claude:archive-messages', async (_ctx, sessionId: string, messages: unknown[]) => {

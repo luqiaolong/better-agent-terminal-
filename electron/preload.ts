@@ -179,6 +179,8 @@ const electronAPI = {
       ipcRenderer.invoke('claude:wake-session', sessionId) as Promise<boolean>,
     isResting: (sessionId: string) =>
       ipcRenderer.invoke('claude:is-resting', sessionId) as Promise<boolean>,
+    fetchSubagentMessages: (sessionId: string, agentToolUseId: string) =>
+      ipcRenderer.invoke('claude:fetch-subagent-messages', sessionId, agentToolUseId) as Promise<unknown[]>,
     archiveMessages: (sessionId: string, messages: unknown[]) =>
       ipcRenderer.invoke('claude:archive-messages', sessionId, messages) as Promise<boolean>,
     loadArchived: (sessionId: string, offset: number, limit: number) =>

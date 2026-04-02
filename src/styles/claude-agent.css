@@ -200,6 +200,12 @@
   animation: dot-pulse 1.5s ease-in-out infinite;
 }
 
+.tl-dot.dot-deferred {
+  background: #f59e0b;
+  opacity: 0.7;
+  animation: dot-pulse 2.5s ease-in-out infinite;
+}
+
 @keyframes dot-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(0.8); }
@@ -529,6 +535,11 @@
   background: var(--bg-hover);
   color: var(--text-secondary);
   font-family: 'Cascadia Code', 'SF Mono', Consolas, monospace;
+}
+
+.claude-deferred-badge {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
 }
 
 /* Task tool card */

@@ -27,6 +27,8 @@ const BAT_BUILTIN_MODELS: Array<{ value: string; displayName: string; descriptio
 let queryFn: typeof import('@anthropic-ai/claude-agent-sdk').query | null = null
 let listSessionsFn: typeof import('@anthropic-ai/claude-agent-sdk').listSessions | null = null
 let getSessionMessagesFn: typeof import('@anthropic-ai/claude-agent-sdk').getSessionMessages | null = null
+let getSubagentMessagesFn: typeof import('@anthropic-ai/claude-agent-sdk').getSubagentMessages | null = null
+let listSubagentsFn: typeof import('@anthropic-ai/claude-agent-sdk').listSubagents | null = null
 
 async function getQuery() {
   if (!queryFn) {
@@ -34,6 +36,8 @@ async function getQuery() {
     queryFn = sdk.query
     listSessionsFn = sdk.listSessions
     getSessionMessagesFn = sdk.getSessionMessages
+    getSubagentMessagesFn = sdk.getSubagentMessages
+    listSubagentsFn = sdk.listSubagents
   }
   return queryFn
 }
@@ -1016,6 +1020,7 @@ export class ClaudeAgentManager {
         num_turns?: number
         result?: string
         errors?: string[]
+        deferred_tool_use?: { id: string; name: string; input: Record<string, unknown> }
         modelUsage?: Record<string, { contextWindow?: number; inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; maxOutputTokens?: number }>
       }
 
@@ -1076,6 +1081,21 @@ export class ClaudeAgentManager {
       }
 
       this.send('claude:status', sessionId, { ...session.metadata })
+
+      // Emit deferred tool use as a tool call with deferred flag
+      if (resultMsg.deferred_tool_use) {
+        const deferred = resultMsg.deferred_tool_use
+        logger.log(`[Claude] deferred_tool_use: name=${deferred.name} id=${deferred.id.slice(0, 12)}`)
+        this.addToolCall(sessionId, {
+          id: deferred.id,
+          sessionId,
+          toolName: deferred.name,
+          input: deferred.input || {},
+          status: 'running',
+          isDeferred: true,
+          timestamp: Date.now(),
+        })
+      }
 
       this.send('claude:result', sessionId, {
         subtype: resultMsg.subtype,
@@ -1687,8 +1707,8 @@ export class ClaudeAgentManager {
         }
         // Skip entries from other sessions
         if (obj.sessionId && obj.sessionId !== sdkSessionId) continue
-        // Skip non-message types
-        if (obj.type !== 'user' && obj.type !== 'assistant') continue
+        // Skip non-message types (include system for compact boundaries etc.)
+        if (obj.type !== 'user' && obj.type !== 'assistant' && obj.type !== 'system') continue
 
         const key = obj.uuid || `seq-${seqCounter++}`
         if (!entriesByUuid.has(key)) {
@@ -1803,6 +1823,28 @@ export class ClaudeAgentManager {
           }
         }
       }
+
+      if (obj.type === 'system') {
+        // Include system messages like compact boundaries
+        const content = obj.message?.content
+        let text = ''
+        if (typeof content === 'string') {
+          text = content
+        } else if (Array.isArray(content)) {
+          const textBlock = (content as Array<{ type?: string; text?: string }>).find(b => b.type === 'text')
+          if (textBlock?.text) text = textBlock.text
+        }
+        // Filter out noise — only keep meaningful system messages
+        if (text && !text.startsWith('{') && text.length > 5) {
+          items.push({
+            id: obj.uuid || `hist-sys-${items.length}`,
+            sessionId,
+            role: 'system' as const,
+            content: text,
+            timestamp: ts,
+          })
+        }
+      }
     }
 
     // Send all history as a single batch
@@ -1885,6 +1927,87 @@ export class ClaudeAgentManager {
 
   isResting(sessionId: string): boolean {
     return this.sessions.get(sessionId)?.isResting ?? false
+  }
+
+  /** Fetch subagent conversation messages from SDK transcript files */
+  async fetchSubagentMessages(sessionId: string, agentToolUseId: string): Promise<(ClaudeMessage | ClaudeToolCall)[]> {
+    const session = this.sessions.get(sessionId)
+    const sdkSid = session?.sdkSessionId || sdkSessionIds.get(sessionId)
+    if (!sdkSid) return []
+
+    try {
+      await getQuery() // ensure SDK is loaded
+      if (!getSubagentMessagesFn) return []
+
+      const messages = await getSubagentMessagesFn(sdkSid, agentToolUseId, {
+        dir: session?.cwd,
+      })
+
+      const items: (ClaudeMessage | ClaudeToolCall)[] = []
+      const toolIndexMap = new Map<string, number>()
+
+      for (const msg of messages) {
+        const ts = msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now()
+
+        if (msg.type === 'user') {
+          const content = msg.message?.content
+          let text = ''
+          if (typeof content === 'string') {
+            text = content
+          } else if (Array.isArray(content)) {
+            const textBlock = (content as Array<{ type?: string; text?: string }>).find(b => b.type === 'text')
+            if (textBlock?.text) text = textBlock.text
+            // Match tool results
+            for (const block of content as Array<{ type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean }>) {
+              if (block.type === 'tool_result' && block.tool_use_id) {
+                const idx = toolIndexMap.get(block.tool_use_id)
+                if (idx !== undefined) {
+                  const tool = items[idx] as ClaudeToolCall
+                  tool.status = block.is_error ? 'error' : 'completed'
+                  tool.result = (typeof block.content === 'string' ? block.content : JSON.stringify(block.content))?.slice(0, 2000)
+                }
+              }
+            }
+          }
+          const isNoise = !text || text === '[Request interrupted by user for tool use]' || text.startsWith('<local-command-caveat>')
+          if (!isNoise) {
+            items.push({ id: `sa-user-${items.length}`, sessionId, role: 'user' as const, content: text, parentToolUseId: agentToolUseId, timestamp: ts })
+          }
+        }
+
+        if (msg.type === 'assistant') {
+          const content = msg.message?.content
+          if (Array.isArray(content)) {
+            const contentArr = content as Array<{ type?: string; text?: string; thinking?: string; id?: string; name?: string; input?: Record<string, unknown> }>
+            const thinkingText = contentArr.filter(b => b.type === 'thinking').map(b => b.thinking || '').join('\n').trim()
+            const assistantText = contentArr.filter(b => b.type === 'text').map(b => b.text || '').join('\n').trim()
+            if (assistantText || thinkingText) {
+              items.push({
+                id: `sa-asst-${items.length}`, sessionId, role: 'assistant' as const,
+                content: assistantText || '', ...(thinkingText ? { thinking: thinkingText } : {}),
+                parentToolUseId: agentToolUseId, timestamp: ts,
+              })
+            }
+            for (const block of contentArr) {
+              if (block.type === 'tool_use' && block.id && block.name) {
+                const toolItem: ClaudeToolCall = {
+                  id: block.id, sessionId, toolName: block.name,
+                  input: block.input || {}, status: 'completed',
+                  parentToolUseId: agentToolUseId, timestamp: ts,
+                }
+                toolIndexMap.set(block.id, items.length)
+                items.push(toolItem)
+              }
+            }
+          }
+        }
+      }
+
+      return items
+    } catch (e) {
+      logger.warn(`[fetchSubagentMessages] failed for agent ${agentToolUseId.slice(0, 12)}:`, e)
+      return []
+    }
   }
 
   async forkSession(sessionId: string): Promise<{ newSdkSessionId: string } | null> {

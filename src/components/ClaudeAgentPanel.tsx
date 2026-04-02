@@ -858,6 +858,21 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
     window.electronAPI.git.getBranch(cwd).then(branch => setGitBranch(branch)).catch(() => setGitBranch(null))
   }, [cwd])
 
+  // Fetch subagent messages from SDK when task modal opens (for completed tasks with no streamed messages)
+  useEffect(() => {
+    if (!taskModal) return
+    const existing = subagentMessagesRef.current.get(taskModal.taskId)
+    if (existing && existing.length > 0) return // already have streamed messages
+    const parentTask = allMessages.find(m => isToolCall(m) && m.id === taskModal.taskId) as ClaudeToolCall | undefined
+    if (parentTask?.status === 'running') return // still streaming, don't fetch
+    window.electronAPI.claude.fetchSubagentMessages(sessionId, taskModal.taskId).then((msgs: unknown[]) => {
+      if (msgs && msgs.length > 0) {
+        subagentMessagesRef.current.set(taskModal.taskId, msgs as MessageItem[])
+        setTaskModalTick(t => t + 1)
+      }
+    }).catch(() => {})
+  }, [taskModal?.taskId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Subscribe to settings changes (font size, statusline config)
   useEffect(() => {
     return settingsStore.subscribe(() => {
@@ -1842,7 +1857,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         )
       }
 
-      const dotClass = item.denied ? 'dot-denied' : item.status === 'running' ? 'dot-running' : item.status === 'completed' ? 'dot-success' : 'dot-error'
+      const dotClass = item.denied ? 'dot-denied' : item.isDeferred ? 'dot-deferred' : item.status === 'running' ? 'dot-running' : item.status === 'completed' ? 'dot-success' : 'dot-error'
       const desc = toolDescription(item.input)
 
       // ExitPlanMode / EnterPlanMode: show plan content in readable view
@@ -2222,6 +2237,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           <div className="tl-content">
             <div className="claude-tool-header" onClick={() => toggleTool(item.id)}>
               <span className="claude-tool-name">{item.toolName}</span>
+              {item.isDeferred && <span className="claude-tool-badge claude-deferred-badge">deferred</span>}
               {desc && <span className="claude-tool-desc">{desc}</span>}
               {!desc && <span className="claude-tool-summary">{toolInputSummary(item.toolName, item.input)}</span>}
               {item.timestamp > 0 && <span className="claude-tool-time" title={formatFullTimestamp(item.timestamp)}>{formatTimestamp(item.timestamp)}</span>}
@@ -3048,7 +3064,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
 
       {/* Subagent Modal */}
       {taskModal && (() => {
-        const taskMsgs = subagentMessagesRef.current.get(taskModal.taskId) || []
+        const existingMsgs = subagentMessagesRef.current.get(taskModal.taskId) || []
+        const taskMsgs = existingMsgs
         const streamText = subagentStreamingText.get(taskModal.taskId) || ''
         const streamThink = subagentStreamingThinking.get(taskModal.taskId) || ''
         const parentTask = allMessages.find(m => isToolCall(m) && m.id === taskModal.taskId) as ClaudeToolCall | undefined
