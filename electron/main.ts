@@ -1377,6 +1377,58 @@ function registerProxiedHandlers() {
     } catch { return [] }
   })
 
+  // GitHub CLI (gh)
+  registerHandler('github:check-cli', async (_ctx) => {
+    try {
+      const { execSync } = await import('child_process')
+      execSync('gh --version', { encoding: 'utf-8', timeout: 5000, shell: true })
+      try {
+        execSync('gh auth status', { encoding: 'utf-8', timeout: 5000, shell: true, stdio: 'pipe' })
+        return { installed: true, authenticated: true }
+      } catch {
+        return { installed: true, authenticated: false }
+      }
+    } catch {
+      return { installed: false, authenticated: false }
+    }
+  })
+  registerHandler('github:pr-list', async (_ctx, cwd: string) => {
+    try {
+      const { execSync } = await import('child_process')
+      const raw = execSync('gh pr list --json number,title,state,author,createdAt,updatedAt,labels,headRefName,isDraft --limit 50', { cwd, encoding: 'utf-8', timeout: 15000, shell: true, maxBuffer: 5 * 1024 * 1024 })
+      return JSON.parse(raw)
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+  registerHandler('github:issue-list', async (_ctx, cwd: string) => {
+    try {
+      const { execSync } = await import('child_process')
+      const raw = execSync('gh issue list --json number,title,state,author,createdAt,updatedAt,labels --limit 50', { cwd, encoding: 'utf-8', timeout: 15000, shell: true, maxBuffer: 5 * 1024 * 1024 })
+      return JSON.parse(raw)
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+  registerHandler('github:pr-view', async (_ctx, cwd: string, number: number) => {
+    try {
+      const { execSync } = await import('child_process')
+      const raw = execSync(`gh pr view ${number} --json number,title,state,author,body,comments,reviews,createdAt,headRefName,baseRefName,additions,deletions,files`, { cwd, encoding: 'utf-8', timeout: 15000, shell: true, maxBuffer: 5 * 1024 * 1024 })
+      return JSON.parse(raw)
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+  registerHandler('github:issue-view', async (_ctx, cwd: string, number: number) => {
+    try {
+      const { execSync } = await import('child_process')
+      const raw = execSync(`gh issue view ${number} --json number,title,state,author,body,comments,createdAt,labels`, { cwd, encoding: 'utf-8', timeout: 15000, shell: true, maxBuffer: 5 * 1024 * 1024 })
+      return JSON.parse(raw)
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   // File system
   // File watcher for auto-refresh
   const fileWatchers = new Map<string, ReturnType<typeof fsSync.watch>>()

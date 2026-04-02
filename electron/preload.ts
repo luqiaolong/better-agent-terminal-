@@ -221,6 +221,13 @@ const electronAPI = {
       return () => ipcRenderer.removeListener('claude:prompt-suggestion', handler)
     },
   },
+  github: {
+    checkCli: () => ipcRenderer.invoke('github:check-cli') as Promise<{ installed: boolean; authenticated: boolean }>,
+    listPRs: (cwd: string) => ipcRenderer.invoke('github:pr-list', cwd),
+    listIssues: (cwd: string) => ipcRenderer.invoke('github:issue-list', cwd),
+    viewPR: (cwd: string, number: number) => ipcRenderer.invoke('github:pr-view', cwd, number),
+    viewIssue: (cwd: string, number: number) => ipcRenderer.invoke('github:issue-view', cwd, number),
+  },
   git: {
     getGithubUrl: (folderPath: string) => ipcRenderer.invoke('git:get-github-url', folderPath) as Promise<string | null>,
     getBranch: (cwd: string) => ipcRenderer.invoke('git:branch', cwd) as Promise<string | null>,

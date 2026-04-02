@@ -148,7 +148,31 @@
   "workspace": {
     "terminal": "終端",
     "files": "檔案",
-    "git": "Git"
+    "git": "Git",
+    "github": "GitHub"
+  },
+
+  "github": {
+    "pullRequests": "Pull Requests",
+    "issues": "Issues",
+    "refresh": "重新整理",
+    "loading": "載入中...",
+    "sendToClaude": "傳送到 Claude",
+    "sentToClaude": "已傳送到 Claude",
+    "consentTitle": "GitHub 整合",
+    "consentMessage": "此功能使用 GitHub CLI (gh) 從 GitHub 擷取 Pull Requests 和 Issues。",
+    "consentButton": "啟用 GitHub 整合",
+    "cliNotInstalled": "未安裝 GitHub CLI (gh)。請從 cli.github.com 安裝",
+    "notAuthenticated": "尚未登入 GitHub。請在終端執行 'gh auth login'",
+    "noPRs": "沒有開啟中的 Pull Request",
+    "noIssues": "沒有開啟中的 Issue",
+    "selectItem": "選擇項目以檢視詳情",
+    "draft": "草稿",
+    "noDescription": "無描述",
+    "changedFiles": "變更檔案",
+    "comments": "留言",
+    "reviews": "審查",
+    "fetchError": "從 GitHub 擷取資料失敗"
   },
 
   "terminal": {

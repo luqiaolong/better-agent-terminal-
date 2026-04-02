@@ -12,14 +12,15 @@ import { AgentPresetId, getAgentPreset } from '../types/agent-presets'
 const MainPanel = lazy(() => import('./MainPanel').then(m => ({ default: m.MainPanel })))
 const FileTree = lazy(() => import('./FileTree').then(m => ({ default: m.FileTree })))
 const GitPanel = lazy(() => import('./GitPanel').then(m => ({ default: m.GitPanel })))
+const GitHubPanel = lazy(() => import('./GitHubPanel').then(m => ({ default: m.GitHubPanel })))
 
-type WorkspaceTab = 'terminal' | 'files' | 'git'
+type WorkspaceTab = 'terminal' | 'files' | 'git' | 'github'
 const TAB_KEY = 'better-terminal-workspace-tab'
 
 function loadWorkspaceTab(): WorkspaceTab {
   try {
     const saved = localStorage.getItem(TAB_KEY)
-    if (saved === 'terminal' || saved === 'files' || saved === 'git') return saved
+    if (saved === 'terminal' || saved === 'files' || saved === 'git' || saved === 'github') return saved
   } catch { /* ignore */ }
   return 'terminal'
 }
@@ -102,6 +103,22 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
   const [showCloseConfirm, setShowCloseConfirm] = useState<string | null>(null)
   const [thumbnailSettings, setThumbnailSettings] = useState<ThumbnailSettings>(loadThumbnailSettings)
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(loadWorkspaceTab)
+  const [hasGithubRemote, setHasGithubRemote] = useState(false)
+
+  // Detect GitHub remote
+  useEffect(() => {
+    window.electronAPI.git.getGithubUrl(workspace.folderPath).then(url => {
+      setHasGithubRemote(!!url)
+    }).catch(() => setHasGithubRemote(false))
+  }, [workspace.folderPath])
+
+  // Fallback if saved tab is 'github' but no GitHub remote
+  useEffect(() => {
+    if (activeTab === 'github' && !hasGithubRemote) {
+      setActiveTab('terminal')
+      try { localStorage.setItem(TAB_KEY, 'terminal') } catch { /* ignore */ }
+    }
+  }, [hasGithubRemote, activeTab])
 
   const handleTabChange = useCallback((tab: WorkspaceTab) => {
     setActiveTab(tab)
@@ -112,7 +129,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
   useEffect(() => {
     if (!isActive) return
 
-    const TABS: WorkspaceTab[] = ['terminal', 'files', 'git']
+    const TABS: WorkspaceTab[] = hasGithubRemote ? ['terminal', 'files', 'git', 'github'] : ['terminal', 'files', 'git']
 
     const handleCycleTab = (e: Event) => {
       const { direction } = (e as CustomEvent).detail as { direction: number }
@@ -136,7 +153,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
       window.removeEventListener('workspace-cycle-tab', handleCycleTab)
       window.removeEventListener('workspace-switch-tab', handleSwitchTab)
     }
-  }, [isActive])
+  }, [isActive, hasGithubRemote])
 
   // Handle thumbnail bar resize
   const handleThumbnailResize = useCallback((delta: number) => {
@@ -385,12 +402,21 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
   // mainTerminal: the currently focused or first available terminal
   const mainTerminal = focusedTerminal || agentTerminal || terminals[0]
 
+  // Send content to the active Claude agent session
+  const handleSendToClaude = useCallback(async (content: string) => {
+    if (!agentTerminal) return false
+    await window.electronAPI.claude.sendMessage(agentTerminal.id, content)
+    handleTabChange('terminal')
+    workspaceStore.setFocusedTerminal(agentTerminal.id)
+    return true
+  }, [agentTerminal, handleTabChange])
+
   // Show all terminals in thumbnail bar (clicking switches focus)
   const thumbnailTerminals = terminals
 
   return (
     <div className="workspace-view">
-      {/* Top tab bar: Terminal | Files | Git */}
+      {/* Top tab bar: Terminal | Files | Git | GitHub */}
       <div className="workspace-tab-bar">
         <button
           className={`workspace-tab-btn ${activeTab === 'terminal' ? 'active' : ''}`}
@@ -410,6 +436,14 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         >
           {t('workspace.git')}
         </button>
+        {hasGithubRemote && (
+          <button
+            className={`workspace-tab-btn ${activeTab === 'github' ? 'active' : ''}`}
+            onClick={() => handleTabChange('github')}
+          >
+            {t('workspace.github')}
+          </button>
+        )}
       </div>
 
       {/* Main content area - terminals always rendered (keep processes alive) */}
@@ -445,6 +479,14 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         <Suspense fallback={<div className="loading-panel" />}>
           <div className="workspace-tab-content">
             <GitPanel workspaceFolderPath={workspace.folderPath} />
+          </div>
+        </Suspense>
+      )}
+
+      {activeTab === 'github' && hasGithubRemote && (
+        <Suspense fallback={<div className="loading-panel" />}>
+          <div className="workspace-tab-content">
+            <GitHubPanel workspaceFolderPath={workspace.folderPath} onSendToClaude={handleSendToClaude} />
           </div>
         </Suspense>
       )}

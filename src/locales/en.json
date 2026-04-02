@@ -148,7 +148,31 @@
   "workspace": {
     "terminal": "Terminal",
     "files": "Files",
-    "git": "Git"
+    "git": "Git",
+    "github": "GitHub"
+  },
+
+  "github": {
+    "pullRequests": "Pull Requests",
+    "issues": "Issues",
+    "refresh": "Refresh",
+    "loading": "Loading...",
+    "sendToClaude": "Send to Claude",
+    "sentToClaude": "Sent to Claude",
+    "consentTitle": "GitHub Integration",
+    "consentMessage": "This feature uses the GitHub CLI (gh) to fetch pull requests and issues from GitHub.",
+    "consentButton": "Enable GitHub Integration",
+    "cliNotInstalled": "GitHub CLI (gh) is not installed. Install from cli.github.com",
+    "notAuthenticated": "Not logged in to GitHub. Run 'gh auth login' in a terminal.",
+    "noPRs": "No open pull requests",
+    "noIssues": "No open issues",
+    "selectItem": "Select an item to view details",
+    "draft": "Draft",
+    "noDescription": "no description",
+    "changedFiles": "Changed Files",
+    "comments": "Comments",
+    "reviews": "Reviews",
+    "fetchError": "Failed to fetch data from GitHub"
   },
 
   "terminal": {

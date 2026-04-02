@@ -27,6 +27,8 @@ export const PROXIED_CHANNELS = new Set([
   'workspace:save', 'workspace:load',
   // Settings
   'settings:save', 'settings:load', 'settings:get-shell-path',
+  // GitHub
+  'github:check-cli', 'github:pr-list', 'github:issue-list', 'github:pr-view', 'github:issue-view',
   // Git
   'git:branch', 'git:log', 'git:diff', 'git:diff-files', 'git:status', 'git:get-github-url', 'git:getRoot',
   // FS

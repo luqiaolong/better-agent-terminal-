@@ -143,8 +143,33 @@
   "workspace": {
     "terminal": "终端",
     "files": "文件",
-    "git": "Git"
+    "git": "Git",
+    "github": "GitHub"
   },
+
+  "github": {
+    "pullRequests": "Pull Requests",
+    "issues": "Issues",
+    "refresh": "刷新",
+    "loading": "加载中...",
+    "sendToClaude": "发送到 Claude",
+    "sentToClaude": "已发送到 Claude",
+    "consentTitle": "GitHub 集成",
+    "consentMessage": "此功能使用 GitHub CLI (gh) 从 GitHub 获取 Pull Requests 和 Issues。",
+    "consentButton": "启用 GitHub 集成",
+    "cliNotInstalled": "未安装 GitHub CLI (gh)。请从 cli.github.com 安装",
+    "notAuthenticated": "尚未登录 GitHub。请在终端运行 'gh auth login'",
+    "noPRs": "没有打开的 Pull Request",
+    "noIssues": "没有打开的 Issue",
+    "selectItem": "选择项目以查看详情",
+    "draft": "草稿",
+    "noDescription": "无描述",
+    "changedFiles": "变更文件",
+    "comments": "评论",
+    "reviews": "审查",
+    "fetchError": "从 GitHub 获取数据失败"
+  },
+
   "terminal": {
     "doubleClickToRename": "双击以重命名",
     "hidePromptBox": "隐藏提示输入框",
