@@ -943,17 +943,16 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
   const handleModelSelect = useCallback(async (modelValue: string) => {
     // V2: warn that model change will recreate session and re-apply context
     if (isV2Session && modelValue !== currentModel) {
-      const ok = window.confirm(t('claude.v2ModelChangeWarning'))
+      const ok = await window.electronAPI.dialog.confirm(t('claude.v2ModelChangeWarning'))
       if (!ok) return
     }
     // V1: warn about 1M model cache inefficiency
     if (!isV2Session && modelValue.includes('[1m]') && modelValue !== currentModel) {
-      const ok = window.confirm(t('claude.v1Model1mWarning'))
+      const ok = await window.electronAPI.dialog.confirm(t('claude.v1Model1mWarning'))
       if (!ok) return
     }
     setShowModelList(false)
     setCurrentModel(modelValue)
-    // Restore focus to textarea after model list is dismissed (especially after window.confirm())
     setTimeout(() => textareaRef.current?.focus(), 0)
     await window.electronAPI.claude.setModel(sessionId, modelValue)
     workspaceStore.updateTerminalModel(sessionId, modelValue)
