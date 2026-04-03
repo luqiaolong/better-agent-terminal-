@@ -4,7 +4,7 @@
 
 <img src="assets/icon.png" width="128" height="128" alt="Better Agent Terminal">
 
-![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)
+![Version](https://img.shields.io/badge/version-2.1.21-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-lightgrey.svg)
 ![Electron](https://img.shields.io/badge/electron-28.3.3-47848F.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -55,6 +55,7 @@ Manage multiple project terminals in one window, with a built-in Claude Code age
 - **Split-panel layout** — 70% main panel + 30% scrollable thumbnail bar showing all terminals
 - **Multiple terminals per workspace** — Powered by xterm.js with full Unicode/CJK support
 - **Agent presets** — Pre-configured terminal roles: Claude Code, Gemini CLI, Codex, GitHub Copilot, or plain terminal
+- **Git worktree isolation** — Spawn Claude agents in an isolated worktree to prevent destructive changes to your main working tree
 - **Tab navigation** — Switch between Terminal, Files, and Git views per workspace
 - **File browser** — Search, navigate, and preview files with syntax highlighting (highlight.js)
 - **Git integration** — Commit log, diff viewer, branch display, untracked file list, GitHub link detection
@@ -70,6 +71,8 @@ Manage multiple project terminals in one window, with a built-in Claude Code age
 - **Rest/Wake sessions** — Pause and resume agent sessions from the context menu to save resources
 - **Statusline** — Live display of token usage, cost, context window %, model name, git branch, turn count, and session duration
 - **Usage monitoring** — Track API rate limits (5-hour and 7-day windows) via Anthropic OAuth
+- **Context usage panel** — Visualize token usage breakdown by category (code, conversation, tools, memory, etc.)
+- **Account switching** — `/login`, `/logout`, `/whoami` slash commands for managing Claude accounts
 - **Prompt history** — View and copy all previous user prompts from the statusline
 - **Image attachment** — Drag-drop or use the attach button (up to 5 images per message)
 - **Clickable URLs** — Markdown links and bare URLs open in the default browser
@@ -102,6 +105,11 @@ Manage multiple project terminals in one window, with a built-in Claude Code age
 |---|---|
 | `/resume` | Resume a previous Claude session from history |
 | `/model` | Switch between available Claude models |
+| `/new` / `/clear` | Reset session (clear conversation, fresh start) |
+| `/snippet` | Show snippets to Claude for management |
+| `/login` | Sign in to Claude (switch account) |
+| `/logout` | Sign out of Claude |
+| `/whoami` | Show current account info and usage |
 
 ---
 
@@ -114,11 +122,13 @@ brew tap tonyq-org/tap
 brew install --cask better-agent-terminal
 ```
 
-### Option 2: Chocolatey (Windows)
+### Option 2: Chocolatey (Windows) *(coming soon)*
 
 ```powershell
 choco install better-agent-terminal
 ```
+
+> Package is currently pending review on Chocolatey.org.
 
 ### Option 3: Download Release
 
@@ -197,6 +207,7 @@ better-agent-terminal/
 │   ├── preload.ts                     # Context bridge (window.electronAPI)
 │   ├── pty-manager.ts                 # PTY process lifecycle, multi-window broadcast
 │   ├── claude-agent-manager.ts        # Claude SDK session management
+│   ├── worktree-manager.ts            # Git worktree lifecycle (create, remove, rehydrate)
 │   ├── logger.ts                      # Disk-based logger (enable with BAT_DEBUG=1)
 │   ├── snippet-db.ts                  # SQLite snippet storage
 │   ├── profile-manager.ts            # Profile CRUD and persistence
@@ -339,17 +350,17 @@ Set the `BAT_DEBUG=1` environment variable to enable disk-based debug logging. L
 
 ### Version Format
 
-Version follows: `1.YY.MMDDHHmmss`
+Follows semantic versioning: `vMAJOR.MINOR.PATCH` (e.g., `v2.1.21`)
 
-Example: `v1.25.1219091538` = 2025-12-19 09:15:38
+Pre-release versions use the `-pre.N` suffix (e.g., `v2.1.21-pre.1`). Tags containing `-pre` are automatically marked as pre-release on GitHub and do not update the Homebrew tap.
 
 ### Automated Release (GitHub Actions)
 
 Push a tag to trigger builds for all platforms:
 
 ```bash
-git tag v1.52.0
-git push origin v1.52.0
+git tag v2.1.21
+git push origin v2.1.21
 ```
 
 ---
