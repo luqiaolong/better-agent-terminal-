@@ -198,7 +198,8 @@ export function ThumbnailBar({
                       onClick={() => { onAddClaudeAgent(); setShowAddMenu(false) }}
                     >
                       <span className="thumbnail-add-menu-icon" style={{ color: '#d97706' }}>✦</span>
-                      Claude Code
+                      Claude Agent V1
+                      <span className="thumbnail-add-menu-suggested">suggested</span>
                     </div>
                   )}
                   {onAddClaudeAgentV2 && (
@@ -207,7 +208,7 @@ export function ThumbnailBar({
                       onClick={() => { onAddClaudeAgentV2(); setShowAddMenu(false) }}
                     >
                       <span className="thumbnail-add-menu-icon" style={{ color: '#eab308' }}>✦</span>
-                      Claude Code V2
+                      Claude Agent V2
                     </div>
                   )}
                   {onAddClaudeWorktree && (
@@ -216,7 +217,7 @@ export function ThumbnailBar({
                       onClick={() => { onAddClaudeWorktree(); setShowAddMenu(false) }}
                     >
                       <span className="thumbnail-add-menu-icon" style={{ color: '#22c55e' }}>🌳</span>
-                      Claude Code (Worktree)
+                      Claude Agent V1 (Worktree)
                     </div>
                   )}
                   {onAddClaudeCli && (
@@ -226,6 +227,7 @@ export function ThumbnailBar({
                     >
                       <span className="thumbnail-add-menu-icon" style={{ color: '#d97706' }}>▶</span>
                       Claude CLI
+                      <span className="thumbnail-add-menu-suggested">suggested</span>
                     </div>
                   )}
                   {onAddClaudeCliWorktree && (

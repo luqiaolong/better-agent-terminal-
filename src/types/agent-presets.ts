@@ -10,6 +10,7 @@ export interface AgentPreset {
   color: string;
   command?: string;  // 可選的自動啟動命令
   debug?: boolean;   // 僅在 debug 模式下顯示
+  suggested?: boolean; // 標記為推薦選項
 }
 
 export type AgentPresetId = 'claude-code' | 'claude-code-v2' | 'claude-code-worktree' | 'claude-cli' | 'claude-cli-worktree' | 'gemini-cli' | 'codex-cli' | 'copilot-cli' | 'none';
@@ -17,20 +18,21 @@ export type AgentPresetId = 'claude-code' | 'claude-code-v2' | 'claude-code-work
 export const AGENT_PRESETS: AgentPreset[] = [
   {
     id: 'claude-code',
-    name: 'Claude Code',
+    name: 'Claude Agent V1',
     icon: '✦',
     color: '#d97706',
-    command: 'claude --continue'
+    command: 'claude --continue',
+    suggested: true,
   },
   {
     id: 'claude-code-v2',
-    name: 'Claude Code V2',
+    name: 'Claude Agent V2',
     icon: '✦',
     color: '#eab308',
   },
   {
     id: 'claude-code-worktree',
-    name: 'Claude Code (Worktree)',
+    name: 'Claude Agent V1 (Worktree)',
     icon: '🌳',
     color: '#22c55e',
     debug: true,
@@ -40,6 +42,7 @@ export const AGENT_PRESETS: AgentPreset[] = [
     name: 'Claude CLI',
     icon: '▶',
     color: '#d97706',
+    suggested: true,
   },
   {
     id: 'claude-cli-worktree',
