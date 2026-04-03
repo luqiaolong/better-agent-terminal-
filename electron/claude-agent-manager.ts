@@ -1904,7 +1904,7 @@ export class ClaudeAgentManager {
     this.send('claude:history', sessionId, items)
   }
 
-  async resumeSession(sessionId: string, sdkSessionIdToResume: string, cwd: string, model?: string, apiVersion?: 'v1' | 'v2'): Promise<boolean> {
+  async resumeSession(sessionId: string, sdkSessionIdToResume: string, cwd: string, model?: string, apiVersion?: 'v1' | 'v2', useWorktree?: boolean, worktreePath?: string, worktreeBranch?: string): Promise<boolean> {
     // Stop current session if running
     const session = this.sessions.get(sessionId)
     if (session) {
@@ -1915,7 +1915,10 @@ export class ClaudeAgentManager {
     // Store the SDK session ID so startSession will use it for resume
     sdkSessionIds.set(sessionId, sdkSessionIdToResume)
     // startSession already calls loadSessionHistory when sdkSessionId is provided
-    const result = await this.startSession(sessionId, { cwd, sdkSessionId: sdkSessionIdToResume, model, permissionMode: 'bypassPermissions', apiVersion })
+    const result = await this.startSession(sessionId, {
+      cwd, sdkSessionId: sdkSessionIdToResume, model, permissionMode: 'bypassPermissions', apiVersion,
+      ...(useWorktree ? { useWorktree: true, worktreePath, worktreeBranch } : {}),
+    })
     return result
   }
 

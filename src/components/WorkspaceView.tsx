@@ -368,7 +368,10 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
       if (terminal.agentPreset === 'claude-code' || terminal.agentPreset === 'claude-code-v2' || terminal.agentPreset === 'claude-code-worktree') {
         // Stop and restart Claude session
         await window.electronAPI.claude.stopSession(id)
-        await window.electronAPI.claude.startSession(id, { cwd: terminal.cwd, ...(terminal.agentPreset === 'claude-code-worktree' ? { useWorktree: true } : {}) })
+        await window.electronAPI.claude.startSession(id, {
+          cwd: terminal.cwd,
+          ...(terminal.agentPreset === 'claude-code-worktree' ? { useWorktree: true, worktreePath: terminal.worktreePath, worktreeBranch: terminal.worktreeBranch } : {}),
+        })
       } else {
         const cwd = await window.electronAPI.pty.getCwd(id) || terminal.cwd
         const shell = await getShellFromSettings()

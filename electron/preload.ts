@@ -179,8 +179,8 @@ const electronAPI = {
       ipcRenderer.invoke('claude:resolve-ask-user', sessionId, toolUseId, answers),
     listSessions: (cwd: string) =>
       ipcRenderer.invoke('claude:list-sessions', cwd),
-    resumeSession: (sessionId: string, sdkSessionId: string, cwd: string, model?: string, apiVersion?: 'v1' | 'v2') =>
-      ipcRenderer.invoke('claude:resume-session', sessionId, sdkSessionId, cwd, model, apiVersion),
+    resumeSession: (sessionId: string, sdkSessionId: string, cwd: string, model?: string, apiVersion?: 'v1' | 'v2', useWorktree?: boolean, worktreePath?: string, worktreeBranch?: string) =>
+      ipcRenderer.invoke('claude:resume-session', sessionId, sdkSessionId, cwd, model, apiVersion, useWorktree, worktreePath, worktreeBranch),
     forkSession: (sessionId: string) =>
       ipcRenderer.invoke('claude:fork-session', sessionId) as Promise<{ newSdkSessionId: string } | null>,
     stopTask: (sessionId: string, taskId: string) =>

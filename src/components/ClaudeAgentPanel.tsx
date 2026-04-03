@@ -811,7 +811,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
       if (savedSdkSessionId) {
         dlog(`${stag} AUTO-RESUME sdkSessionId=${savedSdkSessionId.slice(0, 8)}`)
         historyLoadedRef.current = true
-        window.electronAPI.claude.resumeSession(sessionId, savedSdkSessionId, cwd, savedModel, apiVersion)
+        window.electronAPI.claude.resumeSession(sessionId, savedSdkSessionId, cwd, savedModel, apiVersion,
+          useWorktree ? true : undefined, terminal?.worktreePath, terminal?.worktreeBranch)
       } else {
         dlog(`${stag} FRESH startSession`)
         window.electronAPI.claude.startSession(sessionId, {
