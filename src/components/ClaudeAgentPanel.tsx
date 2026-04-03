@@ -2952,6 +2952,15 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
               title="View diff between worktree and source branch"
             >Diff</button>
             <button
+              className="claude-worktree-btn"
+              onClick={async () => {
+                if (!await window.electronAPI.dialog.confirm(`Merge ${worktreeInfo.branchName} into ${worktreeInfo.sourceBranch}?`)) return
+                const cmd = `use host folder (${worktreeInfo.gitRoot}) to merge worktree folder (${worktreeInfo.worktreePath})`
+                await window.electronAPI.claude.sendMessage(sessionId, cmd)
+              }}
+              title="Fill merge command for Claude to execute on host repo"
+            >Merge</button>
+            <button
               className="claude-worktree-btn claude-worktree-btn-danger"
               onClick={async () => {
                 if (!await window.electronAPI.dialog.confirm('Discard worktree and all its changes?')) return
