@@ -137,8 +137,9 @@ export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive 
         dlog(`[resize] isActive effect → doResize terminal=${terminalId}`)
         doResizeRef.current?.()
 
-        // Force refresh terminal content to fix black screen after visibility change
+        // Force refresh terminal content to fix black screen / text overlap after visibility change
         requestAnimationFrame(() => {
+          terminal.clearTextureAtlas()
           terminal.refresh(0, terminal.rows - 1)
           terminal.focus()
 
@@ -238,6 +239,8 @@ export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive 
     })
     terminal.loadAddon(fitAddon)
     terminal.loadAddon(webLinksAddon)
+    terminal.loadAddon(unicode11Addon)
+    terminal.unicode.activeVersion = '11'
     terminal.open(containerRef.current)
 
     // Register file:// URL link provider (WebLinksAddon only handles http/https)
@@ -267,10 +270,6 @@ export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive 
         callback(links.length > 0 ? links : undefined)
       }
     })
-
-    // Load unicode11 addon after terminal is open
-    terminal.loadAddon(unicode11Addon)
-    terminal.unicode.activeVersion = '11'
 
     // Deduplicated resize helper — avoids redundant pty.resize IPC calls
     let lastSentCols = 0
