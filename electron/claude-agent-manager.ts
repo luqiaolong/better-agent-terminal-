@@ -1299,8 +1299,30 @@ export class ClaudeAgentManager {
         session.v2SessionModel = effectiveModel
       }
 
-      // Send message
-      await session.v2Session.send(prompt || ' ')
+      // Send message — if images are attached, construct a multi-content SDKUserMessage
+      if (_images && _images.length > 0) {
+        const imageBlocks = _images
+          .map(dataUrl => dataUrlToContentBlock(dataUrl))
+          .filter(Boolean) as Array<{ type: 'image'; source: { type: 'base64'; media_type: string; data: string } }>
+        if (imageBlocks.length > 0) {
+          const contentBlocks = [
+            ...imageBlocks,
+            ...(prompt ? [{ type: 'text' as const, text: prompt }] : []),
+          ]
+          await session.v2Session.send({
+            type: 'user' as const,
+            message: {
+              role: 'user' as const,
+              content: contentBlocks,
+            },
+            parent_tool_use_id: null,
+          })
+        } else {
+          await session.v2Session.send(prompt || ' ')
+        }
+      } else {
+        await session.v2Session.send(prompt || ' ')
+      }
 
       // Stream messages — reuse shared processMessage()
       for await (const message of session.v2Session.stream()) {
