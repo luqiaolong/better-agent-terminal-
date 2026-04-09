@@ -618,7 +618,7 @@ export class ClaudeAgentManager {
         includePartialMessages: true,
         promptSuggestions: true,
         settingSources: ['user', 'project', 'local'],
-        thinking: { type: 'adaptive' },
+        thinking: { type: 'enabled' },
         effort: session.effort,
         toolConfig: { askUserQuestion: { previewFormat: 'html' } },
         agentProgressSummaries: true,
