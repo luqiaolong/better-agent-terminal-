@@ -389,6 +389,7 @@ export class ClaudeAgentManager {
           branchName: worktreeInfo.branchName,
           worktreePath: worktreeInfo.worktreePath,
           sourceBranch: worktreeInfo.sourceBranch,
+          gitRoot: worktreeInfo.gitRoot,
         })
       } else if (options.useWorktree && !worktreeInfo) {
         this.send('claude:message', sessionId, {

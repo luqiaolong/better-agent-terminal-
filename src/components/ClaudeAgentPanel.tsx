@@ -193,7 +193,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
   const [taskModal, setTaskModal] = useState<{ taskId: string; label: string; subagentType?: string } | null>(null)
   const [taskModalTick, setTaskModalTick] = useState(0)
   const [showPromptHistory, setShowPromptHistory] = useState(false)
-  const [worktreeInfo, setWorktreeInfo] = useState<{ branchName: string; worktreePath: string; sourceBranch: string } | null>(() => {
+  const [worktreeInfo, setWorktreeInfo] = useState<{ branchName: string; worktreePath: string; sourceBranch: string; gitRoot?: string } | null>(() => {
     // Restore from persisted terminal state
     if (terminal?.worktreePath && terminal?.worktreeBranch) {
       return { branchName: terminal.worktreeBranch, worktreePath: terminal.worktreePath, sourceBranch: '' }
@@ -769,7 +769,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         setPromptSuggestion(suggestion)
       }),
 
-      api.onWorktreeInfo((sid: string, info: { branchName: string; worktreePath: string; sourceBranch: string } | null) => {
+      api.onWorktreeInfo((sid: string, info: { branchName: string; worktreePath: string; sourceBranch: string; gitRoot?: string } | null) => {
         if (sid !== sessionId) return
         setWorktreeInfo(info)
         // Persist to terminal state for workspace save/load

@@ -230,8 +230,8 @@ const electronAPI = {
       ipcRenderer.on('claude:rate-limit', handler)
       return () => ipcRenderer.removeListener('claude:rate-limit', handler)
     },
-    onWorktreeInfo: (callback: (sessionId: string, info: { branchName: string; worktreePath: string; sourceBranch: string } | null) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, sessionId: string, info: { branchName: string; worktreePath: string; sourceBranch: string } | null) => callback(sessionId, info)
+    onWorktreeInfo: (callback: (sessionId: string, info: { branchName: string; worktreePath: string; sourceBranch: string; gitRoot?: string } | null) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, sessionId: string, info: { branchName: string; worktreePath: string; sourceBranch: string; gitRoot?: string } | null) => callback(sessionId, info)
       ipcRenderer.on('claude:worktree-info', handler)
       return () => ipcRenderer.removeListener('claude:worktree-info', handler)
     },
