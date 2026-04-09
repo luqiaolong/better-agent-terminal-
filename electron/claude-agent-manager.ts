@@ -368,7 +368,7 @@ export class ClaudeAgentManager {
         pendingPermissions: new Map(),
         pendingAskUser: new Map(),
         permissionMode: options.permissionMode || 'default',
-        effort: options.effort || 'medium',
+        effort: options.effort || 'high',
         model: options.model,
         messageQueue: [],
         activeTasks: new Map(),
