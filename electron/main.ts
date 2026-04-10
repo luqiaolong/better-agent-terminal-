@@ -450,6 +450,34 @@ const launchProfileId = profileArg ? profileArg.split('=')[1] || null : null
 const windowRegistry = new WindowRegistry()
 profileManager.setWindowRegistry(windowRegistry)
 
+// Helper: load snapshot for a profile, handling remote profiles by fetching from the remote server
+async function loadProfileSnapshot(profileId: string): Promise<ProfileSnapshot | null> {
+  const profileEntry = await profileManager.getProfile(profileId)
+  if (profileEntry?.type === 'remote' && profileEntry.remoteHost && profileEntry.remoteToken) {
+    try {
+      const client = new RemoteClient(getAllWindows)
+      const ok = await client.connect(
+        profileEntry.remoteHost,
+        profileEntry.remotePort || 9876,
+        profileEntry.remoteToken,
+      )
+      if (!ok) {
+        logger.error(`[profile] remote connect failed for profile ${profileId} (${profileEntry.remoteHost}:${profileEntry.remotePort})`)
+        return null
+      }
+      remoteClient = client
+      const targetProfileId = profileEntry.remoteProfileId || 'default'
+      const snapshot = await client.invoke('profile:load-snapshot', [targetProfileId]) as ProfileSnapshot | null
+      logger.log(`[profile] remote profile ${profileId} → got ${snapshot?.windows?.length ?? 0} window(s) from remote (target: ${targetProfileId})`)
+      return snapshot
+    } catch (err) {
+      logger.error(`[profile] remote profile ${profileId} snapshot fetch failed:`, err instanceof Error ? err.message : String(err))
+      return null
+    }
+  }
+  return await profileManager.loadSnapshot(profileId)
+}
+
 app.whenReady().then(async () => {
   const t0 = Date.now()
   logger.init(app.getPath('userData'))
@@ -474,34 +502,6 @@ app.whenReady().then(async () => {
 
   // Clear windows.json — it's purely runtime state, snapshots are the source of truth
   await windowRegistry.clear()
-
-  // Helper: load snapshot for a profile, handling remote profiles by fetching from the remote server
-  const loadProfileSnapshot = async (profileId: string): Promise<ProfileSnapshot | null> => {
-    const profileEntry = await profileManager.getProfile(profileId)
-    if (profileEntry?.type === 'remote' && profileEntry.remoteHost && profileEntry.remoteToken) {
-      try {
-        const client = new RemoteClient(getAllWindows)
-        const ok = await client.connect(
-          profileEntry.remoteHost,
-          profileEntry.remotePort || 9876,
-          profileEntry.remoteToken,
-        )
-        if (!ok) {
-          logger.error(`[profile] remote connect failed for profile ${profileId} (${profileEntry.remoteHost}:${profileEntry.remotePort})`)
-          return null
-        }
-        remoteClient = client
-        const targetProfileId = profileEntry.remoteProfileId || 'default'
-        const snapshot = await client.invoke('profile:load-snapshot', [targetProfileId]) as ProfileSnapshot | null
-        logger.log(`[profile] remote profile ${profileId} → got ${snapshot?.windows?.length ?? 0} window(s) from remote (target: ${targetProfileId})`)
-        return snapshot
-      } catch (err) {
-        logger.error(`[profile] remote profile ${profileId} snapshot fetch failed:`, err instanceof Error ? err.message : String(err))
-        return null
-      }
-    }
-    return await profileManager.loadSnapshot(profileId)
-  }
 
   // Helper: apply a snapshot's windows into the registry
   const applySnapshot = async (profileId: string, snapshot: ProfileSnapshot): Promise<number> => {
