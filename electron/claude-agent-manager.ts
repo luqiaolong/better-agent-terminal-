@@ -1400,6 +1400,9 @@ export class ClaudeAgentManager {
   async stopSession(sessionId: string): Promise<boolean> {
     const session = this.sessions.get(sessionId)
     if (session) {
+      // Mark as not streaming FIRST — prevents sendMessage() from queuing
+      // new messages during the async interrupt() await
+      session.state.isStreaming = false
       session.messageQueue.length = 0
       // V2: close the persistent session
       if (session.apiVersion === 'v2' && session.v2Session) {
@@ -1408,7 +1411,7 @@ export class ClaudeAgentManager {
         } catch { /* ignore close errors */ }
         session.v2Session = undefined
         session.abortController.abort()
-      } else if (session.queryInstance && session.state.isStreaming) {
+      } else if (session.queryInstance) {
         // V1: Use graceful interrupt — lets user type to continue
         try {
           await session.queryInstance.interrupt()
@@ -1418,7 +1421,6 @@ export class ClaudeAgentManager {
       } else {
         session.abortController.abort()
       }
-      session.state.isStreaming = false
       // Keep the session alive so the user can continue the conversation
       return true
     }
@@ -1429,13 +1431,13 @@ export class ClaudeAgentManager {
   abortSession(sessionId: string): boolean {
     const session = this.sessions.get(sessionId)
     if (session) {
+      session.state.isStreaming = false
       session.messageQueue.length = 0
       if (session.apiVersion === 'v2' && session.v2Session) {
         try { session.v2Session.close() } catch { /* ignore */ }
         session.v2Session = undefined
       }
       session.abortController.abort()
-      session.state.isStreaming = false
       return true
     }
     return false
