@@ -88,10 +88,26 @@ export default function App() {
   // Track workspaces that have been visited (for lazy mounting)
   const [mountedWorkspaces, setMountedWorkspaces] = useState<Set<string>>(new Set())
 
-  // Sync window title with active profile
+  // Sync window title with active profile, window index, and account info
+  const [windowIndex, setWindowIndex] = useState<number>(1)
+  const [authInfo, setAuthInfo] = useState<{ email?: string; subscriptionType?: string } | null>(null)
   useEffect(() => {
-    document.title = `Better Agent Terminal - ${activeProfileName}`
-  }, [activeProfileName])
+    window.electronAPI.app.getWindowIndex().then(setWindowIndex)
+  }, [])
+  useEffect(() => {
+    const fetchAuth = () => {
+      window.electronAPI.claude.authStatus().then(info => {
+        if (info) setAuthInfo({ email: info.email, subscriptionType: info.subscriptionType })
+      }).catch(() => {})
+    }
+    fetchAuth()
+    const interval = setInterval(fetchAuth, 120_000)
+    return () => clearInterval(interval)
+  }, [])
+  useEffect(() => {
+    const authSuffix = authInfo?.email ? ` ( ${authInfo.email} / ${authInfo.subscriptionType || 'unknown'} )` : ''
+    document.title = `Better Agent Terminal - ${activeProfileName}:${windowIndex}${authSuffix}`
+  }, [activeProfileName, windowIndex, authInfo])
 
   // Lazy mount: only render a workspace's terminals once it has been activated
   useEffect(() => {
