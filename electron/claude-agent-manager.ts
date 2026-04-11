@@ -1409,7 +1409,7 @@ export class ClaudeAgentManager {
         session.v2Session = undefined
         session.abortController.abort()
       } else if (session.queryInstance && session.state.isStreaming) {
-        // V1: Use graceful interrupt if the query is active, fallback to abort
+        // V1: Use graceful interrupt — lets user type to continue
         try {
           await session.queryInstance.interrupt()
         } catch {
@@ -1420,6 +1420,22 @@ export class ClaudeAgentManager {
       }
       session.state.isStreaming = false
       // Keep the session alive so the user can continue the conversation
+      return true
+    }
+    return false
+  }
+
+  /** Hard abort — immediately kill the query loop, no graceful interrupt */
+  abortSession(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId)
+    if (session) {
+      session.messageQueue.length = 0
+      if (session.apiVersion === 'v2' && session.v2Session) {
+        try { session.v2Session.close() } catch { /* ignore */ }
+        session.v2Session = undefined
+      }
+      session.abortController.abort()
+      session.state.isStreaming = false
       return true
     }
     return false

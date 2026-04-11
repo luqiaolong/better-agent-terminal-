@@ -1099,6 +1099,33 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
       return
     }
 
+    // Intercept /abort command — force stop current operation
+    if (trimmed === '/abort') {
+      clearInput()
+      window.electronAPI.claude.abortSession(sessionId)
+      setIsStreaming(false)
+      setIsInterrupted(false)
+      setStreamingText('')
+      setStreamingThinking('')
+      setPendingPermission(null)
+      setMessages(prev => {
+        const updated = prev.map(m => {
+          if ('toolName' in m && (m as ClaudeToolCall).status === 'running') {
+            return { ...m, status: 'error', denied: true } as ClaudeToolCall
+          }
+          return m
+        })
+        return [...updated, {
+          id: `sys-abort-${Date.now()}`,
+          sessionId,
+          role: 'system' as const,
+          content: 'Session aborted.',
+          timestamp: Date.now(),
+        }]
+      })
+      return
+    }
+
     // Intercept /new or /clear command — reset session (clear conversation, fresh start)
     if (!isStreaming && (trimmed === '/new' || trimmed === '/clear')) {
       clearInput()
@@ -1262,9 +1289,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
 
   const handleStop = useCallback(() => {
     if (!isStreaming && !isInterrupted) return
-    if (!isInterrupted) {
-      window.electronAPI.claude.stopSession(sessionId)
-    }
+    // Hard abort — immediately kill the query loop
+    window.electronAPI.claude.abortSession(sessionId)
     setIsStreaming(false)
     setIsInterrupted(false)
     setStreamingText('')
@@ -1324,6 +1350,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
       { name: 'resume', description: 'Resume a previous session', argumentHint: '' },
       { name: 'model', description: 'Select model', argumentHint: '' },
       { name: 'login', description: 'Sign in to Claude (switch account)', argumentHint: '' },
+      { name: 'abort', description: 'Force stop current operation immediately', argumentHint: '' },
       { name: 'logout', description: 'Sign out of Claude', argumentHint: '' },
       { name: 'whoami', description: 'Show current account info', argumentHint: '' },
     ]

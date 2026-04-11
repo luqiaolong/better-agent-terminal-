@@ -87,6 +87,8 @@ const electronAPI = {
       ipcRenderer.invoke('claude:send-message', sessionId, prompt, images),
     stopSession: (sessionId: string) =>
       ipcRenderer.invoke('claude:stop-session', sessionId),
+    abortSession: (sessionId: string) =>
+      ipcRenderer.invoke('claude:abort-session', sessionId),
     onMessage: (callback: (sessionId: string, message: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, sessionId: string, message: unknown) => callback(sessionId, message)
       ipcRenderer.on('claude:message', handler)

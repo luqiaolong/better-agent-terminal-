@@ -825,6 +825,7 @@ function registerProxiedHandlers() {
   registerHandler('claude:start-session', (_ctx, sessionId: string, options: { cwd: string; prompt?: string; permissionMode?: string; model?: string; effort?: string; apiVersion?: 'v1' | 'v2'; useWorktree?: boolean; worktreePath?: string; worktreeBranch?: string }) => claudeManager?.startSession(sessionId, options))
   registerHandler('claude:send-message', (_ctx, sessionId: string, prompt: string, images?: string[]) => claudeManager?.sendMessage(sessionId, prompt, images))
   registerHandler('claude:stop-session', (_ctx, sessionId: string) => claudeManager?.stopSession(sessionId))
+  registerHandler('claude:abort-session', (_ctx, sessionId: string) => claudeManager?.abortSession(sessionId))
   registerHandler('claude:set-permission-mode', (_ctx, sessionId: string, mode: string) => claudeManager?.setPermissionMode(sessionId, mode as import('@anthropic-ai/claude-agent-sdk').PermissionMode))
   registerHandler('claude:set-model', (_ctx, sessionId: string, model: string) => claudeManager?.setModel(sessionId, model))
   registerHandler('claude:set-effort', (_ctx, sessionId: string, effort: string) => claudeManager?.setEffort(sessionId, effort as 'low' | 'medium' | 'high' | 'max'))
