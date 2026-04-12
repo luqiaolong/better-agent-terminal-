@@ -164,7 +164,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
     return t?.model || settingsStore.getSettings().defaultModel || ''
   })
   const [effortLevel, setEffortLevel] = useState<string>(() => {
-    return settingsStore.getSettings().defaultEffort || 'medium'
+    return settingsStore.getSettings().defaultEffort || 'high'
   })
   const [claudeUsage, setClaudeUsage] = useState(workspaceStore.claudeUsage)
   const [usageAccount, setUsageAccount] = useState(workspaceStore.usageAccount)
@@ -811,7 +811,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
       if (effectiveModel) setCurrentModel(effectiveModel)
 
       // Use global default effort
-      const effectiveEffort = globalSettings.defaultEffort || 'medium'
+      const effectiveEffort = globalSettings.defaultEffort || 'high'
       setEffortLevel(effectiveEffort)
 
       if (savedSdkSessionId) {
@@ -3111,6 +3111,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                 <option value="low">low</option>
                 <option value="medium">medium</option>
                 <option value="high">high</option>
+                <option value="max">max</option>
               </select>
             )}
             {accountInfo?.organization && (

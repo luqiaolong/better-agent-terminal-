@@ -22,8 +22,8 @@
     "test:file-drag": "npx tsx tests/file-drag-to-chat.test.ts"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.101",
-    "@anthropic-ai/claude-code": "^2.1.101",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.104",
+    "@anthropic-ai/claude-code": "^2.1.104",
     "@types/dompurify": "^3.0.5",
     "@types/qrcode": "^1.5.6",
     "@xterm/addon-fit": "^0.10.0",

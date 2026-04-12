@@ -1022,6 +1022,57 @@ export class ClaudeAgentManager {
     if (message.type === 'system') {
       const subtype = (message as { subtype?: string }).subtype
       logger.log(`[claude:system] subtype=${subtype} keys=${Object.keys(message).join(',')}`)
+      if (subtype === 'task_updated') {
+        const updMsg = message as {
+          task_id: string
+          patch: {
+            status?: 'pending' | 'running' | 'completed' | 'failed' | 'killed'
+            description?: string
+            end_time?: number
+            error?: string
+            is_backgrounded?: boolean
+          }
+        }
+        logger.log(`[task_updated] task_id=${updMsg.task_id} patch=${JSON.stringify(updMsg.patch)}`)
+        const task = session.activeTasks.get(updMsg.task_id)
+        if (task) {
+          task.lastProgressTime = Date.now()
+          task.stalled = false
+          if (updMsg.patch.description) {
+            task.summary = updMsg.patch.description
+          }
+          const terminalStatuses = ['completed', 'failed', 'killed']
+          if (updMsg.patch.status && terminalStatuses.includes(updMsg.patch.status)) {
+            // Task finished — update tool call and remove from active tasks
+            if (task.toolUseId) {
+              const statusLabel = updMsg.patch.status
+              const desc = updMsg.patch.error
+                ? `[${statusLabel}] ${updMsg.patch.error}`
+                : `[${statusLabel}] ${task.summary || task.description}`
+              this.updateToolCall(sessionId, task.toolUseId, {
+                status: updMsg.patch.status === 'completed' ? 'completed' : 'error',
+                description: desc,
+              } as Partial<ClaudeToolCall>)
+            }
+            session.activeTasks.delete(updMsg.task_id)
+          } else if (task.toolUseId) {
+            // Task still running — update description
+            const desc = updMsg.patch.description || task.summary || task.description
+            this.updateToolCall(sessionId, task.toolUseId, {
+              description: desc,
+            } as Partial<ClaudeToolCall>)
+          }
+        } else if (updMsg.patch.status === 'running') {
+          // Task we haven't seen before (race: task_updated arrived before tool_use block)
+          // Register it so we can track it
+          logger.log(`[task_updated] New task registered via task_updated: ${updMsg.task_id}`)
+          session.activeTasks.set(updMsg.task_id, {
+            toolUseId: '',
+            description: updMsg.patch.description || '',
+            lastProgressTime: Date.now(),
+          })
+        }
+      }
       if (subtype === 'task_started' || subtype === 'task_progress' || subtype === 'task_notification') {
         const agentMsg = message as {
           subtype: string

@@ -339,12 +339,13 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             <div className="settings-group">
               <label>{t('settings.defaultEffort')}</label>
               <select
-                value={settings.defaultEffort || 'medium'}
-                onChange={e => settingsStore.setDefaultEffort(e.target.value as 'low' | 'medium' | 'high')}
+                value={settings.defaultEffort || 'high'}
+                onChange={e => settingsStore.setDefaultEffort(e.target.value as 'low' | 'medium' | 'high' | 'max')}
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
+                <option value="max">Max (Opus only)</option>
               </select>
               <p className="settings-hint">{t('settings.defaultEffortHint')}</p>
             </div>
