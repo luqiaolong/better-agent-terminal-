@@ -202,7 +202,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
   })
   const [promptSuggestion, setPromptSuggestion] = useState<string | null>(null)
   // Cache efficiency history — last 20 readings for smoothed display
-  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number }[]>([])
+  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number }[]>([])
   const [showCacheHistory, setShowCacheHistory] = useState(false)
   const [statuslineConfig, setStatuslineConfig] = useState(settingsStore.getStatuslineItems())
   const [contextUsagePopup, setContextUsagePopup] = useState<{
@@ -649,7 +649,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           const lastEntry = hist[hist.length - 1]
           if (!lastEntry || lastEntry.cacheRead !== m.cacheReadTokens || lastEntry.totalInput !== m.inputTokens) {
             const pct = Math.round((m.cacheReadTokens / m.inputTokens) * 100)
-            hist.push({ pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens })
+            hist.push({ pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0 })
             if (hist.length > 20) hist.shift()
           }
         }
@@ -3251,7 +3251,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         const belowCount = significant.filter(h => h.pct < 50).length
         return (
           <div className="claude-plan-overlay" onClick={() => setShowCacheHistory(false)}>
-            <div className="claude-plan-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="claude-plan-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 580 }}>
               <div className="claude-plan-modal-header">
                 <span className="claude-plan-modal-title">Cache Efficiency History (last {hist.length})</span>
                 <button className="claude-plan-modal-close" onClick={() => setShowCacheHistory(false)}>&times;</button>
@@ -3266,9 +3266,10 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #333', fontWeight: 600, color: '#bbb' }}>
                     <span style={{ width: 30 }}>#</span>
                     <span style={{ width: 50, textAlign: 'right' }}>%</span>
-                    <span style={{ width: 100, textAlign: 'right' }}>cache read</span>
-                    <span style={{ width: 100, textAlign: 'right' }}>cache write</span>
-                    <span style={{ width: 100, textAlign: 'right' }}>total input</span>
+                    <span style={{ width: 90, textAlign: 'right' }}>turn c.read</span>
+                    <span style={{ width: 90, textAlign: 'right' }}>turn c.write</span>
+                    <span style={{ width: 90, textAlign: 'right' }}>context</span>
+                    <span style={{ width: 90, textAlign: 'right' }}>turn total</span>
                   </div>
                   {hist.map((h, i) => {
                     const isSkip = h.totalInput < 50000
@@ -3277,9 +3278,10 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid #222' }}>
                         <span style={{ width: 30, color: isSkip ? '#666' : '#eee' }}>{i + 1}</span>
                         <span style={{ width: 50, textAlign: 'right', color: isSkip ? '#eee' : pctColor }}>{h.pct}%</span>
-                        <span style={{ width: 100, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheRead.toLocaleString()}</span>
-                        <span style={{ width: 100, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheCreate.toLocaleString()}</span>
-                        <span style={{ width: 100, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.totalInput.toLocaleString()}</span>
+                        <span style={{ width: 90, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheRead.toLocaleString()}</span>
+                        <span style={{ width: 90, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheCreate.toLocaleString()}</span>
+                        <span style={{ width: 90, textAlign: 'right', color: isSkip ? '#666' : '#888' }}>{h.contextSize ? h.contextSize.toLocaleString() : '—'}</span>
+                        <span style={{ width: 90, textAlign: 'right', color: isSkip ? '#666' : '#888' }}>{h.totalInput.toLocaleString()}</span>
                       </div>
                     )
                   })}
