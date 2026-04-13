@@ -131,8 +131,8 @@ const electronAPI = {
     },
     setPermissionMode: (sessionId: string, mode: string) =>
       ipcRenderer.invoke('claude:set-permission-mode', sessionId, mode),
-    setModel: (sessionId: string, model: string) =>
-      ipcRenderer.invoke('claude:set-model', sessionId, model),
+    setModel: (sessionId: string, model: string, autoCompactWindow?: number) =>
+      ipcRenderer.invoke('claude:set-model', sessionId, model, autoCompactWindow),
     setEffort: (sessionId: string, effort: string) =>
       ipcRenderer.invoke('claude:set-effort', sessionId, effort),
     resetSession: (sessionId: string) =>

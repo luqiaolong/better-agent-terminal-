@@ -502,7 +502,7 @@ export class ClaudeAgentManager {
         process.env.ELECTRON_RUN_AS_NODE = '1'
         logger.log('[Claude] Using Electron binary as Node.js runtime (ELECTRON_RUN_AS_NODE=1)')
       }
-      logger.log(`[Claude] runQuery: cwd=${session.cwd}, resumeId=${resumeId || 'none'}, claudeCodePath=${claudeCodePath || 'none'}, nodeExecutable=${nodeExecutable}`)
+      logger.log(`[Claude] runQuery: cwd=${session.cwd}, resumeId=${resumeId || 'none'}, claudeCodePath=${claudeCodePath || 'none'}, nodeExecutable=${nodeExecutable}, autoCompactWindow=${session.autoCompactWindow || 'none'}`)
       const canUseTool: CanUseTool = async (toolName, input, opts) => {
         // Check if this is an AskUserQuestion tool — always show UI
         if (toolName === 'AskUserQuestion') {
@@ -1351,7 +1351,7 @@ export class ClaudeAgentManager {
 
         // Only resume if the sdkSessionId was created by a V2 session
         const v2ResumeId = session.v2SessionModel ? session.sdkSessionId : undefined
-        logger.log(`[Claude V2] Creating session: model=${v2Options.model}, permissionMode=${v2Options.permissionMode}, cwd=${session.cwd}, resumeId=${v2ResumeId || 'none'}`)
+        logger.log(`[Claude V2] Creating session: model=${v2Options.model}, permissionMode=${v2Options.permissionMode}, cwd=${session.cwd}, resumeId=${v2ResumeId || 'none'}, autoCompactWindow=${session.autoCompactWindow || 'none'}`)
 
         // WORKAROUND: V2 SDK's SDKSessionOptions does not support a `cwd` parameter.
         // The subprocess inherits process.cwd() which in Electron defaults to "/".
@@ -1596,13 +1596,17 @@ export class ClaudeAgentManager {
     }
   }
 
-  async setModel(sessionId: string, model: string): Promise<boolean> {
+  async setModel(sessionId: string, model: string, autoCompactWindow?: number): Promise<boolean> {
     const session = this.sessions.get(sessionId)
     if (!session || !model) return false
 
     // Persist the full model value (including [1m] suffix) — SDK handles it natively
     session.model = model
     session.metadata.model = model
+
+    // Update autoCompactWindow from latest settings
+    session.autoCompactWindow = autoCompactWindow
+    logger.log(`[setModel] autoCompactWindow=${autoCompactWindow || 'none'}`)
 
     if (session.apiVersion === 'v2') {
       // V2: model change takes effect on next send (session will be recreated in runQueryV2)

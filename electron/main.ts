@@ -827,7 +827,7 @@ function registerProxiedHandlers() {
   registerHandler('claude:stop-session', (_ctx, sessionId: string) => claudeManager?.stopSession(sessionId))
   registerHandler('claude:abort-session', (_ctx, sessionId: string) => claudeManager?.abortSession(sessionId))
   registerHandler('claude:set-permission-mode', (_ctx, sessionId: string, mode: string) => claudeManager?.setPermissionMode(sessionId, mode as import('@anthropic-ai/claude-agent-sdk').PermissionMode))
-  registerHandler('claude:set-model', (_ctx, sessionId: string, model: string) => claudeManager?.setModel(sessionId, model))
+  registerHandler('claude:set-model', (_ctx, sessionId: string, model: string, autoCompactWindow?: number) => claudeManager?.setModel(sessionId, model, autoCompactWindow))
   registerHandler('claude:set-effort', (_ctx, sessionId: string, effort: string) => claudeManager?.setEffort(sessionId, effort as 'low' | 'medium' | 'high' | 'max'))
   registerHandler('claude:reset-session', (_ctx, sessionId: string) => claudeManager?.resetSession(sessionId))
   registerHandler('claude:get-supported-models', (_ctx, sessionId: string) => claudeManager?.getSupportedModels(sessionId))

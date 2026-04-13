@@ -974,7 +974,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
     setShowModelList(false)
     setCurrentModel(modelValue)
     setTimeout(() => textareaRef.current?.focus(), 0)
-    await window.electronAPI.claude.setModel(sessionId, modelValue)
+    await window.electronAPI.claude.setModel(sessionId, modelValue, settingsStore.getSettings().autoCompactWindow)
     workspaceStore.updateTerminalModel(sessionId, modelValue)
   }, [sessionId, isV2Session, currentModel, t])
 
@@ -1501,7 +1501,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
     const idx = availableModels.findIndex(m => m.value === currentModel)
     const next = availableModels[(idx + 1) % availableModels.length]
     setCurrentModel(next.value)
-    await window.electronAPI.claude.setModel(sessionId, next.value)
+    await window.electronAPI.claude.setModel(sessionId, next.value, settingsStore.getSettings().autoCompactWindow)
     workspaceStore.updateTerminalModel(sessionId, next.value)
   }, [sessionId, currentModel, availableModels])
 
