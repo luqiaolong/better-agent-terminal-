@@ -52,6 +52,9 @@ interface SessionMeta {
   contextTokens: number
   cacheReadTokens: number
   cacheCreationTokens: number
+  callCacheRead: number
+  callCacheWrite: number
+  lastQueryCalls: number
   permissionMode?: string
 }
 
@@ -202,7 +205,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
   })
   const [promptSuggestion, setPromptSuggestion] = useState<string | null>(null)
   // Cache efficiency history — last 20 readings for smoothed display
-  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number }[]>([])
+  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number }[]>([])
   const [showCacheHistory, setShowCacheHistory] = useState(false)
   const [statuslineConfig, setStatuslineConfig] = useState(settingsStore.getStatuslineItems())
   const [contextUsagePopup, setContextUsagePopup] = useState<{
@@ -649,7 +652,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           const lastEntry = hist[hist.length - 1]
           if (!lastEntry || lastEntry.cacheRead !== m.cacheReadTokens || lastEntry.totalInput !== m.inputTokens) {
             const pct = Math.round((m.cacheReadTokens / m.inputTokens) * 100)
-            hist.push({ pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0 })
+            hist.push({ pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0, callCacheRead: m.callCacheRead || 0, callCacheWrite: m.callCacheWrite || 0, calls: m.lastQueryCalls || 0 })
             if (hist.length > 20) hist.shift()
           }
         }
@@ -3251,7 +3254,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         const belowCount = significant.filter(h => h.pct < 50).length
         return (
           <div className="claude-plan-overlay" onClick={() => setShowCacheHistory(false)}>
-            <div className="claude-plan-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 580 }}>
+            <div className="claude-plan-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 720 }}>
               <div className="claude-plan-modal-header">
                 <span className="claude-plan-modal-title">Cache Efficiency History (last {hist.length})</span>
                 <button className="claude-plan-modal-close" onClick={() => setShowCacheHistory(false)}>&times;</button>
@@ -3264,24 +3267,28 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                 )}
                 <div style={{ fontSize: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #333', fontWeight: 600, color: '#bbb' }}>
-                    <span style={{ width: 30 }}>#</span>
-                    <span style={{ width: 50, textAlign: 'right' }}>%</span>
-                    <span style={{ width: 90, textAlign: 'right' }}>turn c.read</span>
-                    <span style={{ width: 90, textAlign: 'right' }}>turn c.write</span>
-                    <span style={{ width: 90, textAlign: 'right' }}>context</span>
-                    <span style={{ width: 90, textAlign: 'right' }}>turn total</span>
+                    <span style={{ width: 24 }}>#</span>
+                    <span style={{ width: 36, textAlign: 'right' }} title="Turn cache efficiency: turn c.read / turn total">%</span>
+                    <span style={{ width: 36, textAlign: 'right' }} title="Number of API calls in this turn (each tool use triggers a new API call)">calls</span>
+                    <span style={{ width: 76, textAlign: 'right' }} title="Last API call's cache read tokens (single request to Claude API)">call c.read</span>
+                    <span style={{ width: 76, textAlign: 'right' }} title="Last API call's cache write tokens (new content written to cache)">call c.write</span>
+                    <span style={{ width: 76, textAlign: 'right' }} title="Sum of cache read tokens across all API calls in this turn (each tool use triggers a new API call with full context)">turn c.read</span>
+                    <span style={{ width: 76, textAlign: 'right' }} title="Sum of cache write tokens across all API calls in this turn">turn c.write</span>
+                    <span style={{ width: 76, textAlign: 'right' }} title="Total input tokens consumed in this turn (sum of all API calls). Higher than context size because each tool use resends the full context.">turn total</span>
                   </div>
                   {hist.map((h, i) => {
                     const isSkip = h.totalInput < 50000
                     const pctColor = h.pct >= 70 ? '#89ca78' : h.pct >= 40 ? '#e6a700' : '#e05252'
                     return (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid #222' }}>
-                        <span style={{ width: 30, color: isSkip ? '#666' : '#eee' }}>{i + 1}</span>
-                        <span style={{ width: 50, textAlign: 'right', color: isSkip ? '#eee' : pctColor }}>{h.pct}%</span>
-                        <span style={{ width: 90, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheRead.toLocaleString()}</span>
-                        <span style={{ width: 90, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheCreate.toLocaleString()}</span>
-                        <span style={{ width: 90, textAlign: 'right', color: isSkip ? '#666' : '#888' }}>{h.contextSize ? h.contextSize.toLocaleString() : '—'}</span>
-                        <span style={{ width: 90, textAlign: 'right', color: isSkip ? '#666' : '#888' }}>{h.totalInput.toLocaleString()}</span>
+                        <span style={{ width: 24, color: isSkip ? '#666' : '#eee' }}>{i + 1}</span>
+                        <span style={{ width: 36, textAlign: 'right', color: isSkip ? '#eee' : pctColor }}>{h.pct}%</span>
+                        <span style={{ width: 36, textAlign: 'right', color: isSkip ? '#666' : '#d19a66' }}>{h.calls || '—'}</span>
+                        <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#8be9fd' }}>{h.callCacheRead ? h.callCacheRead.toLocaleString() : '—'}</span>
+                        <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#8be9fd' }}>{h.callCacheWrite ? h.callCacheWrite.toLocaleString() : '—'}</span>
+                        <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheRead.toLocaleString()}</span>
+                        <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheCreate.toLocaleString()}</span>
+                        <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#888' }}>{h.totalInput.toLocaleString()}</span>
                       </div>
                     )
                   })}

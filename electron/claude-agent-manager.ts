@@ -124,6 +124,10 @@ interface SessionMetadata {
   contextTokens: number
   cacheReadTokens: number
   cacheCreationTokens: number
+  // Per-API-call cache breakdown (from latest streaming event)
+  callCacheRead: number
+  callCacheWrite: number
+  lastQueryCalls: number  // Number of API calls in the last query/turn
 }
 
 interface PendingRequest {
@@ -366,6 +370,9 @@ export class ClaudeAgentManager {
           contextTokens: 0,
           cacheReadTokens: 0,
           cacheCreationTokens: 0,
+          callCacheRead: 0,
+          callCacheWrite: 0,
+          lastQueryCalls: 0,
         },
         pendingPermissions: new Map(),
         pendingAskUser: new Map(),
@@ -954,6 +961,8 @@ export class ClaudeAgentManager {
         // Update current context size (latest API call's input = actual context window usage)
         if (contextTokens > 0) {
           session.metadata.contextTokens = contextTokens
+          session.metadata.callCacheRead = eventUsage.cache_read_input_tokens || 0
+          session.metadata.callCacheWrite = eventUsage.cache_creation_input_tokens || 0
         }
         if (contextTokens > session.metadata.inputTokens) {
           session.metadata.inputTokens = contextTokens
@@ -1157,6 +1166,7 @@ export class ClaudeAgentManager {
 
       session.metadata.totalCost = resultMsg.total_cost_usd ?? session.metadata.totalCost
       session.metadata.durationMs += resultMsg.duration_ms || 0
+      session.metadata.lastQueryCalls = resultMsg.num_turns || 0
       session.metadata.numTurns += resultMsg.num_turns || 0
 
       if (resultMsg.modelUsage) {
