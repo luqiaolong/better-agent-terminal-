@@ -155,6 +155,7 @@ interface SessionInstance {
   pendingAskUser: Map<string, PendingRequest>
   permissionMode: AppPermissionMode
   effort: 'low' | 'medium' | 'high' | 'max'
+  autoCompactWindow?: number
   model?: string
   messageQueue: QueuedMessage[]
   currentPrompt?: string  // Track the currently running prompt for abort context
@@ -165,6 +166,7 @@ interface SessionInstance {
   v2SessionModel?: string // Model the V2 session was created with (to detect changes)
   worktreeInfo?: WorktreeInfo  // Set when running in worktree isolation
   originalCwd?: string         // Original workspace cwd before worktree redirect
+  cachedContextUsage?: unknown  // Cached getContextUsage() result for after process exits
 }
 
 // Persists SDK session IDs across stop/restart so we can resume conversations
@@ -296,7 +298,7 @@ export class ClaudeAgentManager {
     this.send('claude:tool-result', sessionId, { id: toolId, ...updates })
   }
 
-  async startSession(sessionId: string, options: { cwd: string; prompt?: string; sdkSessionId?: string; permissionMode?: AppPermissionMode; model?: string; effort?: 'low' | 'medium' | 'high' | 'max'; apiVersion?: 'v1' | 'v2'; useWorktree?: boolean; worktreePath?: string; worktreeBranch?: string }): Promise<boolean> {
+  async startSession(sessionId: string, options: { cwd: string; prompt?: string; sdkSessionId?: string; permissionMode?: AppPermissionMode; model?: string; effort?: 'low' | 'medium' | 'high' | 'max'; apiVersion?: 'v1' | 'v2'; useWorktree?: boolean; worktreePath?: string; worktreeBranch?: string; autoCompactWindow?: number }): Promise<boolean> {
     // Prevent duplicate session creation
     if (this.sessions.has(sessionId)) {
       return true
@@ -369,6 +371,7 @@ export class ClaudeAgentManager {
         pendingAskUser: new Map(),
         permissionMode: options.permissionMode || 'default',
         effort: options.effort || 'high',
+        autoCompactWindow: options.autoCompactWindow,
         model: options.model,
         messageQueue: [],
         activeTasks: new Map(),
@@ -620,6 +623,7 @@ export class ClaudeAgentManager {
         settingSources: ['user', 'project', 'local'],
         thinking: { type: 'enabled' },
         effort: session.effort,
+        ...(session.autoCompactWindow ? { autoCompactWindow: session.autoCompactWindow } : {}),
         toolConfig: { askUserQuestion: { previewFormat: 'html' } },
         agentProgressSummaries: true,
         ...(session.model ? { model: session.model } : {}),
@@ -947,6 +951,10 @@ export class ClaudeAgentManager {
         const contextTokens = (eventUsage.input_tokens || 0)
           + (eventUsage.cache_creation_input_tokens || 0)
           + (eventUsage.cache_read_input_tokens || 0)
+        // Update current context size (latest API call's input = actual context window usage)
+        if (contextTokens > 0) {
+          session.metadata.contextTokens = contextTokens
+        }
         if (contextTokens > session.metadata.inputTokens) {
           session.metadata.inputTokens = contextTokens
           session.metadata.cacheReadTokens = eventUsage.cache_read_input_tokens || 0
@@ -1192,8 +1200,11 @@ export class ClaudeAgentManager {
         session.metadata.cacheCreationTokens = cacheCreate
       }
 
-      if (resultMsg.usage?.input_tokens) {
-        session.metadata.contextTokens = resultMsg.usage.input_tokens
+      // contextTokens is set from streaming events (the latest API call's input = actual context size).
+      // Only fall back to result usage if streaming didn't set it.
+      if (!session.metadata.contextTokens && resultMsg.usage?.input_tokens) {
+        const u = resultMsg.usage as { input_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
+        session.metadata.contextTokens = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0)
       }
 
       this.send('claude:status', sessionId, { ...session.metadata })
@@ -1211,6 +1222,13 @@ export class ClaudeAgentManager {
           isDeferred: true,
           timestamp: Date.now(),
         })
+      }
+
+      // Cache context usage once while process is still alive (for click after query ends)
+      if (session.queryInstance) {
+        session.queryInstance.getContextUsage().then(u => {
+          if (u) session.cachedContextUsage = u
+        }).catch(() => {})
       }
 
       this.send('claude:result', sessionId, {
@@ -1328,6 +1346,7 @@ export class ClaudeAgentManager {
           canUseTool,
           ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
           ...(nodeExecutable !== 'node' || electronFallback ? { executable: nodeExecutable } : {}),
+          ...(session.autoCompactWindow ? { autoCompactWindow: session.autoCompactWindow } : {}),
         }
 
         // Only resume if the sdkSessionId was created by a V2 session
@@ -1677,13 +1696,21 @@ export class ClaudeAgentManager {
     mcpTools?: { name: string; serverName: string; tokens: number; isLoaded?: boolean }[]
   } | null> {
     const session = this.sessions.get(sessionId)
-    if (!session?.queryInstance) return null
-    try {
-      return await session.queryInstance.getContextUsage()
-    } catch (e) {
-      logger.warn('getContextUsage failed:', e)
-      return null
+    if (!session) return null
+    // Try live query first
+    if (session.queryInstance) {
+      try {
+        const usage = await session.queryInstance.getContextUsage()
+        if (usage) {
+          session.cachedContextUsage = usage
+          return usage
+        }
+      } catch {
+        // ProcessTransport not ready — fall through to cache
+      }
     }
+    // Return cached result from last successful live call
+    return (session.cachedContextUsage ?? null) as Awaited<ReturnType<typeof this.getContextUsage>>
   }
 
   getSessionMeta(sessionId: string): Record<string, unknown> | null {

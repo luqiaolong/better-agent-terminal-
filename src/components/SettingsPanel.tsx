@@ -349,6 +349,32 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               </select>
               <p className="settings-hint">{t('settings.defaultEffortHint')}</p>
             </div>
+
+            <div className="settings-group checkbox-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={!!settings.autoCompactWindow}
+                  onChange={e => settingsStore.setAutoCompactWindow(e.target.checked ? 400000 : undefined)}
+                />
+                {t('settings.autoCompactWindow')}
+              </label>
+              {!!settings.autoCompactWindow && (
+                <input
+                  type="number"
+                  value={settings.autoCompactWindow}
+                  onChange={e => {
+                    const val = parseInt(e.target.value, 10)
+                    settingsStore.setAutoCompactWindow(val >= 200000 ? val : 200000)
+                  }}
+                  placeholder="400000"
+                  min={200000}
+                  step={10000}
+                  style={{ marginTop: 4, width: 140 }}
+                />
+              )}
+              <p className="settings-hint">{t('settings.autoCompactWindowHint')}</p>
+            </div>
           </div>
 
           <div className="settings-section">

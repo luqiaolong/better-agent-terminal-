@@ -201,6 +201,9 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
     return null
   })
   const [promptSuggestion, setPromptSuggestion] = useState<string | null>(null)
+  // Cache efficiency history — last 20 readings for smoothed display
+  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number }[]>([])
+  const [showCacheHistory, setShowCacheHistory] = useState(false)
   const [statuslineConfig, setStatuslineConfig] = useState(settingsStore.getStatuslineItems())
   const [contextUsagePopup, setContextUsagePopup] = useState<{
     categories: { name: string; tokens: number; color: string; isDeferred?: boolean }[]
@@ -640,6 +643,16 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         dlog(`${tag} onStatus sdkSessionId=${((meta as SessionMeta).sdkSessionId || '').slice(0, 8)}`)
         const m = meta as SessionMeta
         setSessionMeta(m)
+        // Track cache efficiency history (only push when values change)
+        if (m.inputTokens > 0 && m.cacheReadTokens !== undefined) {
+          const hist = cacheHistoryRef.current
+          const lastEntry = hist[hist.length - 1]
+          if (!lastEntry || lastEntry.cacheRead !== m.cacheReadTokens || lastEntry.totalInput !== m.inputTokens) {
+            const pct = Math.round((m.cacheReadTokens / m.inputTokens) * 100)
+            hist.push({ pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens })
+            if (hist.length > 20) hist.shift()
+          }
+        }
         if (m.model) setCurrentModel(prev => prev || m.model!)
         // Persist session metadata for status line restoration on next app launch
         if (m.contextWindow > 0 || m.totalCost > 0 || m.inputTokens > 0) {
@@ -825,6 +838,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           cwd, permissionMode, model: effectiveModel,
           effort: effectiveEffort as 'low' | 'medium' | 'high' | 'max', apiVersion,
           ...(useWorktree ? { useWorktree: true, worktreePath: terminal?.worktreePath, worktreeBranch: terminal?.worktreeBranch } : {}),
+          ...(globalSettings.autoCompactWindow ? { autoCompactWindow: globalSettings.autoCompactWindow } : {}),
         })
       }
     }
@@ -3230,6 +3244,53 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         </div>
       )}
 
+      {/* Cache History Modal */}
+      {showCacheHistory && (() => {
+        const hist = cacheHistoryRef.current
+        const significant = hist.filter(h => h.totalInput >= 50000)
+        const belowCount = significant.filter(h => h.pct < 50).length
+        return (
+          <div className="claude-plan-overlay" onClick={() => setShowCacheHistory(false)}>
+            <div className="claude-plan-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+              <div className="claude-plan-modal-header">
+                <span className="claude-plan-modal-title">Cache Efficiency History (last {hist.length})</span>
+                <button className="claude-plan-modal-close" onClick={() => setShowCacheHistory(false)}>&times;</button>
+              </div>
+              <div className="claude-plan-modal-body" style={{ padding: '12px 16px', fontFamily: 'inherit' }}>
+                {significant.length > 0 && (
+                  <div style={{ fontSize: 12, marginBottom: 10, color: '#999' }}>
+                    &lt;50%: {belowCount}/{significant.length} significant readings ({'>'}=50k input)
+                  </div>
+                )}
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #333', fontWeight: 600, color: '#bbb' }}>
+                    <span style={{ width: 30 }}>#</span>
+                    <span style={{ width: 50, textAlign: 'right' }}>%</span>
+                    <span style={{ width: 100, textAlign: 'right' }}>cache read</span>
+                    <span style={{ width: 100, textAlign: 'right' }}>cache write</span>
+                    <span style={{ width: 100, textAlign: 'right' }}>total input</span>
+                  </div>
+                  {hist.map((h, i) => {
+                    const isSkip = h.totalInput < 50000
+                    const pctColor = h.pct >= 70 ? '#89ca78' : h.pct >= 40 ? '#e6a700' : '#e05252'
+                    return (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid #222' }}>
+                        <span style={{ width: 30, color: isSkip ? '#666' : '#eee' }}>{i + 1}</span>
+                        <span style={{ width: 50, textAlign: 'right', color: isSkip ? '#eee' : pctColor }}>{h.pct}%</span>
+                        <span style={{ width: 100, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheRead.toLocaleString()}</span>
+                        <span style={{ width: 100, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheCreate.toLocaleString()}</span>
+                        <span style={{ width: 100, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.totalInput.toLocaleString()}</span>
+                      </div>
+                    )
+                  })}
+                  {hist.length === 0 && <div style={{ color: '#666', padding: '8px 0' }}>No readings yet.</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Subagent Modal */}
       {taskModal && (() => {
         const existingMsgs = subagentMessagesRef.current.get(taskModal.taskId) || []
@@ -3370,9 +3431,9 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
             <span key="gitBranch" className="claude-statusline-item">[{gitBranch}]</span>
           ),
           tokens: () => !sessionMeta ? null : (
-            <span key="tokens" className="claude-statusline-item claude-statusline-clickable" title={`in: ${sessionMeta.inputTokens.toLocaleString()} / out: ${sessionMeta.outputTokens.toLocaleString()}\nclick to show context breakdown`}
+            <span key="tokens" className="claude-statusline-item claude-statusline-clickable" title={`context: ${(sessionMeta.contextTokens || 0).toLocaleString()} tok\ncumulative in: ${sessionMeta.inputTokens.toLocaleString()} / out: ${sessionMeta.outputTokens.toLocaleString()}\nclick to show context breakdown`}
               onClick={() => { window.electronAPI.claude.getContextUsage(sessionId).then(u => { if (u) setContextUsagePopup(u) }).catch(() => {}) }}>
-              {(sessionMeta.inputTokens + sessionMeta.outputTokens).toLocaleString()} tok
+              {(sessionMeta.contextTokens || (sessionMeta.inputTokens + sessionMeta.outputTokens)).toLocaleString()} tok
             </span>
           ),
           turns: () => !sessionMeta || sessionMeta.numTurns <= 0 ? null : (
@@ -3432,14 +3493,24 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           cacheEff: () => {
             if (!sessionMeta || sessionMeta.inputTokens <= 0) return null
             const cacheRead = sessionMeta.cacheReadTokens || 0
-            const cacheCreate = sessionMeta.cacheCreationTokens || 0
             const totalInput = sessionMeta.inputTokens
-            const pct = Math.round((cacheRead / totalInput) * 100)
-            const color = pct >= 70 ? '#89ca78' : pct >= 40 ? '#e6a700' : '#e05252'
+            const currentPct = Math.round((cacheRead / totalInput) * 100)
+            // Color is determined by the lowest reading >= 50k in last 20
+            const hist = cacheHistoryRef.current
+            const significant = hist.filter(h => h.totalInput >= 50000)
+            const lowest = significant.length > 0
+              ? significant.reduce((min, h) => h.pct < min.pct ? h : min, significant[0])
+              : null
+            const colorPct = lowest ? lowest.pct : currentPct
+            const color = colorPct >= 70 ? '#89ca78' : colorPct >= 40 ? '#e6a700' : '#e05252'
+            const belowCount = significant.filter(h => h.pct < 50).length
+            const lowestTip = lowest ? `\nlowest: ${lowest.pct}% (read:${lowest.cacheRead.toLocaleString()} write:${lowest.cacheCreate.toLocaleString()})` : ''
+            const belowTip = significant.length > 0 ? `\n<50%: ${belowCount}/${significant.length}` : ''
             return (
-              <span key="cacheEff" className="claude-statusline-item" style={{ color }}
-                title={`cache_read: ${cacheRead.toLocaleString()}\ncache_creation: ${cacheCreate.toLocaleString()}\ntotal_input: ${totalInput.toLocaleString()}\ncache_read / total_input = ${pct}%`}>
-                cache:{pct}%
+              <span key="cacheEff" className="claude-statusline-item claude-statusline-clickable" style={{ color }}
+                title={`current: ${currentPct}% (read:${cacheRead.toLocaleString()} write:${(sessionMeta.cacheCreationTokens || 0).toLocaleString()})${lowestTip}${belowTip}\nclick for history`}
+                onClick={() => setShowCacheHistory(true)}>
+                cache:{currentPct}%
               </span>
             )
           },

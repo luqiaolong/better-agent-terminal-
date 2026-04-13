@@ -44,6 +44,8 @@
     "defaultModelHint": "新 Agent 對話使用的模型 ID。留空則使用 SDK 預設。",
     "defaultEffort": "預設 Effort 等級",
     "defaultEffortHint": "新 Agent 對話使用的 effort 等級。越高越仔細但越慢。",
+    "autoCompactWindow": "自動壓縮視窗大小",
+    "autoCompactWindowHint": "觸發自動壓縮上下文的 token 數量閾值。留空則使用 SDK 預設。",
     "notifications": "通知",
     "showDockBadge": "Dock 圖示顯示待處理數量",
     "showDockBadgeHint": "有待處理的動作（權限請求、使用者問題）時，在 Dock 圖示上顯示數字徽章。",

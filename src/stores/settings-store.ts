@@ -205,6 +205,12 @@ class SettingsStore {
     this.save()
   }
 
+  setAutoCompactWindow(value: number | undefined): void {
+    this.settings = { ...this.settings, autoCompactWindow: value ? Math.max(200000, value) : undefined }
+    this.notify()
+    this.save()
+  }
+
   setShowDockBadge(show: boolean): void {
     this.settings = { ...this.settings, showDockBadge: show }
     this.notify()
