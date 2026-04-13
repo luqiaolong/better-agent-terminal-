@@ -231,7 +231,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
             type: 'terminal',
             agentPreset: terminal.agentPreset,
             shell,
-            customEnv
+            customEnv,
+            perTerminalHistory: settings.perTerminalHistory
           })
           // Auto-run agent command for non-Claude agents
           if (terminal.agentPreset && terminal.agentPreset !== 'none' && settings.agentAutoCommand) {
@@ -262,7 +263,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
               type: 'terminal',
               agentPreset: defaultAgent as AgentPresetId,
               shell,
-              customEnv
+              customEnv,
+              perTerminalHistory: settings.perTerminalHistory
             })
             if (settings.agentAutoCommand) {
               const preset = getAgentPreset(defaultAgent)
@@ -282,7 +284,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
             cwd: workspace.folderPath,
             type: 'terminal',
             shell,
-            customEnv
+            customEnv,
+            perTerminalHistory: settings.perTerminalHistory
           })
         }
         // Persist newly created default terminals
@@ -315,7 +318,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
       cwd: workspace.folderPath,
       type: 'terminal',
       shell,
-      customEnv
+      customEnv,
+      perTerminalHistory: settings.perTerminalHistory
     })
     // Focus the new terminal
     workspaceStore.setFocusedTerminal(terminal.id)
@@ -367,7 +371,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
       customEnv: {
         ...customEnv,
         CLAUDE_CODE_NO_FLICKER: '1',
-      }
+      },
+      perTerminalHistory: settingsStore.getSettings().perTerminalHistory
     })
 
     // Build CLI command using bundled CLI

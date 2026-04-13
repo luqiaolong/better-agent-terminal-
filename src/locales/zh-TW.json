@@ -46,6 +46,8 @@
     "defaultEffortHint": "新 Agent 對話使用的 effort 等級。越高越仔細但越慢。",
     "autoCompactWindow": "自動壓縮視窗大小",
     "autoCompactWindowHint": "觸發自動壓縮上下文的 token 數量閾值。留空則使用 SDK 預設。",
+    "perTerminalHistory": "獨立終端機指令歷史",
+    "perTerminalHistoryHint": "每個終端機分頁各自保存 shell 指令歷史（HISTFILE）。需重啟終端機才生效。",
     "notifications": "通知",
     "showDockBadge": "Dock 圖示顯示待處理數量",
     "showDockBadgeHint": "有待處理的動作（權限請求、使用者問題）時，在 Dock 圖示上顯示數字徽章。",

@@ -1162,18 +1162,26 @@ export class ClaudeAgentManager {
       if (resultMsg.modelUsage) {
         let totalInput = 0
         let totalOutput = 0
-        let totalCacheRead = 0
-        let totalCacheCreate = 0
+        // Track primary model's cache stats separately (sub-agent tokens pollute cache efficiency)
+        const primaryModel = session.metadata.model || ''
+        let primaryCacheRead = 0
+        let primaryCacheCreate = 0
+        let primaryInput = 0
         for (const [model, modelStats] of Object.entries(resultMsg.modelUsage)) {
           const stats = modelStats as { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; contextWindow?: number }
           const cacheRead = stats.cacheReadInputTokens || 0
           const cacheCreate = stats.cacheCreationInputTokens || 0
+          const input = (stats.inputTokens || 0) + cacheRead + cacheCreate
           const line = `[Claude ctx] modelUsage[${model}]: input=${stats.inputTokens}, output=${stats.outputTokens}, cacheRead=${cacheRead}, cacheCreate=${cacheCreate}, contextWindow=${stats.contextWindow}`
           logger.log(line)
-          totalInput += (stats.inputTokens || 0) + cacheRead + cacheCreate
+          totalInput += input
           totalOutput += stats.outputTokens || 0
-          totalCacheRead += cacheRead
-          totalCacheCreate += cacheCreate
+          // Match primary model: exact match or prefix match (e.g. "claude-opus-4-6" matches "claude-opus-4-6-20250414")
+          if (model === primaryModel || model.startsWith(primaryModel.replace(/\[.*\]$/, ''))) {
+            primaryCacheRead = cacheRead
+            primaryCacheCreate = cacheCreate
+            primaryInput = input
+          }
           if (stats.contextWindow) {
             session.metadata.contextWindow = stats.contextWindow
           }
@@ -1181,12 +1189,12 @@ export class ClaudeAgentManager {
             session.metadata.maxOutputTokens = (modelStats as { maxOutputTokens?: number }).maxOutputTokens!
           }
         }
-        const summary = `[Claude ctx] prev: input=${session.metadata.inputTokens}, output=${session.metadata.outputTokens} | new: input=${totalInput}, output=${totalOutput} | cost=${resultMsg.total_cost_usd}`
+        const summary = `[Claude ctx] prev: input=${session.metadata.inputTokens}, output=${session.metadata.outputTokens} | new: total=${totalInput}, primary=${primaryInput} (${primaryModel}), output=${totalOutput} | cost=${resultMsg.total_cost_usd}`
         logger.log(summary)
-        session.metadata.inputTokens = totalInput
+        session.metadata.inputTokens = primaryInput || totalInput
         session.metadata.outputTokens = totalOutput
-        session.metadata.cacheReadTokens = totalCacheRead
-        session.metadata.cacheCreationTokens = totalCacheCreate
+        session.metadata.cacheReadTokens = primaryInput ? primaryCacheRead : 0
+        session.metadata.cacheCreationTokens = primaryInput ? primaryCacheCreate : 0
       } else if (resultMsg.usage) {
         const usageFull = resultMsg.usage as { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
         const cacheRead = usageFull.cache_read_input_tokens || 0

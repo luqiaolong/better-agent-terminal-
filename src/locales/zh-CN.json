@@ -44,6 +44,8 @@
     "defaultEffortHint": "新 Agent 对话使用的 effort 等级。越高越仔细但越慢。",
     "autoCompactWindow": "自动压缩窗口大小",
     "autoCompactWindowHint": "触发自动压缩上下文的 token 数量阈值。留空则使用 SDK 默认。",
+    "perTerminalHistory": "独立终端指令历史",
+    "perTerminalHistoryHint": "每个终端分页各自保存 shell 指令历史（HISTFILE）。需重启终端才生效。",
     "notifications": "通知",
     "showDockBadge": "Dock 图标显示待处理数量",
     "showDockBadgeHint": "有待处理的操作（权限请求、用户问题）时，在 Dock 图标上显示数字徽章。",

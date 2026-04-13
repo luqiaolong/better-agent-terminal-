@@ -211,6 +211,12 @@ class SettingsStore {
     this.save()
   }
 
+  setPerTerminalHistory(value: boolean): void {
+    this.settings = { ...this.settings, perTerminalHistory: value || undefined }
+    this.notify()
+    this.save()
+  }
+
   setShowDockBadge(show: boolean): void {
     this.settings = { ...this.settings, showDockBadge: show }
     this.notify()

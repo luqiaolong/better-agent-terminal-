@@ -1,8 +1,13 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, app } from 'electron'
 import { spawn, ChildProcess } from 'child_process'
+import * as path from 'path'
+import * as fs from 'fs'
 import type { CreatePtyOptions } from '../src/types'
 import { broadcastHub } from './remote/broadcast-hub'
 import { logger } from './logger'
+
+// Per-terminal shell history directory
+const historyDir = path.join(app.getPath('userData'), 'terminal-history')
 
 // Try to import @lydell/node-pty, fall back to child_process if not available
 let pty: typeof import('@lydell/node-pty') | null = null
@@ -79,10 +84,23 @@ export class PtyManager {
   }
 
   create(options: CreatePtyOptions): boolean {
-    const { id, cwd, type, shell: shellOverride, customEnv = {} } = options
+    const { id, cwd, type, shell: shellOverride, customEnv = {}, perTerminalHistory } = options
 
     const shell = shellOverride || this.getDefaultShell()
     let args: string[] = []
+
+    // Per-terminal HISTFILE: isolate shell history per terminal tab
+    let histEnv: Record<string, string> = {}
+    if (perTerminalHistory) {
+      try {
+        fs.mkdirSync(historyDir, { recursive: true })
+        const histFile = path.join(historyDir, `${id}_history`)
+        histEnv = { HISTFILE: histFile }
+        logger.log(`[pty] Per-terminal history: ${histFile}`)
+      } catch (e) {
+        logger.warn('[pty] Failed to create history dir:', e)
+      }
+    }
 
     // For PowerShell (pwsh or powershell), bypass execution policy to allow unsigned scripts
     if (shell.includes('powershell') || shell.includes('pwsh')) {
@@ -103,6 +121,7 @@ export class PtyManager {
         const envWithUtf8 = {
           ...process.env,
           ...customEnv,  // Merge custom environment variables
+          ...histEnv,    // Per-terminal HISTFILE (if enabled)
           // UTF-8 encoding
           LANG: 'en_US.UTF-8',
           LC_ALL: 'en_US.UTF-8',
@@ -162,6 +181,7 @@ export class PtyManager {
         const envWithUtf8 = {
           ...process.env,
           ...customEnv,  // Merge custom environment variables
+          ...histEnv,    // Per-terminal HISTFILE (if enabled)
           // UTF-8 encoding
           LANG: 'en_US.UTF-8',
           LC_ALL: 'en_US.UTF-8',

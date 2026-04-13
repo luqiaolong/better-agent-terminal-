@@ -46,6 +46,8 @@
     "defaultEffortHint": "Effort level used for new Agent sessions. Higher effort = more thorough but slower.",
     "autoCompactWindow": "Auto-Compact Window",
     "autoCompactWindowHint": "Token count threshold for auto-compacting context. Leave empty to use SDK default.",
+    "perTerminalHistory": "Per-Terminal Shell History",
+    "perTerminalHistoryHint": "Each terminal tab keeps its own shell history (HISTFILE). Requires restart of terminals to take effect.",
     "notifications": "Notifications",
     "showDockBadge": "Show pending count on Dock icon",
     "showDockBadgeHint": "Display a badge number on the Dock icon when workspaces have pending actions (permission requests, user questions).",

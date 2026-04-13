@@ -76,6 +76,7 @@ export interface CreatePtyOptions {
   agentPreset?: AgentPresetId;   // 可選的 Agent 預設
   shell?: string;
   customEnv?: Record<string, string>;  // 自定義環境變數
+  perTerminalHistory?: boolean;  // Use per-terminal HISTFILE
 }
 
 export interface PtyOutput {
@@ -223,6 +224,7 @@ export interface AppSettings {
   statuslineItems?: StatuslineItemConfig[];  // 自訂 statusline 項目排序和顯示
   collapseToolOutputs?: boolean;  // 預設折疊所有工具輸出（預設 false = 展開）
   autoCompactWindow?: number;     // Auto-compact context window size (token count)
+  perTerminalHistory?: boolean;   // Per-terminal shell history (separate HISTFILE per terminal)
 }
 
 // ============================================

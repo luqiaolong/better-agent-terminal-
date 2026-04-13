@@ -375,6 +375,18 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               )}
               <p className="settings-hint">{t('settings.autoCompactWindowHint')}</p>
             </div>
+
+            <div className="settings-group checkbox-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={!!settings.perTerminalHistory}
+                  onChange={e => settingsStore.setPerTerminalHistory(e.target.checked)}
+                />
+                {t('settings.perTerminalHistory')}
+              </label>
+              <p className="settings-hint">{t('settings.perTerminalHistoryHint')}</p>
+            </div>
           </div>
 
           <div className="settings-section">
