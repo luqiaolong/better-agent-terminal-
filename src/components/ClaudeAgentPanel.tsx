@@ -652,8 +652,14 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           const lastEntry = hist[hist.length - 1]
           if (!lastEntry || lastEntry.cacheRead !== m.cacheReadTokens || lastEntry.totalInput !== m.inputTokens) {
             const pct = Math.round((m.cacheReadTokens / m.inputTokens) * 100)
-            hist.push({ pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0, callCacheRead: m.callCacheRead || 0, callCacheWrite: m.callCacheWrite || 0, calls: m.lastQueryCalls || 0 })
-            if (hist.length > 20) hist.shift()
+            const entry = { pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0, callCacheRead: m.callCacheRead || 0, callCacheWrite: m.callCacheWrite || 0, calls: m.lastQueryCalls || 0 }
+            // Result update: same call values but different turn totals → update last entry instead of pushing duplicate
+            if (lastEntry && m.lastQueryCalls && lastEntry.callCacheRead === entry.callCacheRead && lastEntry.callCacheWrite === entry.callCacheWrite) {
+              Object.assign(lastEntry, entry)
+            } else {
+              hist.push(entry)
+              if (hist.length > 20) hist.shift()
+            }
           }
         }
         if (m.model) setCurrentModel(prev => prev || m.model!)
@@ -818,7 +824,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
       const savedSdkSessionId = terminal?.sdkSessionId
       const savedModel = terminal?.model
       const apiVersion = terminal?.agentPreset === 'claude-code-v2' ? 'v2' as const : 'v1' as const
-      const useWorktree = terminal?.agentPreset === 'claude-code-worktree'
+      const useWorktree = terminal?.agentPreset === 'claude-code-worktree' || !!terminal?.worktreePath
       const globalSettings = settingsStore.getSettings()
       dlog(`${stag} sdkSessionId=${savedSdkSessionId?.slice(0, 8)} pendingPrompt="${terminal?.pendingPrompt || ''}" apiVersion=${apiVersion}`)
 
