@@ -57,12 +57,13 @@ export const AGENT_PRESETS: AgentPreset[] = [
     color: '#4285f4', 
     command: 'gemini' 
   },
-  { 
-    id: 'codex-cli', 
-    name: 'Codex', 
-    icon: '⬡', 
-    color: '#10a37f', 
-    command: 'codex' 
+  {
+    id: 'codex-cli',
+    name: 'Codex',
+    icon: '⬡',
+    color: '#10a37f',
+    command: 'codex',
+    debug: true,
   },
   { 
     id: 'copilot-cli', 

@@ -216,6 +216,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
     model: string
     memoryFiles?: { path: string; type: string; tokens: number }[]
     mcpTools?: { name: string; serverName: string; tokens: number; isLoaded?: boolean }[]
+    apiUsage?: { input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number } | null
   } | null>(null)
   const [accountInfo, setAccountInfo] = useState<{ email?: string; organization?: string; subscriptionType?: string } | null>(null)
   const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([])
@@ -846,6 +847,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         window.electronAPI.claude.startSession(sessionId, {
           cwd, permissionMode, model: effectiveModel,
           effort: effectiveEffort as 'low' | 'medium' | 'high' | 'max', apiVersion,
+          agentPreset: terminal?.agentPreset,
           ...(useWorktree ? { useWorktree: true, worktreePath: terminal?.worktreePath, worktreeBranch: terminal?.worktreeBranch } : {}),
           ...(globalSettings.autoCompactWindow ? { autoCompactWindow: globalSettings.autoCompactWindow } : {}),
         })
@@ -3206,12 +3208,27 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
             </div>
             <div className="claude-plan-modal-body" style={{ padding: '12px 16px', whiteSpace: 'normal', fontFamily: 'inherit' }}>
               <div style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
-                  <span>{contextUsagePopup.totalTokens.toLocaleString()} / {contextUsagePopup.maxTokens.toLocaleString()} tokens</span>
-                  <span style={{ color: contextUsagePopup.percentage >= 80 ? '#e05252' : contextUsagePopup.percentage >= 50 ? '#e6a700' : '#89ca78' }}>
-                    {contextUsagePopup.percentage}%
-                  </span>
-                </div>
+                {(() => {
+                  const api = contextUsagePopup.apiUsage
+                  const apiContext = api ? api.input_tokens + api.cache_read_input_tokens + api.cache_creation_input_tokens : 0
+                  const apiPct = apiContext > 0 ? Math.round((apiContext / contextUsagePopup.maxTokens) * 100) : 0
+                  const showApi = apiContext > 0 && Math.abs(apiContext - contextUsagePopup.totalTokens) > 1000
+                  const primaryTokens = showApi ? apiContext : contextUsagePopup.totalTokens
+                  const primaryPct = showApi ? apiPct : contextUsagePopup.percentage
+                  return (<>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
+                      <span>{primaryTokens.toLocaleString()} / {contextUsagePopup.maxTokens.toLocaleString()} tokens</span>
+                      <span style={{ color: primaryPct >= 80 ? '#e05252' : primaryPct >= 50 ? '#e6a700' : '#89ca78' }}>
+                        {primaryPct}%
+                      </span>
+                    </div>
+                    {showApi && (
+                      <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
+                        SDK estimate: {contextUsagePopup.totalTokens.toLocaleString()} ({contextUsagePopup.percentage}%)
+                      </div>
+                    )}
+                  </>)
+                })()}
                 <div style={{ height: 8, background: '#333', borderRadius: 4, overflow: 'hidden', display: 'flex' }}>
                   {contextUsagePopup.categories.filter(c => c.tokens > 0).map((cat, i) => (
                     <div key={i} style={{ width: `${(cat.tokens / contextUsagePopup!.maxTokens) * 100}%`, background: cat.color, height: '100%' }} title={`${cat.name}: ${cat.tokens.toLocaleString()}`} />
@@ -3221,7 +3238,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
               <div style={{ fontSize: 12 }}>
                 {contextUsagePopup.categories.filter(c => c.tokens > 0).map((cat, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', opacity: cat.isDeferred ? 0.5 : 1 }}>
-                    <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: cat.color, marginRight: 6, verticalAlign: 'middle' }} />{cat.name}{cat.isDeferred ? ' (deferred)' : ''}</span>
+                    <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: cat.color, marginRight: 6, verticalAlign: 'middle' }} />{cat.name}{cat.isDeferred && !cat.name.includes('(deferred)') ? ' (deferred)' : ''}</span>
                     <span style={{ color: '#999' }}>{cat.tokens.toLocaleString()}</span>
                   </div>
                 ))}
