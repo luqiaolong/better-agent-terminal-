@@ -170,6 +170,7 @@ export const MainPanel = memo(function MainPanel({ terminal, isActive, onClose, 
               cwd={terminal.cwd}
               isActive={isActive}
               workspaceId={workspaceId}
+              onClose={onClose}
               showUserMsg={showUserMsg}
               showAssistantMsg={showAssistantMsg}
               showToolMsg={showToolMsg}

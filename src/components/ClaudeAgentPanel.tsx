@@ -111,6 +111,7 @@ interface ClaudeAgentPanelProps {
   cwd: string
   isActive: boolean
   workspaceId?: string
+  onClose?: (id: string) => void
   showUserMsg?: boolean
   showAssistantMsg?: boolean
   showToolMsg?: boolean
@@ -132,7 +133,7 @@ type MessageItem = ClaudeMessage | ClaudeToolCall
 // Track sessions that have been started to prevent duplicate calls across StrictMode remounts
 const startedSessions = new Set<string>()
 
-export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUserMsg = true, showAssistantMsg = true, showToolMsg = true, showThinkingMsg = true }: Readonly<ClaudeAgentPanelProps>) {
+export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose, showUserMsg = true, showAssistantMsg = true, showToolMsg = true, showThinkingMsg = true }: Readonly<ClaudeAgentPanelProps>) {
   const { t } = useTranslation()
   // Determine if this is a V2 session based on agentPreset
   const terminal = workspaceStore.getState().terminals.find(t => t.id === sessionId)
@@ -3076,28 +3077,33 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
               className="claude-worktree-btn"
               onClick={async () => {
                 if (!await window.electronAPI.dialog.confirm(`Merge ${worktreeInfo.branchName} into ${worktreeInfo.sourceBranch}?`)) return
-                const cmd = `use host folder (${worktreeInfo.gitRoot}) to merge worktree folder (${worktreeInfo.worktreePath})`
+                const cmd = `Commit all current changes with a descriptive message, then use host folder (${worktreeInfo.gitRoot}) to merge worktree folder (${worktreeInfo.worktreePath}). Steps:\n1. Stage and commit all changes in the worktree folder with a meaningful commit message\n2. Switch to host folder (${worktreeInfo.gitRoot}) and merge the worktree branch (${worktreeInfo.branchName}) into ${worktreeInfo.sourceBranch}\nDo not push to remote. Do not create a PR.`
                 await window.electronAPI.claude.sendMessage(sessionId, cmd)
               }}
-              title="Fill merge command for Claude to execute on host repo"
-            >Merge</button>
+              title={`Commit and merge ${worktreeInfo.branchName} into ${worktreeInfo.sourceBranch}`}
+            >Merge to Host</button>
+            <button
+              className="claude-worktree-btn"
+              onClick={async () => {
+                if (!await window.electronAPI.dialog.confirm(`Push ${worktreeInfo.branchName} directly to origin/main?`)) return
+                const cmd = `Commit all current changes with a descriptive message, then push directly to origin/main. Steps:\n1. Stage and commit all changes with a meaningful commit message\n2. Pull origin/main and resolve any conflicts if needed\n3. Push to origin/main\nDo not create a PR. Do not ask for confirmation.`
+                await window.electronAPI.claude.sendMessage(sessionId, cmd)
+              }}
+              title="Commit, pull, resolve conflicts, and push to origin/main"
+            >Push to Main</button>
+            <button
+              className="claude-worktree-btn"
+              onClick={async () => {
+                const cmd = `Commit all current changes and create or update a pull request to origin/main. Steps:\n1. Stage and commit all changes with a meaningful commit message\n2. Push this branch to origin\n3. Check if a PR from this branch to main already exists (gh pr list --head ${worktreeInfo.branchName})\n4. If a PR exists: update it with the latest changes summary (gh pr edit)\n5. If no PR exists: create one with gh pr create, include a summary of all changes in the description\nDo not merge the PR.`
+                await window.electronAPI.claude.sendMessage(sessionId, cmd)
+              }}
+              title="Commit, push branch, and create or update PR to main"
+            >Create PR</button>
             <button
               className="claude-worktree-btn claude-worktree-btn-danger"
-              onClick={async () => {
-                if (!await window.electronAPI.dialog.confirm('Discard worktree and all its changes?')) return
-                await window.electronAPI.claude.cleanupWorktree(sessionId, true)
-                setWorktreeInfo(null)
-                workspaceStore.setTerminalWorktreeInfo(sessionId, undefined, undefined)
-                setMessages(prev => [...prev, {
-                  id: `sys-discard-${Date.now()}`,
-                  sessionId,
-                  role: 'system' as const,
-                  content: '🗑️ Worktree discarded.',
-                  timestamp: Date.now(),
-                }])
-              }}
-              title="Discard worktree and delete branch"
-            >Discard</button>
+              onClick={() => onClose?.(sessionId)}
+              title="Close this worktree tab"
+            >Close</button>
           </div>}
         </div>
       )}
