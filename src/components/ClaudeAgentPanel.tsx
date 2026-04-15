@@ -210,6 +210,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   const [promptSuggestion, setPromptSuggestion] = useState<string | null>(null)
   const [activePlanFile, setActivePlanFile] = useState<string | null>(null)
   const [planFileTitle, setPlanFileTitle] = useState<string | null>(null)
+  const [planFileTrigger, setPlanFileTrigger] = useState(0)
   const dismissedPlanFileRef = useRef<string | null>(null)
   useEffect(() => {
     if (!activePlanFile) { setPlanFileTitle(null); return }
@@ -218,7 +219,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
       const firstLine = r.content.split('\n').find((l: string) => l.trim().length > 0)
       if (firstLine) setPlanFileTitle(firstLine.replace(/^#+\s*/, '').trim())
     }).catch(() => setPlanFileTitle(null))
-  }, [activePlanFile])
+  }, [activePlanFile, planFileTrigger])
   // Cache efficiency history — last 20 readings for smoothed display
   const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number; modelUsage?: SessionMeta['modelUsage']; cacheWrite5mTokens?: number; cacheWrite1hTokens?: number; timestamp?: number }[]>([])
   const [showCacheHistory, setShowCacheHistory] = useState(false)
@@ -546,6 +547,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           setActivePlanFile(null)
         } else if (toolCall.toolName === 'ExitPlanMode' && toolCall.input.planFilePath) {
           setActivePlanFile(String(toolCall.input.planFilePath))
+          setPlanFileTrigger(n => n + 1)
           dismissedPlanFileRef.current = null
         }
         // Use flushSync for Agent/Task tools to ensure the active tasks bar renders immediately
