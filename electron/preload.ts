@@ -173,6 +173,18 @@ const electronAPI = {
       ipcRenderer.invoke('claude:auth-status') as Promise<{ loggedIn: boolean; email?: string; subscriptionType?: string; authMethod?: string } | null>,
     authLogout: () =>
       ipcRenderer.invoke('claude:auth-logout') as Promise<{ success: boolean; error?: string }>,
+    accountList: () =>
+      ipcRenderer.invoke('claude:account-list') as Promise<{ accounts: { id: string; email: string; subscriptionType?: string; isDefault: boolean; createdAt: number }[]; activeAccountId: string | null; switchWarningShown: boolean }>,
+    accountImportCurrent: () =>
+      ipcRenderer.invoke('claude:account-import-current') as Promise<{ id: string; email: string; subscriptionType?: string } | null>,
+    accountLoginNew: () =>
+      ipcRenderer.invoke('claude:account-login-new') as Promise<{ success: boolean; account?: { id: string; email: string; subscriptionType?: string }; error?: string }>,
+    accountSwitch: (accountId: string) =>
+      ipcRenderer.invoke('claude:account-switch', accountId) as Promise<boolean>,
+    accountRemove: (accountId: string) =>
+      ipcRenderer.invoke('claude:account-remove', accountId) as Promise<boolean>,
+    accountMarkWarningShown: () =>
+      ipcRenderer.invoke('claude:account-mark-warning-shown') as Promise<boolean>,
     resolvePermission: (sessionId: string, toolUseId: string, result: { behavior: string; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[]; message?: string; dontAskAgain?: boolean }) =>
       ipcRenderer.invoke('claude:resolve-permission', sessionId, toolUseId, result),
     resolveAskUser: (sessionId: string, toolUseId: string, answers: Record<string, string>) =>
