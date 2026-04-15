@@ -227,6 +227,7 @@ export interface AppSettings {
   collapseToolOutputs?: boolean;  // 預設折疊所有工具輸出（預設 false = 展開）
   autoCompactWindow?: number;     // Auto-compact context window size (token count)
   perTerminalHistory?: boolean;   // Per-terminal shell history (separate HISTFILE per terminal)
+  accountSwitching?: boolean;     // Claude account quick-switch (default: true)
 }
 
 // ============================================

@@ -55,6 +55,7 @@ import { CodexAgentManager } from './codex-agent-manager'
 import { worktreeManager } from './worktree-manager'
 import { checkForUpdates, UpdateCheckResult } from './update-checker'
 import { snippetDb, CreateSnippetInput } from './snippet-db'
+import { accountManager } from './account-manager'
 import { ProfileManager, type ProfileSnapshot } from './profile-manager'
 import { registerHandler, invokeHandler } from './remote/handler-registry'
 import { broadcastHub } from './remote/broadcast-hub'
@@ -950,6 +951,43 @@ function registerProxiedHandlers() {
         }
       })
     })
+  })
+
+  // Claude account management
+  registerHandler('claude:account-list', async () => {
+    await accountManager.load()
+    return {
+      accounts: accountManager.getAccounts(),
+      activeAccountId: accountManager.getActiveAccountId(),
+      switchWarningShown: accountManager.isSwitchWarningShown(),
+    }
+  })
+
+  registerHandler('claude:account-import-current', async () => {
+    await accountManager.load()
+    const account = await accountManager.importCurrentAccount()
+    return account
+  })
+
+  registerHandler('claude:account-login-new', async () => {
+    await accountManager.load()
+    return accountManager.loginNewAccount()
+  })
+
+  registerHandler('claude:account-switch', async (_ctx, accountId: string) => {
+    await accountManager.load()
+    return accountManager.switchAccount(accountId)
+  })
+
+  registerHandler('claude:account-remove', async (_ctx, accountId: string) => {
+    await accountManager.load()
+    return accountManager.removeAccount(accountId)
+  })
+
+  registerHandler('claude:account-mark-warning-shown', async () => {
+    await accountManager.load()
+    await accountManager.markSwitchWarningShown()
+    return true
   })
 
   // Scan .claude/commands/ directories for skill files

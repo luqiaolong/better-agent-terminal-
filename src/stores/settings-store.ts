@@ -217,6 +217,16 @@ class SettingsStore {
     this.save()
   }
 
+  setAccountSwitching(enabled: boolean): void {
+    this.settings = { ...this.settings, accountSwitching: enabled }
+    this.notify()
+    this.save()
+  }
+
+  isAccountSwitchingEnabled(): boolean {
+    return this.settings.accountSwitching !== false
+  }
+
   setShowDockBadge(show: boolean): void {
     this.settings = { ...this.settings, showDockBadge: show }
     this.notify()

@@ -64,6 +64,13 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [slImporting, setSlImporting] = useState(false)
   const [slImportText, setSlImportText] = useState('')
 
+  // Account switching state
+  const [accounts, setAccounts] = useState<{ id: string; email: string; subscriptionType?: string; isDefault: boolean; createdAt: number }[]>([])
+  const [activeAccountId, setActiveAccountId] = useState<string | null>(null)
+  const [switchWarningShown, setSwitchWarningShown] = useState(false)
+  const [accountsLoading, setAccountsLoading] = useState(false)
+  const [accountLoginLoading, setAccountLoginLoading] = useState(false)
+
   // Get current platform for filtering shell options
   const platform = window.electronAPI?.platform || 'darwin'
   const platformShellOptions = SHELL_OPTIONS.filter(opt => opt.platforms.includes(platform))
@@ -90,6 +97,73 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     }
     checkFonts()
   }, [])
+
+  // Load accounts when account switching is enabled
+  const loadAccounts = useCallback(async () => {
+    if (settingsStore.getSettings().accountSwitching === false) return
+    setAccountsLoading(true)
+    try {
+      const result = await window.electronAPI.claude.accountList()
+      setAccounts(result.accounts)
+      setActiveAccountId(result.activeAccountId)
+      setSwitchWarningShown(result.switchWarningShown)
+      if (result.accounts.length === 0) {
+        const imported = await window.electronAPI.claude.accountImportCurrent()
+        if (imported) {
+          const refreshed = await window.electronAPI.claude.accountList()
+          setAccounts(refreshed.accounts)
+          setActiveAccountId(refreshed.activeAccountId)
+          setSwitchWarningShown(refreshed.switchWarningShown)
+        }
+      }
+    } catch (e) {
+      window.electronAPI?.debug?.log?.(`[SettingsPanel] Failed to load accounts: ${e}`)
+    }
+    setAccountsLoading(false)
+  }, [])
+
+  useEffect(() => {
+    loadAccounts()
+  }, [loadAccounts])
+
+  const handleAccountSwitch = async (accountId: string) => {
+    if (accountId === activeAccountId) return
+    if (!switchWarningShown) {
+      const confirmed = confirm(t('settings.accountSwitchingWarning'))
+      if (!confirmed) return
+      await window.electronAPI.claude.accountMarkWarningShown()
+      setSwitchWarningShown(true)
+    }
+    const success = await window.electronAPI.claude.accountSwitch(accountId)
+    if (success) {
+      setActiveAccountId(accountId)
+      window.dispatchEvent(new CustomEvent('claude-account-switched'))
+    }
+  }
+
+  const handleAccountRemove = async (accountId: string) => {
+    const account = accounts.find(a => a.id === accountId)
+    if (!account) return
+    const confirmed = confirm(t('settings.accountSwitchingRemoveConfirm', { email: account.email }))
+    if (!confirmed) return
+    const success = await window.electronAPI.claude.accountRemove(accountId)
+    if (success) {
+      await loadAccounts()
+    }
+  }
+
+  const handleAccountLoginNew = async () => {
+    setAccountLoginLoading(true)
+    try {
+      const result = await window.electronAPI.claude.accountLoginNew()
+      if (result.success) {
+        await loadAccounts()
+      }
+    } catch (e) {
+      window.electronAPI?.debug?.log?.(`[SettingsPanel] Account login failed: ${e}`)
+    }
+    setAccountLoginLoading(false)
+  }
 
   const handleShellChange = (shell: ShellType) => {
     settingsStore.setShell(shell)
@@ -717,6 +791,83 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 </>
               )}
             </div>
+          </div>
+
+          <div className="settings-section">
+            <h3>{t('settings.accountSwitching')}</h3>
+            <p className="settings-hint" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+              {t('settings.accountSwitchingHint')}
+            </p>
+            <label className="settings-checkbox" style={{ marginBottom: '10px' }}>
+              <input
+                type="checkbox"
+                checked={settings.accountSwitching !== false}
+                onChange={(e) => settingsStore.setAccountSwitching(e.target.checked)}
+              />
+              {t('settings.accountSwitchingEnabled')}
+            </label>
+            {settings.accountSwitching !== false && (
+              <div style={{ marginTop: '8px' }}>
+                {accountsLoading ? (
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t('settings.accountSwitchingImporting')}</p>
+                ) : accounts.length === 0 ? (
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t('settings.accountSwitchingNoAccounts')}</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {accounts.map(account => (
+                      <div key={account.id} style={{
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                        padding: '6px 10px', borderRadius: '4px',
+                        background: account.id === activeAccountId ? 'var(--bg-tertiary)' : 'transparent',
+                        border: account.id === activeAccountId ? '1px solid var(--border-color)' : '1px solid transparent',
+                      }}>
+                        <span style={{
+                          width: '8px', height: '8px', borderRadius: '50%',
+                          background: account.id === activeAccountId ? '#3fb950' : 'var(--text-secondary)',
+                          flexShrink: 0,
+                        }} />
+                        <span style={{ fontSize: '13px', flex: 1 }}>
+                          {account.email}
+                          {account.subscriptionType && (
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '6px' }}>
+                              ({account.subscriptionType})
+                            </span>
+                          )}
+                        </span>
+                        {account.id === activeAccountId ? (
+                          <span style={{ fontSize: '11px', color: '#3fb950', fontWeight: 500 }}>
+                            {t('settings.accountSwitchingActive')}
+                          </span>
+                        ) : (
+                          <>
+                            <button
+                              className="statusline-template-btn"
+                              style={{ fontSize: '11px' }}
+                              onClick={() => handleAccountSwitch(account.id)}
+                            >{t('settings.accountSwitchingSwitch')}</button>
+                            {!account.isDefault && (
+                              <button
+                                className="statusline-template-btn"
+                                style={{ fontSize: '11px', color: '#f85149' }}
+                                onClick={() => handleAccountRemove(account.id)}
+                              >{t('settings.accountSwitchingRemove')}</button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  className="statusline-template-btn"
+                  style={{ marginTop: '10px', fontSize: '12px' }}
+                  onClick={handleAccountLoginNew}
+                  disabled={accountLoginLoading}
+                >
+                  {accountLoginLoading ? '...' : t('settings.accountSwitchingAddAccount')}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="settings-section">

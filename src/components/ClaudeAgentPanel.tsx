@@ -1211,6 +1211,10 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           content: status?.email ? `Logged in as ${status.email} (${status.subscriptionType || 'unknown'})` : 'Login successful.',
           timestamp: Date.now(),
         }])
+        // Auto-register account when account switching is enabled
+        try {
+          await window.electronAPI.claude.accountImportCurrent()
+        } catch { /* ignore if not available */ }
       } else {
         setMessages(prev => [...prev, {
           id: `sys-login-err-${Date.now()}`, sessionId, role: 'system' as const,
