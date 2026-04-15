@@ -803,6 +803,10 @@
   font-family: inherit;
 }
 
+.claude-plan-modal-markdown {
+  white-space: normal;
+}
+
 /* Diff View (Edit/Write tools) */
 .claude-diff-block {
   background: var(--bg-secondary);
