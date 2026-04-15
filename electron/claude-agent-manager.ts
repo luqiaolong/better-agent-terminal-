@@ -948,7 +948,7 @@ export class ClaudeAgentManager {
             const hasActiveTask = session.activeTasks.has(resultBlock.tool_use_id)
             this.updateToolCall(sessionId, resultBlock.tool_use_id, {
               status: hasActiveTask ? 'running' : (resultBlock.is_error ? 'error' : 'completed'),
-              result: resultStr?.slice(0, 2000),
+              result: resultStr,
             })
           }
         }
