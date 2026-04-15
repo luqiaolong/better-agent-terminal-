@@ -221,7 +221,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     }).catch(() => setPlanFileTitle(null))
   }, [activePlanFile, planFileTrigger])
   // Cache efficiency history — last 20 readings for smoothed display
-  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number; modelUsage?: SessionMeta['modelUsage']; cacheWrite5mTokens?: number; cacheWrite1hTokens?: number; timestamp?: number }[]>([])
+  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number; isResult?: boolean; modelUsage?: SessionMeta['modelUsage']; model?: string; outputTokens?: number; cacheWrite5mTokens?: number; cacheWrite1hTokens?: number; timestamp?: number }[]>([])
   const [showCacheHistory, setShowCacheHistory] = useState(false)
   const [statuslineConfig, setStatuslineConfig] = useState(settingsStore.getStatuslineItems())
   const [contextUsagePopup, setContextUsagePopup] = useState<{
@@ -676,15 +676,16 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         if (m.inputTokens > 0 && m.cacheReadTokens !== undefined) {
           const hist = cacheHistoryRef.current
           const lastEntry = hist[hist.length - 1]
-          if (!lastEntry || lastEntry.cacheRead !== m.cacheReadTokens || lastEntry.totalInput !== m.inputTokens) {
+          const hasModelUsage = m.modelUsage && Object.keys(m.modelUsage).length > 0
+          const isResult = !!hasModelUsage
+          if (!lastEntry || lastEntry.cacheRead !== m.cacheReadTokens || lastEntry.totalInput !== m.inputTokens || (isResult && lastEntry && !lastEntry.isResult)) {
             const pct = Math.round((m.cacheReadTokens / m.inputTokens) * 100)
-            const entry = { pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0, callCacheRead: m.callCacheRead || 0, callCacheWrite: m.callCacheWrite || 0, calls: m.lastQueryCalls || 0, modelUsage: m.modelUsage ? { ...m.modelUsage } : undefined, cacheWrite5mTokens: m.cacheWrite5mTokens, cacheWrite1hTokens: m.cacheWrite1hTokens, timestamp: Date.now() }
-            // Result update: same call values but different turn totals → update last entry instead of pushing duplicate
-            if (lastEntry && m.lastQueryCalls && lastEntry.callCacheRead === entry.callCacheRead && lastEntry.callCacheWrite === entry.callCacheWrite) {
-              Object.assign(lastEntry, entry)
-            } else {
-              hist.push(entry)
-              if (hist.length > 20) hist.shift()
+            const entry = { pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0, callCacheRead: m.callCacheRead || 0, callCacheWrite: m.callCacheWrite || 0, calls: isResult ? (m.lastQueryCalls || 0) : 1, isResult, modelUsage: m.modelUsage ? { ...m.modelUsage } : undefined, model: m.model, outputTokens: m.outputTokens || 0, cacheWrite5mTokens: m.cacheWrite5mTokens, cacheWrite1hTokens: m.cacheWrite1hTokens, timestamp: Date.now() }
+            hist.push(entry)
+            // Trim: keep max 20 non-result entries; result entries are extra
+            while (hist.filter(h => !h.isResult).length > 20) {
+              const idx = hist.findIndex(h => !h.isResult)
+              if (idx >= 0) hist.splice(idx, 1); else break
             }
           }
         }
@@ -3392,16 +3393,36 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         const fmtCost = (v: number | null) => v === null ? '—' : `$${v.toFixed(4)}`
         // Calculate per-model cost for a history entry using pricing lookup
         const calcModelCosts = (h: typeof hist[0]) => {
-          if (!h.modelUsage) return null
-          const models: { model: string; cacheRead: number; cacheWrite: number; input: number; output: number; readCost: number | null; writeCost: number | null; totalCost: number | null; pricing: ReturnType<typeof P> | null }[] = []
-          for (const [model, stats] of Object.entries(h.modelUsage)) {
-            const p = getModelPricing(model)
-            const totalIn = stats.inputTokens + stats.cacheReadInputTokens + stats.cacheCreationInputTokens
-            if (!p) {
-              models.push({ model, cacheRead: stats.cacheReadInputTokens, cacheWrite: stats.cacheCreationInputTokens, input: totalIn, output: stats.outputTokens, readCost: null, writeCost: null, totalCost: null, pricing: null })
-              continue
+          const hasModelUsage = h.modelUsage && Object.keys(h.modelUsage).length > 0
+          if (hasModelUsage) {
+            const models: { model: string; cacheRead: number; cacheWrite: number; input: number; output: number; readCost: number | null; writeCost: number | null; totalCost: number | null; pricing: ReturnType<typeof P> | null }[] = []
+            for (const [model, stats] of Object.entries(h.modelUsage!)) {
+              const p = getModelPricing(model)
+              const totalIn = stats.inputTokens + stats.cacheReadInputTokens + stats.cacheCreationInputTokens
+              if (!p) {
+                models.push({ model, cacheRead: stats.cacheReadInputTokens, cacheWrite: stats.cacheCreationInputTokens, input: totalIn, output: stats.outputTokens, readCost: null, writeCost: null, totalCost: null, pricing: null })
+                continue
+              }
+              let writePrice = p.cacheWrite5m
+              if (h.cacheWrite5mTokens !== undefined && h.cacheWrite1hTokens !== undefined) {
+                const total5m1h = h.cacheWrite5mTokens + h.cacheWrite1hTokens
+                if (total5m1h > 0) {
+                  writePrice = (h.cacheWrite5mTokens * p.cacheWrite5m + h.cacheWrite1hTokens * p.cacheWrite1h) / total5m1h
+                }
+              }
+              const readCost = (stats.cacheReadInputTokens / 1_000_000) * p.cacheRead
+              const writeCost = (stats.cacheCreationInputTokens / 1_000_000) * writePrice
+              const inputCost = (stats.inputTokens / 1_000_000) * p.input
+              const outputCost = (stats.outputTokens / 1_000_000) * p.output
+              models.push({ model, cacheRead: stats.cacheReadInputTokens, cacheWrite: stats.cacheCreationInputTokens, input: totalIn, output: stats.outputTokens, readCost, writeCost, totalCost: readCost + writeCost + inputCost + outputCost, pricing: p })
             }
-            // Use 5m/1h proportional split for cache write pricing when available
+            return models
+          }
+          // Fallback: estimate from entry-level model + turn tokens when modelUsage is unavailable (streaming)
+          if (h.model) {
+            const p = getModelPricing(h.model)
+            const output = h.outputTokens || 0
+            if (!p) return [{ model: h.model, cacheRead: h.cacheRead, cacheWrite: h.cacheCreate, input: h.totalInput, output, readCost: null, writeCost: null, totalCost: null, pricing: null }]
             let writePrice = p.cacheWrite5m
             if (h.cacheWrite5mTokens !== undefined && h.cacheWrite1hTokens !== undefined) {
               const total5m1h = h.cacheWrite5mTokens + h.cacheWrite1hTokens
@@ -3409,13 +3430,14 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                 writePrice = (h.cacheWrite5mTokens * p.cacheWrite5m + h.cacheWrite1hTokens * p.cacheWrite1h) / total5m1h
               }
             }
-            const readCost = (stats.cacheReadInputTokens / 1_000_000) * p.cacheRead
-            const writeCost = (stats.cacheCreationInputTokens / 1_000_000) * writePrice
-            const inputCost = (stats.inputTokens / 1_000_000) * p.input
-            const outputCost = (stats.outputTokens / 1_000_000) * p.output
-            models.push({ model, cacheRead: stats.cacheReadInputTokens, cacheWrite: stats.cacheCreationInputTokens, input: totalIn, output: stats.outputTokens, readCost, writeCost, totalCost: readCost + writeCost + inputCost + outputCost, pricing: p })
+            const readCost = (h.cacheRead / 1_000_000) * p.cacheRead
+            const writeCost = (h.cacheCreate / 1_000_000) * writePrice
+            const uncachedInput = Math.max(0, h.totalInput - h.cacheRead - h.cacheCreate)
+            const inputCost = (uncachedInput / 1_000_000) * p.input
+            const outputCost = (output / 1_000_000) * p.output
+            return [{ model: h.model, cacheRead: h.cacheRead, cacheWrite: h.cacheCreate, input: h.totalInput, output, readCost, writeCost, totalCost: readCost + writeCost + inputCost + outputCost, pricing: p }]
           }
-          return models
+          return null
         }
         // Grand total across all turns
         let grandTotal = 0
@@ -3457,7 +3479,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                     <span style={{ width: 64, textAlign: 'right' }} title="Estimated total cost (input + output)">est. $</span>
                     <span style={{ width: 110, textAlign: 'right' }}>time</span>
                   </div>
-                  {hist.map((h, i) => {
+                  {(() => { let callNum = 0; return hist.map((h, i) => {
+                    if (!h.isResult) callNum++
                     const isSkip = h.totalInput < 50000
                     const pctColor = h.pct >= 70 ? '#89ca78' : h.pct >= 40 ? '#e6a700' : '#e05252'
                     const models = calcModelCosts(h)
@@ -3467,10 +3490,10 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                     const hasMultiModel = models && models.length > 1
                     return (
                       <div key={i}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: hasMultiModel ? 'none' : '1px solid #222' }}>
-                          <span style={{ width: 24, color: isSkip ? '#666' : '#eee' }}>{i + 1}</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: hasMultiModel ? 'none' : '1px solid #222', ...(h.isResult ? { borderTop: '1px solid #444', background: '#1a1a2e' } : {}) }}>
+                          <span style={{ width: 24, color: h.isResult ? '#c678dd' : isSkip ? '#666' : '#eee' }}>{h.isResult ? 'R' : callNum}</span>
                           <span style={{ width: 36, textAlign: 'right', color: isSkip ? '#eee' : pctColor }}>{h.pct}%</span>
-                          <span style={{ width: 36, textAlign: 'right', color: isSkip ? '#666' : '#d19a66' }}>{h.calls || '—'}</span>
+                          <span style={{ width: 36, textAlign: 'right', color: isSkip ? '#666' : '#d19a66' }}>{h.isResult ? h.calls : 1}</span>
                           <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#8be9fd' }}>{h.callCacheRead ? h.callCacheRead.toLocaleString() : '—'}</span>
                           <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#8be9fd' }}>{h.callCacheWrite ? h.callCacheWrite.toLocaleString() : '—'}</span>
                           <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheRead.toLocaleString()}</span>
@@ -3506,7 +3529,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                         ))}
                       </div>
                     )
-                  })}
+                  }) })()}
                   {/* Grand total */}
                   {hist.length > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: '1px solid #444', fontWeight: 600 }}>

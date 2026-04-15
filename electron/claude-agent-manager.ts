@@ -685,6 +685,11 @@ export class ClaudeAgentManager {
         }
       }
 
+      // Clear per-query fields so renderer can distinguish streaming vs result
+      session.metadata.modelUsage = undefined
+      session.metadata.cacheWrite5mTokens = undefined
+      session.metadata.cacheWrite1hTokens = undefined
+
       const generator = query({
         prompt: promptArg as Parameters<typeof query>[0]['prompt'],
         options: queryOptions as Parameters<typeof query>[0]['options'],
