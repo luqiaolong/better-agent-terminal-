@@ -204,6 +204,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
     return null
   })
   const [promptSuggestion, setPromptSuggestion] = useState<string | null>(null)
+  const [activePlanFile, setActivePlanFile] = useState<string | null>(null)
+  const [planFileDismissed, setPlanFileDismissed] = useState(false)
   // Cache efficiency history — last 20 readings for smoothed display
   const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number }[]>([])
   const [showCacheHistory, setShowCacheHistory] = useState(false)
@@ -525,6 +527,11 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           }
           return
         }
+        // Track plan file path from EnterPlanMode/ExitPlanMode
+        if ((toolCall.toolName === 'EnterPlanMode' || toolCall.toolName === 'ExitPlanMode') && toolCall.input.planFilePath) {
+          setActivePlanFile(String(toolCall.input.planFilePath))
+          setPlanFileDismissed(false)
+        }
         // Use flushSync for Agent/Task tools to ensure the active tasks bar renders immediately
         const isAgentTool = toolCall.toolName === 'Agent' || toolCall.toolName === 'Task'
         const doUpdate = () => setMessages(prev => {
@@ -724,6 +731,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         setSessionMeta(null)
         setHasSdkSession(false)
         setWorktreeInfo(null)
+        setActivePlanFile(null)
+        setPlanFileDismissed(false)
         workspaceStore.setTerminalSdkSessionId(sessionId, undefined)
       }),
 
@@ -749,6 +758,14 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           }
         }
         subagentMessagesRef.current = subagentBuckets
+        // Restore activePlanFile from history
+        for (let i = mainItems.length - 1; i >= 0; i--) {
+          const it = mainItems[i]
+          if ('toolName' in it && (it.toolName === 'EnterPlanMode' || it.toolName === 'ExitPlanMode') && it.input?.planFilePath) {
+            setActivePlanFile(String(it.input.planFilePath))
+            break
+          }
+        }
         const historyItems = mainItems
         setLoadedArchive([])
         archivedCountRef.current = 0
@@ -2964,6 +2981,28 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           filePath={filePickerPreview}
           onClose={() => setFilePickerPreview(null)}
         />
+      )}
+
+      {/* Plan file bar */}
+      {activePlanFile && !planFileDismissed && (
+        <div className="claude-plan-file-bar">
+          <span className="claude-plan-file-label">📋 {activePlanFile.split('/').pop()}</span>
+          <div className="claude-plan-file-actions">
+            <button
+              className="claude-plan-file-btn"
+              onClick={() => {
+                window.electronAPI.fs.readFile(activePlanFile).then(r => {
+                  if (r.content) setContentModal({ title: 'Plan', content: r.content })
+                }).catch(() => {})
+              }}
+              title={activePlanFile}
+            >Show</button>
+            <button
+              className="claude-plan-file-btn"
+              onClick={() => setPlanFileDismissed(true)}
+            >Dismiss</button>
+          </div>
+        </div>
       )}
 
       {/* Worktree action bar — always visible when worktree is active, buttons hidden during streaming */}
