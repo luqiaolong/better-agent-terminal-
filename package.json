@@ -99,10 +99,12 @@
       "installerHeaderIcon": "assets/icon.ico"
     },
     "mac": {
-      "target": {
-        "target": "dmg",
-        "arch": "universal"
-      },
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "universal"]
+        }
+      ],
       "icon": "assets/icon-512.png",
       "category": "public.app-category.developer-tools",
       "identity": "TonyQ CO., LTD. (8JVDJGLLYR)",
@@ -123,6 +125,7 @@
       "target": "AppImage",
       "icon": "assets/icon-512.png"
     },
+    "afterPack": "./scripts/afterPack.js",
     "forceCodeSigning": false,
     "npmRebuild": false,
     "files": [
