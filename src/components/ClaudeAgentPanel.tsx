@@ -1212,7 +1212,9 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         const status = await window.electronAPI.claude.authStatus()
         setMessages(prev => [...prev, {
           id: `sys-login-ok-${Date.now()}`, sessionId, role: 'system' as const,
-          content: status?.email ? `Logged in as ${status.email} (${status.subscriptionType || 'unknown'})` : 'Login successful.',
+          content: status?.email
+            ? `Logged in as ${status.email} (${status.subscriptionType || 'unknown'}). Use /switch to manage accounts.`
+            : 'Login successful. Use /switch to manage accounts.',
           timestamp: Date.now(),
         }])
         // Auto-register account when account switching is enabled
@@ -1251,6 +1253,78 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           : 'Not logged in.',
         timestamp: Date.now(),
       }])
+      return
+    }
+
+    // Intercept /switch command — list accounts or switch to a specific one
+    if (trimmed === '/switch' || trimmed.startsWith('/switch ')) {
+      const arg = trimmed.slice('/switch'.length).trim()
+      clearInput()
+      try {
+        const { accounts, activeAccountId } = await window.electronAPI.claude.accountList()
+        if (accounts.length === 0) {
+          setMessages(prev => [...prev, {
+            id: `sys-switch-${Date.now()}`, sessionId, role: 'system' as const,
+            content: 'No accounts registered. Use /login to add accounts.',
+            timestamp: Date.now(),
+          }])
+          return
+        }
+        if (!arg) {
+          const lines = accounts.map((a, i) => {
+            const active = a.id === activeAccountId ? ' ← active' : ''
+            const sub = a.subscriptionType ? ` (${a.subscriptionType})` : ''
+            return `  ${i + 1}. ${a.email}${sub}${active}`
+          })
+          setMessages(prev => [...prev, {
+            id: `sys-switch-list-${Date.now()}`, sessionId, role: 'system' as const,
+            content: `Accounts:\n${lines.join('\n')}\n\nUse /switch <number> or /switch <email> to switch.`,
+            timestamp: Date.now(),
+          }])
+          return
+        }
+        const idx = parseInt(arg, 10)
+        const target = !isNaN(idx) && idx >= 1 && idx <= accounts.length
+          ? accounts[idx - 1]
+          : accounts.find(a => a.email.toLowerCase().includes(arg.toLowerCase()))
+        if (!target) {
+          setMessages(prev => [...prev, {
+            id: `sys-switch-notfound-${Date.now()}`, sessionId, role: 'system' as const,
+            content: `Account not found: "${arg}". Use /switch to list accounts.`,
+            timestamp: Date.now(),
+          }])
+          return
+        }
+        if (target.id === activeAccountId) {
+          setMessages(prev => [...prev, {
+            id: `sys-switch-already-${Date.now()}`, sessionId, role: 'system' as const,
+            content: `Already using ${target.email}.`,
+            timestamp: Date.now(),
+          }])
+          return
+        }
+        const success = await window.electronAPI.claude.accountSwitch(target.id)
+        if (success) {
+          window.dispatchEvent(new CustomEvent('claude-account-switched'))
+          setMessages(prev => [...prev, {
+            id: `sys-switch-ok-${Date.now()}`, sessionId, role: 'system' as const,
+            content: `Switched to ${target.email}. New sessions will use this account.`,
+            timestamp: Date.now(),
+          }])
+        } else {
+          setMessages(prev => [...prev, {
+            id: `sys-switch-err-${Date.now()}`, sessionId, role: 'system' as const,
+            content: `Failed to switch to ${target.email}.`,
+            timestamp: Date.now(),
+          }])
+        }
+      } catch (err: unknown) {
+        setMessages(prev => [...prev, {
+          id: `sys-switch-err-${Date.now()}`, sessionId, role: 'system' as const,
+          content: `Switch error: ${err instanceof Error ? err.message : 'unknown error'}`,
+          timestamp: Date.now(),
+        }])
+      }
       return
     }
 
@@ -1421,6 +1495,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
       { name: 'abort', description: 'Force stop current operation immediately', argumentHint: '' },
       { name: 'logout', description: 'Sign out of Claude', argumentHint: '' },
       { name: 'whoami', description: 'Show current account info', argumentHint: '' },
+      { name: 'switch', description: 'Switch between registered accounts', argumentHint: '<number|email>' },
     ]
     const all = [...builtIn, ...slashCommands]
     return q ? all.filter(c => c.name.toLowerCase().includes(q)) : all

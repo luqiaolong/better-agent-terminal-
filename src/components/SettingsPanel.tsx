@@ -70,6 +70,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [switchWarningShown, setSwitchWarningShown] = useState(false)
   const [accountsLoading, setAccountsLoading] = useState(false)
   const [accountLoginLoading, setAccountLoginLoading] = useState(false)
+  const [accountStatusMsg, setAccountStatusMsg] = useState('')
 
   // Get current platform for filtering shell options
   const platform = window.electronAPI?.platform || 'darwin'
@@ -154,13 +155,18 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
   const handleAccountLoginNew = async () => {
     setAccountLoginLoading(true)
+    setAccountStatusMsg('Opening login in browser...')
     try {
       const result = await window.electronAPI.claude.accountLoginNew()
       if (result.success) {
         await loadAccounts()
+        setAccountStatusMsg(result.account ? `Added ${result.account.email}` : 'Account added.')
+      } else {
+        setAccountStatusMsg(`Login failed: ${result.error || 'unknown error'}`)
       }
     } catch (e) {
       window.electronAPI?.debug?.log?.(`[SettingsPanel] Account login failed: ${e}`)
+      setAccountStatusMsg(`Error: ${e instanceof Error ? e.message : 'unknown error'}`)
     }
     setAccountLoginLoading(false)
   }
@@ -864,8 +870,13 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   onClick={handleAccountLoginNew}
                   disabled={accountLoginLoading}
                 >
-                  {accountLoginLoading ? '...' : t('settings.accountSwitchingAddAccount')}
+                  {accountLoginLoading ? 'Opening login...' : t('settings.accountSwitchingAddAccount')}
                 </button>
+                {accountStatusMsg && (
+                  <p style={{ fontSize: '11px', color: accountStatusMsg.startsWith('Error') || accountStatusMsg.startsWith('Login failed') ? '#f85149' : 'var(--text-secondary)', marginTop: '6px' }}>
+                    {accountStatusMsg}
+                  </p>
+                )}
               </div>
             )}
           </div>

@@ -203,11 +203,15 @@ class AccountManager {
 
   private getAuthStatus(): Promise<{ loggedIn: boolean; email?: string; subscriptionType?: string; authMethod?: string } | null> {
     return new Promise((resolve) => {
-      execFile('claude', ['auth', 'status'], { timeout: 10000 }, (err, stdout) => {
+      execFile('claude', ['auth', 'status'], { timeout: 10000 }, (err, stdout, stderr) => {
         if (err) {
+          logger.error('[account-manager] auth status failed:', err.message, stderr)
           resolve(null)
         } else {
-          try { resolve(JSON.parse(stdout)) } catch { resolve(null) }
+          try { resolve(JSON.parse(stdout)) } catch (e) {
+            logger.error('[account-manager] auth status parse failed:', stdout)
+            resolve(null)
+          }
         }
       })
     })
@@ -215,10 +219,16 @@ class AccountManager {
 
   async importCurrentAccount(): Promise<ClaudeAccount | null> {
     const status = await this.getAuthStatus()
-    if (!status?.loggedIn || !status.email) return null
+    if (!status?.loggedIn || !status.email) {
+      logger.log('[account-manager] importCurrentAccount: no auth status or not logged in', JSON.stringify(status))
+      return null
+    }
 
     const cred = readCliCredentials()
-    if (!cred) return null
+    if (!cred) {
+      logger.log('[account-manager] importCurrentAccount: no CLI credentials found')
+      return null
+    }
 
     const existing = this.store.accounts.find(a => a.email === status.email)
     if (existing) {
