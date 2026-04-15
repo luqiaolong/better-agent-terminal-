@@ -3439,11 +3439,12 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           }
           return null
         }
-        // Grand total across all turns
+        // Grand total: skip streaming entries that have a subsequent result entry (same turn)
         let grandTotal = 0
         let hasAnyCost = false
-        for (const h of hist) {
-          const models = calcModelCosts(h)
+        for (let i = 0; i < hist.length; i++) {
+          if (!hist[i].isResult && i + 1 < hist.length && hist[i + 1].isResult) continue
+          const models = calcModelCosts(hist[i])
           if (models) {
             for (const m of models) {
               if (m.totalCost !== null) { grandTotal += m.totalCost; hasAnyCost = true }
@@ -3474,9 +3475,10 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                     <span style={{ width: 76, textAlign: 'right' }} title="Sum of cache read tokens across all API calls in this turn">turn c.read</span>
                     <span style={{ width: 76, textAlign: 'right' }} title="Sum of cache write tokens across all API calls in this turn">turn c.write</span>
                     <span style={{ width: 76, textAlign: 'right' }} title="Total input tokens consumed in this turn">turn total</span>
-                    <span style={{ width: 64, textAlign: 'right' }} title="Estimated read cost">read $</span>
-                    <span style={{ width: 64, textAlign: 'right' }} title="Estimated write cost (weighted 5m/1h)">write $</span>
-                    <span style={{ width: 64, textAlign: 'right' }} title="Estimated total cost (input + output)">est. $</span>
+                    <span style={{ width: 56, textAlign: 'right' }} title="Output tokens (result rows only)">output</span>
+                    <span style={{ width: 64, textAlign: 'right' }} title="Estimated cache read cost">c.read $</span>
+                    <span style={{ width: 64, textAlign: 'right' }} title="Estimated cache write cost (weighted 5m/1h)">c.write $</span>
+                    <span style={{ width: 64, textAlign: 'right' }} title="Estimated total cost (cache read + write + uncached input + output)">est. $</span>
                     <span style={{ width: 110, textAlign: 'right' }}>time</span>
                   </div>
                   {(() => { let callNum = 0; return hist.map((h, i) => {
@@ -3499,31 +3501,27 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                           <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheRead.toLocaleString()}</span>
                           <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheCreate.toLocaleString()}</span>
                           <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#888' }}>{h.totalInput.toLocaleString()}</span>
+                          <span style={{ width: 56, textAlign: 'right', color: isSkip ? '#666' : '#d19a66' }}>{h.isResult && h.outputTokens ? h.outputTokens.toLocaleString() : ''}</span>
                           <span style={{ width: 64, textAlign: 'right', color: isSkip ? '#666' : '#89ca78' }}>{fmtCost(turnReadCost)}</span>
                           <span style={{ width: 64, textAlign: 'right', color: isSkip ? '#666' : '#e6a700' }}>{fmtCost(turnWriteCost)}</span>
                           <span style={{ width: 64, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{fmtCost(turnTotalCost)}</span>
                           <span style={{ width: 110, textAlign: 'right', color: '#555', fontSize: 11 }}>{h.timestamp ? new Date(h.timestamp).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}</span>
                         </div>
-                        {/* Per-model sub-rows — aligned with header columns */}
+                        {/* Per-model sub-rows — same column widths as header */}
                         {models && models.map(m => (
                           <div key={m.model} style={{ display: 'flex', justifyContent: 'space-between', padding: '1px 0', fontSize: 11, borderBottom: '1px solid #1a1a1a' }}>
-                            {/* #, %, calls, call c.read — model name spans these */}
-                            <span style={{ width: 172, color: '#666', paddingLeft: 24, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.model}</span>
-                            {/* call c.write — empty */}
+                            <span style={{ width: 24 }} />
+                            <span style={{ width: 36 }} />
+                            <span style={{ width: 36 }} />
+                            <span style={{ width: 76, color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 4 }}>{m.model}</span>
                             <span style={{ width: 76 }} />
-                            {/* turn c.read */}
                             <span style={{ width: 76, textAlign: 'right', color: '#555' }}>{m.cacheRead.toLocaleString()}</span>
-                            {/* turn c.write */}
                             <span style={{ width: 76, textAlign: 'right', color: '#555' }}>{m.cacheWrite.toLocaleString()}</span>
-                            {/* turn total — show output tokens here */}
-                            <span style={{ width: 76, textAlign: 'right', color: '#555' }}>{m.output.toLocaleString()} out</span>
-                            {/* read $ */}
+                            <span style={{ width: 76 }} />
+                            <span style={{ width: 56, textAlign: 'right', color: '#555' }}>{m.output.toLocaleString()}</span>
                             <span style={{ width: 64, textAlign: 'right', color: m.readCost !== null ? '#557a56' : '#555' }}>{fmtCost(m.readCost)}</span>
-                            {/* write $ */}
                             <span style={{ width: 64, textAlign: 'right', color: m.writeCost !== null ? '#8a7030' : '#555' }}>{fmtCost(m.writeCost)}</span>
-                            {/* est. $ */}
                             <span style={{ width: 64, textAlign: 'right', color: m.totalCost !== null ? '#999' : '#555' }}>{fmtCost(m.totalCost)}</span>
-                            {/* time — empty */}
                             <span style={{ width: 110 }} />
                           </div>
                         ))}
@@ -3533,14 +3531,14 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                   {/* Grand total */}
                   {hist.length > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: '1px solid #444', fontWeight: 600 }}>
-                      <span style={{ flex: 1, color: '#bbb' }}>Total (est.)</span>
+                      <span style={{ flex: 1, color: '#bbb' }}>Total (est. cache read + write)</span>
                       <span style={{ width: 64, textAlign: 'right', color: hasAnyCost ? '#eee' : '#666' }}>{hasAnyCost ? `$${grandTotal.toFixed(4)}` : '—'}</span>
                     </div>
                   )}
                   {hist.length === 0 && <div style={{ color: '#666', padding: '8px 0' }}>No readings yet.</div>}
                 </div>
                 <div style={{ fontSize: 12, color: '#e05252', marginTop: 8, lineHeight: 1.5 }}>
-                  ⚠ Experimental: cost is estimated from built-in pricing table. Cache write pricing uses weighted 5m/1h ratio when available, but API does not always distinguish cache TTL — actual cost may differ. Verify independently.
+                  ⚠ Experimental: cost is estimated from built-in pricing table. Result (R) rows have 5m/1h cache TTL breakdown and include sub-agent costs — use these as more accurate estimates. Non-result rows lack TTL info and default to 5m rate (lower estimate). Verify independently.
                 </div>
               </div>
             </div>
