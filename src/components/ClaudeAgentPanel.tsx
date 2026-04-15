@@ -191,7 +191,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
   const [resumeSessions, setResumeSessions] = useState<SessionSummary[]>([])
   const [resumeLoading, setResumeLoading] = useState(false)
   const [showModelList, setShowModelList] = useState(false)
-  const [contentModal, setContentModal] = useState<{ title: string; content: string } | null>(null)
+  const [contentModal, setContentModal] = useState<{ title: string; content: string; markdown?: boolean } | null>(null)
   // Subagent message storage (keyed by parent Task tool_use_id)
   const subagentMessagesRef = useRef<Map<string, MessageItem[]>>(new Map())
   const [subagentStreamingText, setSubagentStreamingText] = useState<Map<string, string>>(new Map())
@@ -1948,6 +1948,21 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
     return { content, reminders, errors }
   }
 
+  const parseContentBlocks = (text: string): string => {
+    const trimmed = text.trim()
+    if (!trimmed.startsWith('[')) return text
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (!Array.isArray(parsed)) return text
+      const texts = parsed
+        .filter((b: { type?: string; text?: string }) => b.type === 'text' && typeof b.text === 'string')
+        .map((b: { text: string }) => b.text)
+      return texts.length > 0 ? texts.join('\n\n') : text
+    } catch {
+      return text
+    }
+  }
+
   const renderTodoChecklist = (input: Record<string, unknown>) => {
     const todos = input.todos as Array<{ content: string; status: string; activeForm?: string }> | undefined
     if (!todos || !Array.isArray(todos)) return null
@@ -2038,7 +2053,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                 <div className="claude-plan-block">
                   <div className="claude-plan-open-btn" onClick={() => {
                     window.electronAPI.fs.readFile(planPath).then(r => {
-                      if (r.content) setContentModal({ title: 'Plan', content: r.content })
+                      if (r.content) setContentModal({ title: 'Plan', content: r.content, markdown: true })
                     }).catch(() => {})
                   }}>
                     View plan
@@ -2086,7 +2101,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         const maxTurns = item.input.max_turns ? String(item.input.max_turns) : null
         const runBg = item.input.run_in_background ? true : false
         const resultRaw = item.result ? (typeof item.result === 'string' ? item.result : String(item.result)) : ''
-        const { content: resultText, reminders: resultReminders, errors: resultErrors } = splitSystemReminders(resultRaw)
+        const { content: resultTextRaw, reminders: resultReminders, errors: resultErrors } = splitSystemReminders(resultRaw)
+        const resultText = parseContentBlocks(resultTextRaw)
         const resultLines = resultText.split('\n')
         const isLongResult = resultLines.length > 6 || resultText.length > 400
         const progressDesc = item.description || ''
@@ -2162,7 +2178,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                     <div className="claude-task-result-text"><LinkedText text={resultText} /></div>
                   )}
                   {!isResultExpanded && isLongResult && (
-                    <div className="claude-plan-open-btn" onClick={() => setContentModal({ title: 'Task Result', content: resultText })}>
+                    <div className="claude-plan-open-btn" onClick={() => setContentModal({ title: 'Task Result', content: resultText, markdown: true })}>
                       View result ({resultLines.length} lines)
                     </div>
                   )}
@@ -2324,7 +2340,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           ? allMessages.find(m => isToolCall(m) && m.toolName === 'Task' && m.id === taskId) as ClaudeToolCall | undefined
           : null
         const resultRaw = item.result ? (typeof item.result === 'string' ? item.result : String(item.result)) : ''
-        const { content: resultText, errors: resultErrors } = splitSystemReminders(resultRaw)
+        const { content: resultTextRaw, errors: resultErrors } = splitSystemReminders(resultRaw)
+        const resultText = parseContentBlocks(resultTextRaw)
         const resultLines = resultText.split('\n')
         const isLongResult = resultLines.length > 6 || resultText.length > 400
         const isResultExpanded = expandedTools.has(`taskout-result-${item.id}`)
@@ -2367,7 +2384,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                     <div className="claude-task-result-text"><LinkedText text={resultText} /></div>
                   )}
                   {!isResultExpanded && isLongResult && (
-                    <div className="claude-plan-open-btn" onClick={() => setContentModal({ title: 'TaskOutput Result', content: resultText })}>
+                    <div className="claude-plan-open-btn" onClick={() => setContentModal({ title: 'TaskOutput Result', content: resultText, markdown: true })}>
                       View result ({resultLines.length} lines)
                     </div>
                   )}
@@ -2721,7 +2738,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           {planContent && (
             <div className="claude-plan-block">
               <pre className="claude-plan-content">{planContent.split('\n').slice(0, 3).join('\n')}{planContent.split('\n').length > 3 ? '\n...' : ''}</pre>
-              <div className="claude-plan-open-btn" onClick={() => setContentModal({ title: 'Plan', content: planContent })}>
+              <div className="claude-plan-open-btn" onClick={() => setContentModal({ title: 'Plan', content: planContent, markdown: true })}>
                 {t('claude.viewFullPlan', { count: planContent.split('\n').length })}
               </div>
             </div>
@@ -3000,7 +3017,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         <div className="claude-plan-file-bar">
           <span className="claude-plan-file-label" style={{ cursor: 'pointer' }} onClick={() => {
             window.electronAPI.fs.readFile(activePlanFile).then(r => {
-              if (r.content) setContentModal({ title: 'Plan', content: r.content })
+              if (r.content) setContentModal({ title: 'Plan', content: r.content, markdown: true })
             }).catch(() => {})
           }} title={activePlanFile}>
             <span>📋 {activePlanFile.split('/').pop()}</span>
@@ -3242,7 +3259,11 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
               <span className="claude-plan-modal-title">{contentModal.title}</span>
               <button className="claude-plan-modal-close" onClick={() => setContentModal(null)}>&times;</button>
             </div>
-            <pre className="claude-plan-modal-body">{contentModal.content}</pre>
+            {contentModal.markdown ? (
+              <div className="claude-plan-modal-body claude-plan-modal-markdown claude-markdown" dangerouslySetInnerHTML={{ __html: renderChatMarkdown(contentModal.content) }} />
+            ) : (
+              <pre className="claude-plan-modal-body">{contentModal.content}</pre>
+            )}
           </div>
         </div>
       )}
