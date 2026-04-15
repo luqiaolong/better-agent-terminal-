@@ -56,6 +56,9 @@ interface SessionMeta {
   callCacheWrite: number
   lastQueryCalls: number
   permissionMode?: string
+  modelUsage?: Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number; costUSD: number }>
+  cacheWrite5mTokens?: number
+  cacheWrite1hTokens?: number
 }
 
 interface ModelInfo {
@@ -207,7 +210,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
   const [activePlanFile, setActivePlanFile] = useState<string | null>(null)
   const [planFileDismissed, setPlanFileDismissed] = useState(false)
   // Cache efficiency history — last 20 readings for smoothed display
-  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number }[]>([])
+  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number; modelUsage?: SessionMeta['modelUsage']; cacheWrite5mTokens?: number; cacheWrite1hTokens?: number; timestamp?: number }[]>([])
   const [showCacheHistory, setShowCacheHistory] = useState(false)
   const [statuslineConfig, setStatuslineConfig] = useState(settingsStore.getStatuslineItems())
   const [contextUsagePopup, setContextUsagePopup] = useState<{
@@ -660,7 +663,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           const lastEntry = hist[hist.length - 1]
           if (!lastEntry || lastEntry.cacheRead !== m.cacheReadTokens || lastEntry.totalInput !== m.inputTokens) {
             const pct = Math.round((m.cacheReadTokens / m.inputTokens) * 100)
-            const entry = { pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0, callCacheRead: m.callCacheRead || 0, callCacheWrite: m.callCacheWrite || 0, calls: m.lastQueryCalls || 0 }
+            const entry = { pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0, callCacheRead: m.callCacheRead || 0, callCacheWrite: m.callCacheWrite || 0, calls: m.lastQueryCalls || 0, modelUsage: m.modelUsage ? { ...m.modelUsage } : undefined, cacheWrite5mTokens: m.cacheWrite5mTokens, cacheWrite1hTokens: m.cacheWrite1hTokens, timestamp: Date.now() }
             // Result update: same call values but different turn totals → update last entry instead of pushing duplicate
             if (lastEntry && m.lastQueryCalls && lastEntry.callCacheRead === entry.callCacheRead && lastEntry.callCacheWrite === entry.callCacheWrite) {
               Object.assign(lastEntry, entry)
@@ -3314,9 +3317,74 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         const hist = cacheHistoryRef.current
         const significant = hist.filter(h => h.totalInput >= 50000)
         const belowCount = significant.filter(h => h.pct < 50).length
+        // Per-MTok pricing — exact model match only, no fallback
+        // Ref: https://platform.claude.com/docs/en/about-claude/pricing
+        const P = (input: number, output: number) => ({ input, output, cacheRead: input * 0.1, cacheWrite5m: input * 1.25, cacheWrite1h: input * 2 })
+        const MODEL_PRICING: Record<string, ReturnType<typeof P>> = {
+          'opus-4-6':  P(5, 25),    'opus-4-5':  P(5, 25),
+          'opus-4-1':  P(15, 75),   'opus-4':    P(15, 75),   'opus-3': P(15, 75),
+          'sonnet-4-6': P(3, 15),   'sonnet-4-5': P(3, 15),   'sonnet-4': P(3, 15),
+          'sonnet-3-7': P(3, 15),   'sonnet-3-5': P(3, 15),
+          'haiku-4-5': P(1, 5),     'haiku-3-5': P(0.80, 4),  'haiku-3': P(0.25, 1.25),
+        }
+        const getModelPricing = (model: string) => {
+          if (model.includes('opus-4-6')) return MODEL_PRICING['opus-4-6']
+          if (model.includes('opus-4-5')) return MODEL_PRICING['opus-4-5']
+          if (model.includes('opus-4-1')) return MODEL_PRICING['opus-4-1']
+          if (model.includes('opus-4-0') || model.match(/opus-4(?!-)\b/) || model.match(/opus-4-2\d{7}/)) return MODEL_PRICING['opus-4']
+          if (model.includes('opus-3') || model.includes('3-opus')) return MODEL_PRICING['opus-3']
+          if (model.includes('sonnet-4-6')) return MODEL_PRICING['sonnet-4-6']
+          if (model.includes('sonnet-4-5')) return MODEL_PRICING['sonnet-4-5']
+          if (model.includes('sonnet-4-0') || model.match(/sonnet-4(?!-)\b/) || model.match(/sonnet-4-2\d{7}/)) return MODEL_PRICING['sonnet-4']
+          if (model.includes('sonnet-3-7') || model.includes('3-7-sonnet')) return MODEL_PRICING['sonnet-3-7']
+          if (model.includes('sonnet-3-5') || model.includes('3-5-sonnet')) return MODEL_PRICING['sonnet-3-5']
+          if (model.includes('haiku-4') || model.includes('4-5-haiku')) return MODEL_PRICING['haiku-4-5']
+          if (model.includes('haiku-3-5') || model.includes('3-5-haiku')) return MODEL_PRICING['haiku-3-5']
+          if (model.includes('haiku-3') || model.includes('3-haiku')) return MODEL_PRICING['haiku-3']
+          return null
+        }
+        const fmtCost = (v: number | null) => v === null ? '—' : `$${v.toFixed(4)}`
+        // Calculate per-model cost for a history entry using pricing lookup
+        const calcModelCosts = (h: typeof hist[0]) => {
+          if (!h.modelUsage) return null
+          const models: { model: string; cacheRead: number; cacheWrite: number; input: number; output: number; readCost: number | null; writeCost: number | null; totalCost: number | null; pricing: ReturnType<typeof P> | null }[] = []
+          for (const [model, stats] of Object.entries(h.modelUsage)) {
+            const p = getModelPricing(model)
+            const totalIn = stats.inputTokens + stats.cacheReadInputTokens + stats.cacheCreationInputTokens
+            if (!p) {
+              models.push({ model, cacheRead: stats.cacheReadInputTokens, cacheWrite: stats.cacheCreationInputTokens, input: totalIn, output: stats.outputTokens, readCost: null, writeCost: null, totalCost: null, pricing: null })
+              continue
+            }
+            // Use 5m/1h proportional split for cache write pricing when available
+            let writePrice = p.cacheWrite5m
+            if (h.cacheWrite5mTokens !== undefined && h.cacheWrite1hTokens !== undefined) {
+              const total5m1h = h.cacheWrite5mTokens + h.cacheWrite1hTokens
+              if (total5m1h > 0) {
+                writePrice = (h.cacheWrite5mTokens * p.cacheWrite5m + h.cacheWrite1hTokens * p.cacheWrite1h) / total5m1h
+              }
+            }
+            const readCost = (stats.cacheReadInputTokens / 1_000_000) * p.cacheRead
+            const writeCost = (stats.cacheCreationInputTokens / 1_000_000) * writePrice
+            const inputCost = (stats.inputTokens / 1_000_000) * p.input
+            const outputCost = (stats.outputTokens / 1_000_000) * p.output
+            models.push({ model, cacheRead: stats.cacheReadInputTokens, cacheWrite: stats.cacheCreationInputTokens, input: totalIn, output: stats.outputTokens, readCost, writeCost, totalCost: readCost + writeCost + inputCost + outputCost, pricing: p })
+          }
+          return models
+        }
+        // Grand total across all turns
+        let grandTotal = 0
+        let hasAnyCost = false
+        for (const h of hist) {
+          const models = calcModelCosts(h)
+          if (models) {
+            for (const m of models) {
+              if (m.totalCost !== null) { grandTotal += m.totalCost; hasAnyCost = true }
+            }
+          }
+        }
         return (
           <div className="claude-plan-overlay" onClick={() => setShowCacheHistory(false)}>
-            <div className="claude-plan-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 720 }}>
+            <div className="claude-plan-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 1060 }}>
               <div className="claude-plan-modal-header">
                 <span className="claude-plan-modal-title">Cache Efficiency History (last {hist.length})</span>
                 <button className="claude-plan-modal-close" onClick={() => setShowCacheHistory(false)}>&times;</button>
@@ -3328,33 +3396,71 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                   </div>
                 )}
                 <div style={{ fontSize: 12 }}>
+                  {/* Token header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #333', fontWeight: 600, color: '#bbb' }}>
                     <span style={{ width: 24 }}>#</span>
                     <span style={{ width: 36, textAlign: 'right' }} title="Turn cache efficiency: turn c.read / turn total">%</span>
-                    <span style={{ width: 36, textAlign: 'right' }} title="Number of API calls in this turn (each tool use triggers a new API call)">calls</span>
-                    <span style={{ width: 76, textAlign: 'right' }} title="Last API call's cache read tokens (single request to Claude API)">call c.read</span>
-                    <span style={{ width: 76, textAlign: 'right' }} title="Last API call's cache write tokens (new content written to cache)">call c.write</span>
-                    <span style={{ width: 76, textAlign: 'right' }} title="Sum of cache read tokens across all API calls in this turn (each tool use triggers a new API call with full context)">turn c.read</span>
+                    <span style={{ width: 36, textAlign: 'right' }} title="Number of API calls in this turn">calls</span>
+                    <span style={{ width: 76, textAlign: 'right' }} title="Last API call's cache read tokens">call c.read</span>
+                    <span style={{ width: 76, textAlign: 'right' }} title="Last API call's cache write tokens">call c.write</span>
+                    <span style={{ width: 76, textAlign: 'right' }} title="Sum of cache read tokens across all API calls in this turn">turn c.read</span>
                     <span style={{ width: 76, textAlign: 'right' }} title="Sum of cache write tokens across all API calls in this turn">turn c.write</span>
-                    <span style={{ width: 76, textAlign: 'right' }} title="Total input tokens consumed in this turn (sum of all API calls). Higher than context size because each tool use resends the full context.">turn total</span>
+                    <span style={{ width: 76, textAlign: 'right' }} title="Total input tokens consumed in this turn">turn total</span>
+                    <span style={{ width: 64, textAlign: 'right' }} title="Estimated read cost">read $</span>
+                    <span style={{ width: 64, textAlign: 'right' }} title="Estimated write cost (weighted 5m/1h)">write $</span>
+                    <span style={{ width: 64, textAlign: 'right' }} title="Estimated total cost (input + output)">est. $</span>
+                    <span style={{ width: 110, textAlign: 'right' }}>time</span>
                   </div>
                   {hist.map((h, i) => {
                     const isSkip = h.totalInput < 50000
                     const pctColor = h.pct >= 70 ? '#89ca78' : h.pct >= 40 ? '#e6a700' : '#e05252'
+                    const models = calcModelCosts(h)
+                    const turnReadCost = models?.reduce((s, m) => m.readCost !== null ? s + m.readCost : s, 0) ?? null
+                    const turnWriteCost = models?.reduce((s, m) => m.writeCost !== null ? s + m.writeCost : s, 0) ?? null
+                    const turnTotalCost = models?.reduce((s, m) => m.totalCost !== null ? s + m.totalCost : s, 0) ?? null
+                    const hasMultiModel = models && models.length > 1
                     return (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid #222' }}>
-                        <span style={{ width: 24, color: isSkip ? '#666' : '#eee' }}>{i + 1}</span>
-                        <span style={{ width: 36, textAlign: 'right', color: isSkip ? '#eee' : pctColor }}>{h.pct}%</span>
-                        <span style={{ width: 36, textAlign: 'right', color: isSkip ? '#666' : '#d19a66' }}>{h.calls || '—'}</span>
-                        <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#8be9fd' }}>{h.callCacheRead ? h.callCacheRead.toLocaleString() : '—'}</span>
-                        <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#8be9fd' }}>{h.callCacheWrite ? h.callCacheWrite.toLocaleString() : '—'}</span>
-                        <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheRead.toLocaleString()}</span>
-                        <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheCreate.toLocaleString()}</span>
-                        <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#888' }}>{h.totalInput.toLocaleString()}</span>
+                      <div key={i}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: hasMultiModel ? 'none' : '1px solid #222' }}>
+                          <span style={{ width: 24, color: isSkip ? '#666' : '#eee' }}>{i + 1}</span>
+                          <span style={{ width: 36, textAlign: 'right', color: isSkip ? '#eee' : pctColor }}>{h.pct}%</span>
+                          <span style={{ width: 36, textAlign: 'right', color: isSkip ? '#666' : '#d19a66' }}>{h.calls || '—'}</span>
+                          <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#8be9fd' }}>{h.callCacheRead ? h.callCacheRead.toLocaleString() : '—'}</span>
+                          <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#8be9fd' }}>{h.callCacheWrite ? h.callCacheWrite.toLocaleString() : '—'}</span>
+                          <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheRead.toLocaleString()}</span>
+                          <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{h.cacheCreate.toLocaleString()}</span>
+                          <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#888' }}>{h.totalInput.toLocaleString()}</span>
+                          <span style={{ width: 64, textAlign: 'right', color: isSkip ? '#666' : '#89ca78' }}>{fmtCost(turnReadCost)}</span>
+                          <span style={{ width: 64, textAlign: 'right', color: isSkip ? '#666' : '#e6a700' }}>{fmtCost(turnWriteCost)}</span>
+                          <span style={{ width: 64, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{fmtCost(turnTotalCost)}</span>
+                          <span style={{ width: 110, textAlign: 'right', color: '#555', fontSize: 11 }}>{h.timestamp ? new Date(h.timestamp).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}</span>
+                        </div>
+                        {/* Per-model sub-rows */}
+                        {models && models.map(m => (
+                          <div key={m.model} style={{ display: 'flex', justifyContent: 'flex-end', padding: '1px 0', gap: 0, fontSize: 11, borderBottom: '1px solid #1a1a1a' }}>
+                            <span style={{ flex: 1, color: '#666', paddingLeft: 24, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.model}</span>
+                            <span style={{ width: 76, textAlign: 'right', color: '#555' }}>{m.cacheRead.toLocaleString()}</span>
+                            <span style={{ width: 76, textAlign: 'right', color: '#555' }}>{m.cacheWrite.toLocaleString()}</span>
+                            <span style={{ width: 76, textAlign: 'right', color: '#555' }}>{m.output.toLocaleString()} out</span>
+                            <span style={{ width: 64, textAlign: 'right', color: m.readCost !== null ? '#557a56' : '#555' }}>{fmtCost(m.readCost)}</span>
+                            <span style={{ width: 64, textAlign: 'right', color: m.writeCost !== null ? '#8a7030' : '#555' }}>{fmtCost(m.writeCost)}</span>
+                            <span style={{ width: 64, textAlign: 'right', color: m.totalCost !== null ? '#999' : '#555' }}>{fmtCost(m.totalCost)}</span>
+                          </div>
+                        ))}
                       </div>
                     )
                   })}
+                  {/* Grand total */}
+                  {hist.length > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: '1px solid #444', fontWeight: 600 }}>
+                      <span style={{ flex: 1, color: '#bbb' }}>Total (est.)</span>
+                      <span style={{ width: 64, textAlign: 'right', color: hasAnyCost ? '#eee' : '#666' }}>{hasAnyCost ? `$${grandTotal.toFixed(4)}` : '—'}</span>
+                    </div>
+                  )}
                   {hist.length === 0 && <div style={{ color: '#666', padding: '8px 0' }}>No readings yet.</div>}
+                </div>
+                <div style={{ fontSize: 11, color: '#e05252', marginTop: 8, opacity: 0.8 }}>
+                  ⚠ Experimental: cost is estimated from built-in pricing table. Cache write pricing uses weighted 5m/1h ratio when available, but API does not always distinguish cache TTL — actual cost may differ. Verify independently.
                 </div>
               </div>
             </div>

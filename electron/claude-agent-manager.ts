@@ -128,6 +128,11 @@ interface SessionMetadata {
   callCacheRead: number
   callCacheWrite: number
   lastQueryCalls: number  // Number of API calls in the last query/turn
+  // Per-model usage breakdown (from SDK modelUsage)
+  modelUsage?: Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number; costUSD: number }>
+  // Ephemeral cache write breakdown (aggregate, not per-model)
+  cacheWrite5mTokens?: number
+  cacheWrite1hTokens?: number
 }
 
 interface PendingRequest {
@@ -1148,13 +1153,13 @@ export class ClaudeAgentManager {
       const resultMsg = message as {
         subtype: string
         total_cost_usd?: number
-        usage?: { input_tokens?: number; output_tokens?: number }
+        usage?: { input_tokens?: number; output_tokens?: number; cache_creation?: { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number } | null }
         duration_ms?: number
         num_turns?: number
         result?: string
         errors?: string[]
         deferred_tool_use?: { id: string; name: string; input: Record<string, unknown> }
-        modelUsage?: Record<string, { contextWindow?: number; inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; maxOutputTokens?: number }>
+        modelUsage?: Record<string, { contextWindow?: number; inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; costUSD?: number; maxOutputTokens?: number }>
       }
 
       logger.log(`[Claude result] raw: subtype=${resultMsg.subtype}, cost=${resultMsg.total_cost_usd}, turns=${resultMsg.num_turns}, duration=${resultMsg.duration_ms}, result=${resultMsg.result ? JSON.stringify(resultMsg.result.slice(0, 300)) : 'null'}`)
@@ -1205,6 +1210,24 @@ export class ClaudeAgentManager {
         session.metadata.outputTokens = totalOutput
         session.metadata.cacheReadTokens = primaryInput ? primaryCacheRead : 0
         session.metadata.cacheCreationTokens = primaryInput ? primaryCacheCreate : 0
+        // Per-model usage for cost breakdown
+        const mu: SessionMetadata['modelUsage'] = {}
+        for (const [model, stats] of Object.entries(resultMsg.modelUsage)) {
+          const s = stats as { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; costUSD?: number }
+          mu[model] = {
+            inputTokens: s.inputTokens || 0,
+            outputTokens: s.outputTokens || 0,
+            cacheReadInputTokens: s.cacheReadInputTokens || 0,
+            cacheCreationInputTokens: s.cacheCreationInputTokens || 0,
+            costUSD: s.costUSD || 0,
+          }
+        }
+        session.metadata.modelUsage = mu
+        // Ephemeral cache write breakdown (aggregate)
+        if (resultMsg.usage?.cache_creation) {
+          session.metadata.cacheWrite5mTokens = resultMsg.usage.cache_creation.ephemeral_5m_input_tokens ?? 0
+          session.metadata.cacheWrite1hTokens = resultMsg.usage.cache_creation.ephemeral_1h_input_tokens ?? 0
+        }
       } else if (resultMsg.usage) {
         const usageFull = resultMsg.usage as { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
         const cacheRead = usageFull.cache_read_input_tokens || 0
