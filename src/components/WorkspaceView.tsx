@@ -232,7 +232,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
             agentPreset: terminal.agentPreset,
             shell,
             customEnv,
-            perTerminalHistory: settings.perTerminalHistory
+            perTerminalHistory: settings.perTerminalHistory,
+            historyKey: terminal.historyKey,
           })
           // Auto-run agent command for non-Claude agents
           if (terminal.agentPreset && terminal.agentPreset !== 'none' && settings.agentAutoCommand) {
@@ -264,7 +265,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
               agentPreset: defaultAgent as AgentPresetId,
               shell,
               customEnv,
-              perTerminalHistory: settings.perTerminalHistory
+              perTerminalHistory: settings.perTerminalHistory,
+              historyKey: agentTerminal.historyKey,
             })
             if (settings.agentAutoCommand) {
               const preset = getAgentPreset(defaultAgent)
@@ -285,7 +287,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
             type: 'terminal',
             shell,
             customEnv,
-            perTerminalHistory: settings.perTerminalHistory
+            perTerminalHistory: settings.perTerminalHistory,
+            historyKey: terminal.historyKey,
           })
         }
         // Persist newly created default terminals
@@ -319,7 +322,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
       type: 'terminal',
       shell,
       customEnv,
-      perTerminalHistory: settings.perTerminalHistory
+      perTerminalHistory: settings.perTerminalHistory,
+      historyKey: terminal.historyKey,
     })
     // Focus the new terminal
     workspaceStore.setFocusedTerminal(terminal.id)
@@ -354,6 +358,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         shell,
         customEnv,
         perTerminalHistory: settings.perTerminalHistory,
+        historyKey: terminal.historyKey,
       })
       if (preset.command && settings.agentAutoCommand) {
         setTimeout(() => {
@@ -382,6 +387,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
       }
     }
 
+    const termInst = workspaceStore.getState().terminals.find(t => t.id === terminalId)
     window.electronAPI.pty.create({
       id: terminalId,
       cwd: effectiveCwd,
@@ -392,7 +398,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         ...customEnv,
         CLAUDE_CODE_NO_FLICKER: '1',
       },
-      perTerminalHistory: settingsStore.getSettings().perTerminalHistory
+      perTerminalHistory: settingsStore.getSettings().perTerminalHistory,
+      historyKey: termInst?.historyKey,
     })
 
     // Build CLI command using bundled CLI

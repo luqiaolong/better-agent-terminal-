@@ -59,6 +59,7 @@ export interface TerminalInstance {
   };
   worktreePath?: string;          // Path to the worktree if running in worktree isolation
   worktreeBranch?: string;        // Branch name in the worktree
+  historyKey?: string;            // Stable key for per-terminal HISTFILE (persisted across restarts)
 }
 
 export interface AppState {
@@ -77,6 +78,7 @@ export interface CreatePtyOptions {
   shell?: string;
   customEnv?: Record<string, string>;  // 自定義環境變數
   perTerminalHistory?: boolean;  // Use per-terminal HISTFILE
+  historyKey?: string;           // Stable key for HISTFILE filename
 }
 
 export interface PtyOutput {
