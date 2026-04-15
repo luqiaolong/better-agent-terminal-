@@ -221,7 +221,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     }).catch(() => setPlanFileTitle(null))
   }, [activePlanFile, planFileTrigger])
   // Cache efficiency history — last 20 readings for smoothed display
-  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number; isResult?: boolean; modelUsage?: SessionMeta['modelUsage']; model?: string; outputTokens?: number; cacheWrite5mTokens?: number; cacheWrite1hTokens?: number; timestamp?: number; messageCount?: number }[]>([])
+  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number; isResult?: boolean; modelUsage?: SessionMeta['modelUsage']; model?: string; outputTokens?: number; cacheWrite5mTokens?: number; cacheWrite1hTokens?: number; timestamp?: number; messageCount?: number; turnStartMsgId?: string | null; apiTotalCost?: number }[]>([])
   const [showCacheHistory, setShowCacheHistory] = useState(false)
   const [cacheEntryModal, setCacheEntryModal] = useState<number | null>(null)
   const [statuslineConfig, setStatuslineConfig] = useState(settingsStore.getStatuslineItems())
@@ -265,6 +265,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   const inputDraftRef = useRef('')
   const pendingPromptSentRef = useRef(false)
   const messageCountRef = useRef(0)
+  const currentTurnMsgIdRef = useRef<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const streamingThinkingRef = useRef<HTMLPreElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -683,7 +684,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           const isResult = !!hasModelUsage
           if (!lastEntry || lastEntry.cacheRead !== m.cacheReadTokens || lastEntry.totalInput !== m.inputTokens || (isResult !== lastEntry.isResult)) {
             const pct = Math.round((m.cacheReadTokens / m.inputTokens) * 100)
-            const entry = { pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0, callCacheRead: m.callCacheRead || 0, callCacheWrite: m.callCacheWrite || 0, calls: isResult ? (m.lastQueryCalls || 0) : 1, isResult, modelUsage: m.modelUsage ? { ...m.modelUsage } : undefined, model: m.model, outputTokens: m.outputTokens || 0, cacheWrite5mTokens: m.cacheWrite5mTokens, cacheWrite1hTokens: m.cacheWrite1hTokens, timestamp: Date.now(), messageCount: messageCountRef.current }
+            const entry = { pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0, callCacheRead: m.callCacheRead || 0, callCacheWrite: m.callCacheWrite || 0, calls: isResult ? (m.lastQueryCalls || 0) : 1, isResult, modelUsage: m.modelUsage ? { ...m.modelUsage } : undefined, model: m.model, outputTokens: m.outputTokens || 0, cacheWrite5mTokens: m.cacheWrite5mTokens, cacheWrite1hTokens: m.cacheWrite1hTokens, timestamp: Date.now(), messageCount: messageCountRef.current, turnStartMsgId: currentTurnMsgIdRef.current, apiTotalCost: m.totalCost || 0 }
             hist.push(entry)
             // Trim: keep max 20 non-result entries; result entries are extra
             while (hist.filter(h => !h.isResult).length > 20) {
@@ -1411,8 +1412,10 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
       ? `\n[${filePaths.length} file${filePaths.length > 1 ? 's' : ''} attached: ${fileNames}]`
       : ''
     const displayContent = (trimmed + imageNote + fileNote).replace(/^\n/, '')
+    const userMsgId = `user-${Date.now()}`
+    currentTurnMsgIdRef.current = userMsgId
     setMessages(prev => [...prev, {
-      id: `user-${Date.now()}`,
+      id: userMsgId,
       sessionId,
       role: 'user' as const,
       content: displayContent,
@@ -3557,12 +3560,15 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                     <span style={{ width: 64, textAlign: 'right' }} title="Estimated cache read cost">c.read $</span>
                     <span style={{ width: 64, textAlign: 'right' }} title="Estimated cache write cost (weighted 5m/1h)">c.write $</span>
                     <span style={{ width: 64, textAlign: 'right' }} title="Estimated total cost (cache read + write + uncached input + output)">est. $</span>
+                    <span style={{ width: 64, textAlign: 'right' }} title="Actual turn cost from API (result rows only)">real $</span>
                     <span style={{ width: 110, textAlign: 'right' }}>time</span>
                   </div>
-                  {(() => { let callNum = 0; return hist.map((h, i) => {
+                  {(() => { let callNum = 0; let prevRApiCost = 0; return hist.map((h, i) => {
                     if (!h.isResult) callNum++
                     const isSkip = h.totalInput < 50000
                     const pctColor = h.pct >= 70 ? '#89ca78' : h.pct >= 40 ? '#e6a700' : '#e05252'
+                    const realTurnCost = h.isResult && h.apiTotalCost ? h.apiTotalCost - prevRApiCost : null
+                    if (h.isResult && h.apiTotalCost) prevRApiCost = h.apiTotalCost
                     const models = calcModelCosts(h)
                     const turnReadCost = models?.reduce((s, m) => m.readCost !== null ? s + m.readCost : s, 0) ?? null
                     const turnWriteCost = models?.reduce((s, m) => m.writeCost !== null ? s + m.writeCost : s, 0) ?? null
@@ -3583,6 +3589,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                           <span style={{ width: 64, textAlign: 'right', color: isSkip ? '#666' : '#89ca78' }}>{fmtCost(turnReadCost)}</span>
                           <span style={{ width: 64, textAlign: 'right', color: isSkip ? '#666' : '#e6a700' }}>{fmtCost(turnWriteCost)}</span>
                           <span style={{ width: 64, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{fmtCost(turnTotalCost)}</span>
+                          <span style={{ width: 64, textAlign: 'right', color: realTurnCost !== null ? '#50fa7b' : '#333' }}>{realTurnCost !== null ? fmtCost(realTurnCost) : ''}</span>
                           <span style={{ width: 110, textAlign: 'right', color: '#555', fontSize: 11 }}>{h.timestamp ? new Date(h.timestamp).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}</span>
                         </div>
                         {/* Per-model sub-rows — same column widths as header */}
@@ -3600,6 +3607,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                             <span style={{ width: 64, textAlign: 'right', color: m.readCost !== null ? '#557a56' : '#555' }}>{fmtCost(m.readCost)}</span>
                             <span style={{ width: 64, textAlign: 'right', color: m.writeCost !== null ? '#8a7030' : '#555' }}>{fmtCost(m.writeCost)}</span>
                             <span style={{ width: 64, textAlign: 'right', color: m.totalCost !== null ? '#999' : '#555' }}>{fmtCost(m.totalCost)}</span>
+                            <span style={{ width: 64 }} />
                             <span style={{ width: 110 }} />
                           </div>
                         ))}
@@ -3607,12 +3615,18 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                     )
                   }) })()}
                   {/* Grand total */}
-                  {hist.length > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: '1px solid #444', fontWeight: 600 }}>
-                      <span style={{ flex: 1, color: '#bbb' }}>Total (est. cache read + write)</span>
-                      <span style={{ width: 64, textAlign: 'right', color: hasAnyCost ? '#eee' : '#666' }}>{hasAnyCost ? `$${grandTotal.toFixed(4)}` : '—'}</span>
-                    </div>
-                  )}
+                  {hist.length > 0 && (() => {
+                    const lastR = [...hist].reverse().find(h => h.isResult && h.apiTotalCost)
+                    const apiTotal = lastR?.apiTotalCost ?? null
+                    return (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: '1px solid #444', fontWeight: 600 }}>
+                        <span style={{ flex: 1, color: '#bbb' }}>Total</span>
+                        <span style={{ width: 64, textAlign: 'right', color: hasAnyCost ? '#eee' : '#666' }}>{hasAnyCost ? `$${grandTotal.toFixed(4)}` : '—'}</span>
+                        <span style={{ width: 64, textAlign: 'right', color: apiTotal ? '#50fa7b' : '#666' }}>{apiTotal ? `$${apiTotal.toFixed(4)}` : '—'}</span>
+                        <span style={{ width: 110 }} />
+                      </div>
+                    )
+                  })()}
                   {hist.length === 0 && <div style={{ color: '#666', padding: '8px 0' }}>No readings yet.</div>}
                 </div>
                 <div style={{ fontSize: 12, color: '#e05252', marginTop: 8, lineHeight: 1.5 }}>
@@ -3629,13 +3643,26 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         const hist = cacheHistoryRef.current
         const entry = hist[cacheEntryModal]
         if (!entry) return null
-        // Find message range: from previous R entry's messageCount to this entry's messageCount
-        const endIdx = entry.messageCount ?? allMessages.length
+        // Find message range by turnStartMsgId (precise) or fall back to messageCount-based range
         let startIdx = 0
-        for (let j = cacheEntryModal - 1; j >= 0; j--) {
-          if (hist[j].isResult && hist[j].messageCount !== undefined) {
-            startIdx = hist[j].messageCount!
-            break
+        let endIdx = allMessages.length
+        if (entry.turnStartMsgId) {
+          const turnStart = allMessages.findIndex(m => m.id === entry.turnStartMsgId)
+          if (turnStart >= 0) {
+            startIdx = turnStart
+            // End at the next user message (start of next turn)
+            for (let k = turnStart + 1; k < allMessages.length; k++) {
+              const msg = allMessages[k]
+              if (!isToolCall(msg) && msg.role === 'user') { endIdx = k; break }
+            }
+          }
+        } else if (entry.messageCount !== undefined) {
+          endIdx = entry.messageCount
+          for (let j = cacheEntryModal - 1; j >= 0; j--) {
+            if (hist[j].isResult && hist[j].messageCount !== undefined) {
+              startIdx = hist[j].messageCount!
+              break
+            }
           }
         }
         const turnMsgs = allMessages.slice(startIdx, endIdx).filter(m => !('parentToolUseId' in m && m.parentToolUseId))
