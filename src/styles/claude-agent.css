@@ -1037,9 +1037,27 @@
 .claude-plan-file-label {
   color: #3b82f6;
   font-weight: 500;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.claude-plan-file-label > span:first-child {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.claude-plan-file-subtitle {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.8;
 }
 
 .claude-plan-file-actions {

@@ -330,46 +330,6 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
     workspaceStore.save()
   }, [workspace.id, workspace.folderPath, workspace.envVars])
 
-  const handleAddAgent = useCallback(async (presetId: string) => {
-    const preset = getAgentPreset(presetId)
-    if (!preset) return
-
-    if (preset.backend === 'sdk') {
-      const terminal = workspaceStore.addTerminal(workspace.id, presetId as AgentPresetId)
-      workspaceStore.setFocusedTerminal(terminal.id)
-      workspaceStore.save()
-    } else if (preset.backend === 'cli') {
-      const isWorktree = presetId === 'claude-cli-worktree'
-      const terminal = workspaceStore.addTerminal(workspace.id, presetId as AgentPresetId)
-      workspaceStore.setFocusedTerminal(terminal.id)
-      workspaceStore.save()
-      await startClaudeCliPty(terminal.id, workspace.folderPath, isWorktree)
-    } else {
-      // pty: generic PTY with auto-run command
-      const terminal = workspaceStore.addTerminal(workspace.id, presetId as AgentPresetId)
-      const shell = await getShellFromSettings()
-      const settings = settingsStore.getSettings()
-      const customEnv = mergeEnvVars(settings.globalEnvVars, workspace.envVars)
-      window.electronAPI.pty.create({
-        id: terminal.id,
-        cwd: workspace.folderPath,
-        type: 'terminal',
-        agentPreset: presetId as AgentPresetId,
-        shell,
-        customEnv,
-        perTerminalHistory: settings.perTerminalHistory,
-        historyKey: terminal.historyKey,
-      })
-      if (preset.command && settings.agentAutoCommand) {
-        setTimeout(() => {
-          window.electronAPI.pty.write(terminal.id, preset.command + '\r')
-        }, 500)
-      }
-      workspaceStore.setFocusedTerminal(terminal.id)
-      workspaceStore.save()
-    }
-  }, [workspace.id, workspace.folderPath, workspace.envVars, startClaudeCliPty])
-
   /** Create a claude-cli PTY terminal with bundled CLI, CLAUDE_CODE_NO_FLICKER, and optional worktree */
   const startClaudeCliPty = useCallback(async (terminalId: string, cwd: string, isWorktree: boolean) => {
     const settings = settingsStore.getSettings()
@@ -417,6 +377,46 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
       window.electronAPI.pty.write(terminalId, cmd + '\r')
     }, 500)
   }, [workspace.folderPath, workspace.envVars])
+
+  const handleAddAgent = useCallback(async (presetId: string) => {
+    const preset = getAgentPreset(presetId)
+    if (!preset) return
+
+    if (preset.backend === 'sdk') {
+      const terminal = workspaceStore.addTerminal(workspace.id, presetId as AgentPresetId)
+      workspaceStore.setFocusedTerminal(terminal.id)
+      workspaceStore.save()
+    } else if (preset.backend === 'cli') {
+      const isWorktree = presetId === 'claude-cli-worktree'
+      const terminal = workspaceStore.addTerminal(workspace.id, presetId as AgentPresetId)
+      workspaceStore.setFocusedTerminal(terminal.id)
+      workspaceStore.save()
+      await startClaudeCliPty(terminal.id, workspace.folderPath, isWorktree)
+    } else {
+      // pty: generic PTY with auto-run command
+      const terminal = workspaceStore.addTerminal(workspace.id, presetId as AgentPresetId)
+      const shell = await getShellFromSettings()
+      const settings = settingsStore.getSettings()
+      const customEnv = mergeEnvVars(settings.globalEnvVars, workspace.envVars)
+      window.electronAPI.pty.create({
+        id: terminal.id,
+        cwd: workspace.folderPath,
+        type: 'terminal',
+        agentPreset: presetId as AgentPresetId,
+        shell,
+        customEnv,
+        perTerminalHistory: settings.perTerminalHistory,
+        historyKey: terminal.historyKey,
+      })
+      if (preset.command && settings.agentAutoCommand) {
+        setTimeout(() => {
+          window.electronAPI.pty.write(terminal.id, preset.command + '\r')
+        }, 500)
+      }
+      workspaceStore.setFocusedTerminal(terminal.id)
+      workspaceStore.save()
+    }
+  }, [workspace.id, workspace.folderPath, workspace.envVars, startClaudeCliPty])
 
 
   const isDebugMode = window.electronAPI?.debug?.isDebugMode

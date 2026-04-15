@@ -208,7 +208,16 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
   })
   const [promptSuggestion, setPromptSuggestion] = useState<string | null>(null)
   const [activePlanFile, setActivePlanFile] = useState<string | null>(null)
+  const [planFileTitle, setPlanFileTitle] = useState<string | null>(null)
   const [planFileDismissed, setPlanFileDismissed] = useState(false)
+  useEffect(() => {
+    if (!activePlanFile) { setPlanFileTitle(null); return }
+    window.electronAPI.fs.readFile(activePlanFile).then(r => {
+      if (!r.content) return
+      const firstLine = r.content.split('\n').find((l: string) => l.trim().length > 0)
+      if (firstLine) setPlanFileTitle(firstLine.replace(/^#+\s*/, '').trim())
+    }).catch(() => setPlanFileTitle(null))
+  }, [activePlanFile])
   // Cache efficiency history — last 20 readings for smoothed display
   const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number; modelUsage?: SessionMeta['modelUsage']; cacheWrite5mTokens?: number; cacheWrite1hTokens?: number; timestamp?: number }[]>([])
   const [showCacheHistory, setShowCacheHistory] = useState(false)
@@ -2989,17 +2998,15 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
       {/* Plan file bar */}
       {activePlanFile && !planFileDismissed && (
         <div className="claude-plan-file-bar">
-          <span className="claude-plan-file-label">📋 {activePlanFile.split('/').pop()}</span>
+          <span className="claude-plan-file-label" style={{ cursor: 'pointer' }} onClick={() => {
+            window.electronAPI.fs.readFile(activePlanFile).then(r => {
+              if (r.content) setContentModal({ title: 'Plan', content: r.content })
+            }).catch(() => {})
+          }} title={activePlanFile}>
+            <span>📋 {activePlanFile.split('/').pop()}</span>
+            {planFileTitle && <span className="claude-plan-file-subtitle">{planFileTitle}</span>}
+          </span>
           <div className="claude-plan-file-actions">
-            <button
-              className="claude-plan-file-btn"
-              onClick={() => {
-                window.electronAPI.fs.readFile(activePlanFile).then(r => {
-                  if (r.content) setContentModal({ title: 'Plan', content: r.content })
-                }).catch(() => {})
-              }}
-              title={activePlanFile}
-            >Show</button>
             <button
               className="claude-plan-file-btn"
               onClick={() => setPlanFileDismissed(true)}
