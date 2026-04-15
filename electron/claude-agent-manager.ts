@@ -339,8 +339,21 @@ export class ClaudeAgentManager {
             logger.log(`[Claude] Session ${sessionId.slice(0, 8)} using worktree at ${effectiveCwd}`)
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err)
-            logger.warn(`[Claude] Failed to create worktree, falling back to normal mode: ${errMsg}`)
-            // Will send a warning message after session is created
+            // If worktree directory already exists (e.g. tab closed without cleanup), rehydrate it
+            if (errMsg.includes('already exists')) {
+              const gitRoot = await worktreeManager.getGitRoot(options.cwd)
+              if (gitRoot) {
+                const existingPath = pathModule.join(gitRoot, '.bat-worktrees', sessionId.slice(0, 8))
+                if (fsSync.existsSync(existingPath)) {
+                  worktreeInfo = worktreeManager.rehydrate(sessionId, options.cwd, existingPath, options.worktreeBranch || `bat/worktree-${sessionId.slice(0, 8)}`)
+                  effectiveCwd = existingPath
+                  logger.log(`[Claude] Session ${sessionId.slice(0, 8)} rehydrated existing worktree at ${effectiveCwd}`)
+                }
+              }
+            }
+            if (!worktreeInfo) {
+              logger.warn(`[Claude] Failed to create worktree, falling back to normal mode: ${errMsg}`)
+            }
           }
         }
       }
