@@ -209,7 +209,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
   const [promptSuggestion, setPromptSuggestion] = useState<string | null>(null)
   const [activePlanFile, setActivePlanFile] = useState<string | null>(null)
   const [planFileTitle, setPlanFileTitle] = useState<string | null>(null)
-  const [planFileDismissed, setPlanFileDismissed] = useState(false)
+  const dismissedPlanFileRef = useRef<string | null>(null)
   useEffect(() => {
     if (!activePlanFile) { setPlanFileTitle(null); return }
     window.electronAPI.fs.readFile(activePlanFile).then(r => {
@@ -542,7 +542,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         // Track plan file path from EnterPlanMode/ExitPlanMode
         if ((toolCall.toolName === 'EnterPlanMode' || toolCall.toolName === 'ExitPlanMode') && toolCall.input.planFilePath) {
           setActivePlanFile(String(toolCall.input.planFilePath))
-          setPlanFileDismissed(false)
+          dismissedPlanFileRef.current = null
         }
         // Use flushSync for Agent/Task tools to ensure the active tasks bar renders immediately
         const isAgentTool = toolCall.toolName === 'Agent' || toolCall.toolName === 'Task'
@@ -744,7 +744,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
         setHasSdkSession(false)
         setWorktreeInfo(null)
         setActivePlanFile(null)
-        setPlanFileDismissed(false)
+        dismissedPlanFileRef.current = null
         workspaceStore.setTerminalSdkSessionId(sessionId, undefined)
       }),
 
@@ -770,11 +770,12 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           }
         }
         subagentMessagesRef.current = subagentBuckets
-        // Restore activePlanFile from history
+        // Restore activePlanFile from history (skip if user already dismissed it)
         for (let i = mainItems.length - 1; i >= 0; i--) {
           const it = mainItems[i]
           if ('toolName' in it && (it.toolName === 'EnterPlanMode' || it.toolName === 'ExitPlanMode') && it.input?.planFilePath) {
-            setActivePlanFile(String(it.input.planFilePath))
+            const pf = String(it.input.planFilePath)
+            if (dismissedPlanFileRef.current !== pf) setActivePlanFile(pf)
             break
           }
         }
@@ -2996,7 +2997,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
       )}
 
       {/* Plan file bar */}
-      {activePlanFile && !planFileDismissed && (
+      {activePlanFile && dismissedPlanFileRef.current !== activePlanFile && (
         <div className="claude-plan-file-bar">
           <span className="claude-plan-file-label" style={{ cursor: 'pointer' }} onClick={() => {
             window.electronAPI.fs.readFile(activePlanFile).then(r => {
@@ -3009,7 +3010,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           <div className="claude-plan-file-actions">
             <button
               className="claude-plan-file-btn"
-              onClick={() => setPlanFileDismissed(true)}
+              onClick={() => { dismissedPlanFileRef.current = activePlanFile; setActivePlanFile(null) }}
             >Dismiss</button>
           </div>
         </div>
