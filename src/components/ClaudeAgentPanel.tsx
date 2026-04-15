@@ -221,8 +221,9 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     }).catch(() => setPlanFileTitle(null))
   }, [activePlanFile, planFileTrigger])
   // Cache efficiency history — last 20 readings for smoothed display
-  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number; isResult?: boolean; modelUsage?: SessionMeta['modelUsage']; model?: string; outputTokens?: number; cacheWrite5mTokens?: number; cacheWrite1hTokens?: number; timestamp?: number }[]>([])
+  const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number; isResult?: boolean; modelUsage?: SessionMeta['modelUsage']; model?: string; outputTokens?: number; cacheWrite5mTokens?: number; cacheWrite1hTokens?: number; timestamp?: number; messageCount?: number }[]>([])
   const [showCacheHistory, setShowCacheHistory] = useState(false)
+  const [cacheEntryModal, setCacheEntryModal] = useState<number | null>(null)
   const [statuslineConfig, setStatuslineConfig] = useState(settingsStore.getStatuslineItems())
   const [contextUsagePopup, setContextUsagePopup] = useState<{
     categories: { name: string; tokens: number; color: string; isDeferred?: boolean }[]
@@ -263,6 +264,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   const inputHistoryIndexRef = useRef(-1)
   const inputDraftRef = useRef('')
   const pendingPromptSentRef = useRef(false)
+  const messageCountRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const streamingThinkingRef = useRef<HTMLPreElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -313,6 +315,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
 
   // Combine archived + live messages for rendering and scanning
   const allMessages = useMemo(() => [...loadedArchive, ...messages], [loadedArchive, messages])
+  messageCountRef.current = allMessages.length
 
   // Active tasks (running Task/Agent tool calls) for the indicator bar
   const activeTasks = useMemo(() => {
@@ -680,7 +683,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           const isResult = !!hasModelUsage
           if (!lastEntry || lastEntry.cacheRead !== m.cacheReadTokens || lastEntry.totalInput !== m.inputTokens || (isResult !== lastEntry.isResult)) {
             const pct = Math.round((m.cacheReadTokens / m.inputTokens) * 100)
-            const entry = { pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0, callCacheRead: m.callCacheRead || 0, callCacheWrite: m.callCacheWrite || 0, calls: isResult ? (m.lastQueryCalls || 0) : 1, isResult, modelUsage: m.modelUsage ? { ...m.modelUsage } : undefined, model: m.model, outputTokens: m.outputTokens || 0, cacheWrite5mTokens: m.cacheWrite5mTokens, cacheWrite1hTokens: m.cacheWrite1hTokens, timestamp: Date.now() }
+            const entry = { pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0, callCacheRead: m.callCacheRead || 0, callCacheWrite: m.callCacheWrite || 0, calls: isResult ? (m.lastQueryCalls || 0) : 1, isResult, modelUsage: m.modelUsage ? { ...m.modelUsage } : undefined, model: m.model, outputTokens: m.outputTokens || 0, cacheWrite5mTokens: m.cacheWrite5mTokens, cacheWrite1hTokens: m.cacheWrite1hTokens, timestamp: Date.now(), messageCount: messageCountRef.current }
             hist.push(entry)
             // Trim: keep max 20 non-result entries; result entries are extra
             while (hist.filter(h => !h.isResult).length > 20) {
@@ -3568,7 +3571,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                     return (
                       <div key={i}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: hasMultiModel ? 'none' : '1px solid #222', ...(h.isResult ? { borderTop: '1px solid #444', background: '#1a1a2e' } : {}) }}>
-                          <span style={{ width: 24, color: h.isResult ? '#c678dd' : isSkip ? '#666' : '#eee' }}>{h.isResult ? 'R' : callNum}</span>
+                          <span style={{ width: 24, color: h.isResult ? '#c678dd' : isSkip ? '#666' : '#eee', cursor: h.isResult ? 'pointer' : 'default', textDecoration: h.isResult ? 'underline' : 'none' }} onClick={() => h.isResult && setCacheEntryModal(i)} title={h.isResult ? 'View turn conversation' : undefined}>{h.isResult ? 'R' : callNum}</span>
                           <span style={{ width: 36, textAlign: 'right', color: isSkip ? '#eee' : pctColor }}>{h.pct}%</span>
                           <span style={{ width: 36, textAlign: 'right', color: isSkip ? '#666' : '#d19a66' }}>{h.isResult ? h.calls : 1}</span>
                           <span style={{ width: 76, textAlign: 'right', color: isSkip ? '#666' : '#8be9fd' }}>{h.callCacheRead ? h.callCacheRead.toLocaleString() : '—'}</span>
@@ -3614,6 +3617,52 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                 </div>
                 <div style={{ fontSize: 12, color: '#e05252', marginTop: 8, lineHeight: 1.5 }}>
                   ⚠ Experimental: cost is estimated from built-in pricing table. Result (R) rows have 5m/1h cache TTL breakdown and include sub-agent costs — use these as more accurate estimates. Non-result rows lack TTL info and default to 5m rate (lower estimate). Verify independently.
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Cache Entry Turn Detail Modal */}
+      {cacheEntryModal !== null && (() => {
+        const hist = cacheHistoryRef.current
+        const entry = hist[cacheEntryModal]
+        if (!entry) return null
+        // Find message range: from previous R entry's messageCount to this entry's messageCount
+        const endIdx = entry.messageCount ?? allMessages.length
+        let startIdx = 0
+        for (let j = cacheEntryModal - 1; j >= 0; j--) {
+          if (hist[j].isResult && hist[j].messageCount !== undefined) {
+            startIdx = hist[j].messageCount!
+            break
+          }
+        }
+        const turnMsgs = allMessages.slice(startIdx, endIdx).filter(m => !('parentToolUseId' in m && m.parentToolUseId))
+        const callNum = hist.slice(0, cacheEntryModal + 1).filter(h => !h.isResult).length
+        const fmtTokens = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+        return (
+          <div className="claude-plan-overlay" onClick={() => setCacheEntryModal(null)}>
+            <div className="claude-plan-modal claude-subagent-modal" onClick={e => e.stopPropagation()}>
+              <div className="claude-plan-modal-header">
+                <span className="claude-tool-name" style={{ marginRight: 4 }}>Turn {callNum}</span>
+                <span className="claude-tool-badge" style={{ marginRight: 6 }}>{entry.calls} calls</span>
+                <span className="claude-plan-modal-title" style={{ fontSize: 12, color: '#999' }}>
+                  {entry.pct}% cache · {fmtTokens(entry.totalInput)} input · {fmtTokens(entry.outputTokens || 0)} output
+                </span>
+                <span className="claude-subagent-meta">
+                  {turnMsgs.length} messages
+                  {entry.timestamp ? ` · ${new Date(entry.timestamp).toLocaleTimeString()}` : ''}
+                </span>
+                <button className="claude-plan-modal-close" onClick={() => setCacheEntryModal(null)}>&times;</button>
+              </div>
+              <div className="claude-subagent-body">
+                <div className="claude-messages claude-timeline">
+                  {turnMsgs.length === 0 ? (
+                    <div style={{ color: '#666', padding: '16px', textAlign: 'center' }}>
+                      No messages captured for this turn (messages may have been archived).
+                    </div>
+                  ) : turnMsgs.map((item, i) => renderMessage(item, i))}
                 </div>
               </div>
             </div>
