@@ -539,8 +539,11 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           }
           return
         }
-        // Track plan file path from EnterPlanMode/ExitPlanMode
-        if ((toolCall.toolName === 'EnterPlanMode' || toolCall.toolName === 'ExitPlanMode') && toolCall.input.planFilePath) {
+        // Track plan file path: show bar only after ExitPlanMode (plan is written);
+        // EnterPlanMode means we're entering plan mode (writing a new plan) — hide the bar.
+        if (toolCall.toolName === 'EnterPlanMode') {
+          setActivePlanFile(null)
+        } else if (toolCall.toolName === 'ExitPlanMode' && toolCall.input.planFilePath) {
           setActivePlanFile(String(toolCall.input.planFilePath))
           dismissedPlanFileRef.current = null
         }
@@ -770,12 +773,14 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
           }
         }
         subagentMessagesRef.current = subagentBuckets
-        // Restore activePlanFile from history (skip if user already dismissed it)
+        // Restore activePlanFile from history: only show bar if last plan tool is ExitPlanMode
         for (let i = mainItems.length - 1; i >= 0; i--) {
           const it = mainItems[i]
-          if ('toolName' in it && (it.toolName === 'EnterPlanMode' || it.toolName === 'ExitPlanMode') && it.input?.planFilePath) {
-            const pf = String(it.input.planFilePath)
-            if (dismissedPlanFileRef.current !== pf) setActivePlanFile(pf)
+          if ('toolName' in it && (it.toolName === 'EnterPlanMode' || it.toolName === 'ExitPlanMode')) {
+            if (it.toolName === 'ExitPlanMode' && it.input?.planFilePath) {
+              const pf = String(it.input.planFilePath)
+              if (dismissedPlanFileRef.current !== pf) setActivePlanFile(pf)
+            }
             break
           }
         }
@@ -3464,16 +3469,27 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                           <span style={{ width: 64, textAlign: 'right', color: isSkip ? '#666' : '#eee' }}>{fmtCost(turnTotalCost)}</span>
                           <span style={{ width: 110, textAlign: 'right', color: '#555', fontSize: 11 }}>{h.timestamp ? new Date(h.timestamp).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}</span>
                         </div>
-                        {/* Per-model sub-rows */}
+                        {/* Per-model sub-rows — aligned with header columns */}
                         {models && models.map(m => (
-                          <div key={m.model} style={{ display: 'flex', justifyContent: 'flex-end', padding: '1px 0', gap: 0, fontSize: 11, borderBottom: '1px solid #1a1a1a' }}>
-                            <span style={{ flex: 1, color: '#666', paddingLeft: 24, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.model}</span>
+                          <div key={m.model} style={{ display: 'flex', justifyContent: 'space-between', padding: '1px 0', fontSize: 11, borderBottom: '1px solid #1a1a1a' }}>
+                            {/* #, %, calls, call c.read — model name spans these */}
+                            <span style={{ width: 172, color: '#666', paddingLeft: 24, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.model}</span>
+                            {/* call c.write — empty */}
+                            <span style={{ width: 76 }} />
+                            {/* turn c.read */}
                             <span style={{ width: 76, textAlign: 'right', color: '#555' }}>{m.cacheRead.toLocaleString()}</span>
+                            {/* turn c.write */}
                             <span style={{ width: 76, textAlign: 'right', color: '#555' }}>{m.cacheWrite.toLocaleString()}</span>
+                            {/* turn total — show output tokens here */}
                             <span style={{ width: 76, textAlign: 'right', color: '#555' }}>{m.output.toLocaleString()} out</span>
+                            {/* read $ */}
                             <span style={{ width: 64, textAlign: 'right', color: m.readCost !== null ? '#557a56' : '#555' }}>{fmtCost(m.readCost)}</span>
+                            {/* write $ */}
                             <span style={{ width: 64, textAlign: 'right', color: m.writeCost !== null ? '#8a7030' : '#555' }}>{fmtCost(m.writeCost)}</span>
+                            {/* est. $ */}
                             <span style={{ width: 64, textAlign: 'right', color: m.totalCost !== null ? '#999' : '#555' }}>{fmtCost(m.totalCost)}</span>
+                            {/* time — empty */}
+                            <span style={{ width: 110 }} />
                           </div>
                         ))}
                       </div>
@@ -3488,7 +3504,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, showUs
                   )}
                   {hist.length === 0 && <div style={{ color: '#666', padding: '8px 0' }}>No readings yet.</div>}
                 </div>
-                <div style={{ fontSize: 11, color: '#e05252', marginTop: 8, opacity: 0.8 }}>
+                <div style={{ fontSize: 12, color: '#e05252', marginTop: 8, lineHeight: 1.5 }}>
                   ⚠ Experimental: cost is estimated from built-in pricing table. Cache write pricing uses weighted 5m/1h ratio when available, but API does not always distinguish cache TTL — actual cost may differ. Verify independently.
                 </div>
               </div>
