@@ -775,6 +775,19 @@ function registerProxiedHandlers() {
     const configPath = path.join(app.getPath('userData'), 'settings.json')
     try { return await fs.readFile(configPath, 'utf-8') } catch { return null }
   })
+  registerHandler('settings:clear-terminal-history', async () => {
+    const historyDir = path.join(app.getPath('userData'), 'terminal-history')
+    try {
+      const entries = await fs.readdir(historyDir)
+      for (const entry of entries) {
+        if (entry === '.zsh-wrapper') continue
+        await fs.rm(path.join(historyDir, entry), { recursive: true, force: true })
+      }
+      return true
+    } catch {
+      return true
+    }
+  })
   const shellPathCache = new Map<string, string>()
   registerHandler('settings:get-shell-path', (_ctx, shellType: string) => {
     const cached = shellPathCache.get(shellType)

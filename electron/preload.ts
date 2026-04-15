@@ -48,7 +48,8 @@ const electronAPI = {
   settings: {
     save: (data: string) => ipcRenderer.invoke('settings:save', data),
     load: () => ipcRenderer.invoke('settings:load'),
-    getShellPath: (shell: string) => ipcRenderer.invoke('settings:get-shell-path', shell)
+    getShellPath: (shell: string) => ipcRenderer.invoke('settings:get-shell-path', shell),
+    clearTerminalHistory: () => ipcRenderer.invoke('settings:clear-terminal-history')
   },
   dialog: {
     selectFolder: () => ipcRenderer.invoke('dialog:select-folder') as Promise<string[] | null>,

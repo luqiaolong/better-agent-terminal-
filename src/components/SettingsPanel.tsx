@@ -381,11 +381,31 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 <input
                   type="checkbox"
                   checked={!!settings.perTerminalHistory}
-                  onChange={e => settingsStore.setPerTerminalHistory(e.target.checked)}
+                  onChange={e => {
+                    if (e.target.checked) {
+                      if (confirm(t('settings.perTerminalHistorySecurityWarning'))) {
+                        settingsStore.setPerTerminalHistory(true)
+                      }
+                    } else {
+                      settingsStore.setPerTerminalHistory(false)
+                    }
+                  }}
                 />
                 {t('settings.perTerminalHistory')}
               </label>
               <p className="settings-hint">{t('settings.perTerminalHistoryHint')}</p>
+              <button
+                className="settings-btn settings-btn-danger"
+                style={{ marginTop: 6 }}
+                onClick={async () => {
+                  if (confirm(t('settings.clearTerminalHistoryConfirm'))) {
+                    await window.electronAPI.settings.clearTerminalHistory()
+                    alert(t('settings.clearTerminalHistoryDone'))
+                  }
+                }}
+              >
+                {t('settings.clearTerminalHistory')}
+              </button>
             </div>
           </div>
 
