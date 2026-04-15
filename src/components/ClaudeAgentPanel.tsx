@@ -3563,12 +3563,11 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                     <span style={{ width: 64, textAlign: 'right' }} title="Actual turn cost from API (result rows only)">real $</span>
                     <span style={{ width: 110, textAlign: 'right' }}>time</span>
                   </div>
-                  {(() => { let callNum = 0; let prevRApiCost = 0; return hist.map((h, i) => {
+                  {(() => { let callNum = 0; return hist.map((h, i) => {
                     if (!h.isResult) callNum++
                     const isSkip = h.totalInput < 50000
                     const pctColor = h.pct >= 70 ? '#89ca78' : h.pct >= 40 ? '#e6a700' : '#e05252'
-                    const realTurnCost = h.isResult && h.apiTotalCost ? h.apiTotalCost - prevRApiCost : null
-                    if (h.isResult && h.apiTotalCost) prevRApiCost = h.apiTotalCost
+                    const realTurnCost = h.isResult && h.modelUsage ? Object.values(h.modelUsage).reduce((s, m) => s + (m.costUSD || 0), 0) : null
                     const models = calcModelCosts(h)
                     const turnReadCost = models?.reduce((s, m) => m.readCost !== null ? s + m.readCost : s, 0) ?? null
                     const turnWriteCost = models?.reduce((s, m) => m.writeCost !== null ? s + m.writeCost : s, 0) ?? null
@@ -3616,13 +3615,20 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                   }) })()}
                   {/* Grand total */}
                   {hist.length > 0 && (() => {
-                    const lastR = [...hist].reverse().find(h => h.isResult && h.apiTotalCost)
-                    const apiTotal = lastR?.apiTotalCost ?? null
+                    let apiTotal = 0
+                    let hasApiCost = false
+                    for (const h of hist) {
+                      if (h.isResult && h.modelUsage) {
+                        for (const m of Object.values(h.modelUsage)) {
+                          if (m.costUSD) { apiTotal += m.costUSD; hasApiCost = true }
+                        }
+                      }
+                    }
                     return (
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: '1px solid #444', fontWeight: 600 }}>
                         <span style={{ flex: 1, color: '#bbb' }}>Total</span>
                         <span style={{ width: 64, textAlign: 'right', color: hasAnyCost ? '#eee' : '#666' }}>{hasAnyCost ? `$${grandTotal.toFixed(4)}` : '—'}</span>
-                        <span style={{ width: 64, textAlign: 'right', color: apiTotal ? '#50fa7b' : '#666' }}>{apiTotal ? `$${apiTotal.toFixed(4)}` : '—'}</span>
+                        <span style={{ width: 64, textAlign: 'right', color: hasApiCost ? '#50fa7b' : '#666' }}>{hasApiCost ? `$${apiTotal.toFixed(4)}` : '—'}</span>
                         <span style={{ width: 110 }} />
                       </div>
                     )
