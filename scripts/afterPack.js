@@ -21,24 +21,46 @@ module.exports = async function (context) {
   const allPlatformDirs = ['x64-darwin', 'arm64-darwin', 'x64-linux', 'arm64-linux', 'x64-win32', 'arm64-win32'];
   const toRemove = allPlatformDirs.filter(d => !d.endsWith(`-${platformSuffix}`));
 
-  const ripgrepParents = [
-    '@anthropic-ai/claude-code/vendor/ripgrep',
-    '@anthropic-ai/claude-agent-sdk/vendor/ripgrep',
+  const sdks = [
+    '@anthropic-ai/claude-code',
+    '@anthropic-ai/claude-agent-sdk',
   ];
 
   let removed = 0;
-  for (const parent of ripgrepParents) {
+
+  for (const sdk of sdks) {
+    // Remove non-target-platform ripgrep binaries
     for (const dir of toRemove) {
-      const fullPath = path.join(unpackedDir, parent, dir);
+      const fullPath = path.join(unpackedDir, sdk, 'vendor', 'ripgrep', dir);
       if (fs.existsSync(fullPath)) {
         fs.rmSync(fullPath, { recursive: true });
         removed++;
-        console.log(`  afterPack: removed ${parent}/${dir}`);
+        console.log(`  afterPack: removed ${sdk}/vendor/ripgrep/${dir}`);
+      }
+    }
+
+    // Remove non-target-platform audio-capture binaries
+    for (const dir of toRemove) {
+      const fullPath = path.join(unpackedDir, sdk, 'vendor', 'audio-capture', dir);
+      if (fs.existsSync(fullPath)) {
+        fs.rmSync(fullPath, { recursive: true });
+        removed++;
+        console.log(`  afterPack: removed ${sdk}/vendor/audio-capture/${dir}`);
+      }
+    }
+
+    // Remove seccomp (Linux-only) on non-Linux builds
+    if (platform !== 'linux') {
+      const seccompPath = path.join(unpackedDir, sdk, 'vendor', 'seccomp');
+      if (fs.existsSync(seccompPath)) {
+        fs.rmSync(seccompPath, { recursive: true });
+        removed++;
+        console.log(`  afterPack: removed ${sdk}/vendor/seccomp`);
       }
     }
   }
 
   if (removed > 0) {
-    console.log(`  afterPack: cleaned ${removed} non-${platformSuffix} ripgrep directories`);
+    console.log(`  afterPack: cleaned ${removed} non-${platformSuffix} entries`);
   }
 };
