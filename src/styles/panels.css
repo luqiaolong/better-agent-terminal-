@@ -469,8 +469,8 @@
 
 .worker-process-actions {
   display: flex;
-  gap: 2px;
-  margin-left: 2px;
+  gap: 3px;
+  margin-left: 4px;
 }
 
 .worker-btn {
@@ -478,9 +478,9 @@
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 13px;
   line-height: 1;
 }
 
@@ -489,12 +489,31 @@
   color: var(--text-primary);
 }
 
+.worker-btn-log,
+.worker-btn-auto {
+  opacity: 0.5;
+}
+
+.worker-btn-log.active {
+  opacity: 1;
+  color: var(--accent-color);
+}
+
+.worker-btn-auto.active {
+  opacity: 1;
+}
+
 .worker-global-actions {
   display: flex;
   gap: 4px;
   margin-left: auto;
-  padding-left: 8px;
+  padding-left: 10px;
   border-left: 1px solid var(--border-color);
+}
+
+.worker-global-actions .worker-btn {
+  font-size: 12px;
+  padding: 3px 8px;
 }
 
 .worker-terminal {

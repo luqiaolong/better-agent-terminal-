@@ -11,7 +11,8 @@ interface ThumbnailBarProps {
   onFocus: (id: string) => void
   onAddTerminal?: () => void
   onAddAgent?: (presetId: string) => void
-  onAddWorker?: () => void
+  onAddWorker?: (procfilePath?: string) => void
+  detectedProcfiles?: string[]
   agentPresets?: AgentPreset[]
   onReorder?: (orderedIds: string[]) => void
   showAddButton: boolean
@@ -27,6 +28,7 @@ export function ThumbnailBar({
   onAddTerminal,
   onAddAgent,
   onAddWorker,
+  detectedProcfiles = [],
   agentPresets = [],
   onReorder,
   showAddButton,
@@ -202,12 +204,28 @@ export function ThumbnailBar({
                   {onAddWorker && (
                     <>
                       <div className="thumbnail-add-menu-separator" />
+                      {detectedProcfiles.map(fp => (
+                        <div
+                          key={fp}
+                          className="thumbnail-add-menu-item"
+                          onClick={() => { onAddWorker(fp); setShowAddMenu(false) }}
+                        >
+                          <span className="thumbnail-add-menu-icon" style={{ color: '#56b6c2' }}>⚙</span>
+                          Worker: {fp.split('/').pop()}
+                        </div>
+                      ))}
                       <div
                         className="thumbnail-add-menu-item"
                         onClick={() => { onAddWorker(); setShowAddMenu(false) }}
                       >
-                        <span className="thumbnail-add-menu-icon" style={{ color: '#56b6c2' }}>⚙</span>
-                        Worker (Procfile)
+                        <span className="thumbnail-add-menu-icon" style={{ color: '#888' }}>📂</span>
+                        Worker: Open File...
+                      </div>
+                      <div
+                        className="thumbnail-add-menu-hint"
+                        onClick={() => window.electronAPI.shell.openExternal('https://github.com/DarthSim/overmind')}
+                      >
+                        What is a Procfile?
                       </div>
                     </>
                   )}

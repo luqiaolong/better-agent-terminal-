@@ -106,8 +106,9 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(loadWorkspaceTab)
   const [hasGithubRemote, setHasGithubRemote] = useState(false)
   const [isGitRepo, setIsGitRepo] = useState(false)
+  const [detectedProcfiles, setDetectedProcfiles] = useState<string[]>([])
 
-  // Detect git repo and GitHub remote
+  // Detect git repo, GitHub remote, and Procfiles
   useEffect(() => {
     window.electronAPI.git.getGithubUrl(workspace.folderPath).then(url => {
       setHasGithubRemote(!!url)
@@ -115,6 +116,13 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
     window.electronAPI.git.getRoot(workspace.folderPath).then(root => {
       setIsGitRepo(!!root)
     }).catch(() => setIsGitRepo(false))
+    // Detect Procfiles in workspace folder
+    window.electronAPI.fs.readdir(workspace.folderPath).then(entries => {
+      const names = entries.map(e => e.name)
+      const found = PROCFILE_NAMES.filter(n => names.includes(n))
+        .map(n => `${workspace.folderPath}/${n}`)
+      setDetectedProcfiles(found)
+    }).catch(() => setDetectedProcfiles([]))
   }, [workspace.folderPath])
 
   // Fallback if saved tab is 'github' but no GitHub remote
@@ -421,21 +429,9 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
     }
   }, [workspace.id, workspace.folderPath, workspace.envVars, startClaudeCliPty])
 
-  const handleAddWorker = useCallback(async () => {
-    // Try to auto-detect Procfile in workspace folder
-    let procfilePath: string | null = null
-    try {
-      const entries = await window.electronAPI.fs.readdir(workspace.folderPath)
-      const names = entries.map(e => e.name)
-      for (const candidate of PROCFILE_NAMES) {
-        if (names.includes(candidate)) {
-          procfilePath = `${workspace.folderPath}/${candidate}`
-          break
-        }
-      }
-    } catch { /* ignore */ }
-
-    // If not found, let user pick a file
+  const handleAddWorker = useCallback(async (selectedPath?: string) => {
+    let procfilePath = selectedPath
+    // If no path provided, open file picker
     if (!procfilePath) {
       const files = await window.electronAPI.dialog.selectFiles()
       if (!files || files.length === 0) return
@@ -446,7 +442,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
     workspaceStore.setTerminalProcfile(terminal.id, procfilePath)
     workspaceStore.setFocusedTerminal(terminal.id)
     workspaceStore.save()
-  }, [workspace.id, workspace.folderPath])
+  }, [workspace.id])
 
   const isDebugMode = window.electronAPI?.debug?.isDebugMode
 
@@ -659,6 +655,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         onAddTerminal={handleAddTerminal}
         onAddAgent={handleAddAgent}
         onAddWorker={handleAddWorker}
+        detectedProcfiles={detectedProcfiles}
         agentPresets={getVisiblePresets().filter(p => p.id !== 'none' && (!p.needsGitRepo || isGitRepo))}
         onReorder={handleReorderTerminals}
         showAddButton={true}

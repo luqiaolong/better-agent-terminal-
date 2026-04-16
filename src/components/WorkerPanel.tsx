@@ -23,6 +23,21 @@ interface WorkerProcess {
   color: string
   status: ProcessStatus
   exitCode?: number
+  autoStart: boolean
+}
+
+// Persist auto-start preferences per Procfile
+function loadAutoStartPrefs(procfilePath: string): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(`worker-autostart:${procfilePath}`)
+    return raw ? JSON.parse(raw) : {}
+  } catch { return {} }
+}
+
+function saveAutoStartPrefs(procfilePath: string, prefs: Record<string, boolean>): void {
+  try {
+    localStorage.setItem(`worker-autostart:${procfilePath}`, JSON.stringify(prefs))
+  } catch { /* ignore */ }
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -51,17 +66,44 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
   const midLineRef = useRef<Map<string, boolean>>(new Map())
   const processesRef = useRef<WorkerProcess[]>([])
   const shellRef = useRef<string | undefined>()
+  const logVisibleRef = useRef<Map<string, boolean>>(new Map())
 
   const [processes, setProcesses] = useState<WorkerProcess[]>([])
+  const [logVisible, setLogVisible] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => { isActiveRef.current = isActive }, [isActive])
   useEffect(() => { processesRef.current = processes }, [processes])
+  useEffect(() => {
+    const map = new Map<string, boolean>()
+    for (const [k, v] of Object.entries(logVisible)) map.set(k, v)
+    logVisibleRef.current = map
+  }, [logVisible])
+
+  const toggleLogVisible = useCallback((name: string) => {
+    setLogVisible(prev => ({ ...prev, [name]: prev[name] === false ? true : false }))
+  }, [])
+
+  const toggleAutoStart = useCallback((name: string) => {
+    setProcesses(prev => {
+      const updated = prev.map(p =>
+        p.name === name ? { ...p, autoStart: !p.autoStart } : p
+      )
+      // Persist
+      const prefs: Record<string, boolean> = {}
+      for (const p of updated) prefs[p.name] = p.autoStart
+      saveAutoStartPrefs(procfilePath, prefs)
+      return updated
+    })
+  }, [procfilePath])
 
   // Write prefixed output to combined terminal
   const writeOutput = useCallback((name: string, color: string, data: string) => {
     const terminal = terminalRef.current
     if (!terminal) return
+
+    // Skip output for hidden processes (default = visible)
+    if (logVisibleRef.current.get(name) === false) return
 
     const maxLen = Math.max(...processesRef.current.map(p => p.name.length))
     const paddedName = name.padEnd(maxLen)
@@ -275,13 +317,15 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
         return
       }
 
-      // Build process list
+      // Build process list with saved autoStart preferences
+      const autoStartPrefs = loadAutoStartPrefs(procfilePath)
       const procs: WorkerProcess[] = entries.map((entry, i) => ({
         name: entry.name,
         command: entry.command,
         ptyId: `${terminalId}__w__${entry.name}`,
         color: WORKER_COLORS[i % WORKER_COLORS.length],
-        status: 'starting' as ProcessStatus,
+        autoStart: autoStartPrefs[entry.name] !== false, // default true
+        status: (autoStartPrefs[entry.name] !== false ? 'starting' : 'stopped') as ProcessStatus,
       }))
       ptyIds.push(...procs.map(p => p.ptyId))
       processesRef.current = procs
@@ -292,9 +336,10 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
       terminal.write(ansiColor('#888', `Worker: ${filename} (${procs.length} processes)\r\n`))
       terminal.write(ansiColor('#555', '\u2500'.repeat(60) + '\r\n'))
 
-      // Start all processes
+      // Start only processes with autoStart enabled
       for (const proc of procs) {
         if (disposed) break
+        if (!proc.autoStart) continue
         await window.electronAPI.pty.create({
           id: proc.ptyId,
           cwd,
@@ -305,7 +350,7 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
         window.electronAPI.pty.write(proc.ptyId, `exec bash -c '${escaped}'\r`)
       }
 
-      // Mark all as running
+      // Mark started processes as running
       if (!disposed) {
         setProcesses(prev => prev.map(p =>
           p.status === 'starting' ? { ...p, status: 'running' as const } : p
@@ -359,29 +404,46 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
     <div className="worker-panel">
       {processes.length > 0 && (
         <div className="worker-process-bar">
-          {processes.map(proc => (
-            <div key={proc.ptyId} className="worker-process-card">
-              <span className={`worker-status-dot worker-status-${proc.status}`} />
-              <span className="worker-process-name" style={{ color: proc.color }}>
-                {proc.name}
-              </span>
-              <div className="worker-process-actions">
-                {(proc.status === 'stopped' || proc.status === 'crashed') && (
-                  <button className="worker-btn" onClick={() => startProcess(proc)} title="Start">
-                    ▶
+          {processes.map(proc => {
+            const isVisible = logVisible[proc.name] !== false
+            return (
+              <div key={proc.ptyId} className="worker-process-card">
+                <span className={`worker-status-dot worker-status-${proc.status}`} />
+                <span className="worker-process-name" style={{ color: proc.color }}>
+                  {proc.name}
+                </span>
+                <div className="worker-process-actions">
+                  <button
+                    className={`worker-btn worker-btn-log ${isVisible ? 'active' : ''}`}
+                    onClick={() => toggleLogVisible(proc.name)}
+                    title={isVisible ? 'Hide log' : 'Show log'}
+                  >
+                    {isVisible ? '◉' : '○'}
                   </button>
-                )}
-                {(proc.status === 'running' || proc.status === 'starting') && (
-                  <button className="worker-btn" onClick={() => stopProcess(proc)} title="Stop">
-                    ■
+                  <button
+                    className={`worker-btn worker-btn-auto ${proc.autoStart ? 'active' : ''}`}
+                    onClick={() => toggleAutoStart(proc.name)}
+                    title={proc.autoStart ? 'Auto-start ON (click to disable)' : 'Auto-start OFF (click to enable)'}
+                  >
+                    {proc.autoStart ? '⚡' : '💤'}
                   </button>
-                )}
-                <button className="worker-btn" onClick={() => restartProcess(proc)} title="Restart">
-                  ⟳
-                </button>
+                  {(proc.status === 'stopped' || proc.status === 'crashed') && (
+                    <button className="worker-btn" onClick={() => startProcess(proc)} title="Start">
+                      ▶
+                    </button>
+                  )}
+                  {(proc.status === 'running' || proc.status === 'starting') && (
+                    <button className="worker-btn" onClick={() => stopProcess(proc)} title="Stop">
+                      ■
+                    </button>
+                  )}
+                  <button className="worker-btn" onClick={() => restartProcess(proc)} title="Restart">
+                    ⟳
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
           <div className="worker-global-actions">
             <button className="worker-btn" onClick={startAll} title="Start All">▶ All</button>
             <button className="worker-btn" onClick={stopAll} title="Stop All">■ All</button>
