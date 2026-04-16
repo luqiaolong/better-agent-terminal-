@@ -1229,6 +1229,9 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
       setMessages([])
       setStreamingText('')
       setStreamingThinking('')
+      cacheHistoryRef.current = []
+      lastResultRef.current = null
+      setCacheCountdown(null)
       await window.electronAPI.claude.resetSession(sessionId)
       return
     }
