@@ -11,6 +11,7 @@ interface ThumbnailBarProps {
   onFocus: (id: string) => void
   onAddTerminal?: () => void
   onAddAgent?: (presetId: string) => void
+  onAddWorker?: () => void
   agentPresets?: AgentPreset[]
   onReorder?: (orderedIds: string[]) => void
   showAddButton: boolean
@@ -25,6 +26,7 @@ export function ThumbnailBar({
   onFocus,
   onAddTerminal,
   onAddAgent,
+  onAddWorker,
   agentPresets = [],
   onReorder,
   showAddButton,
@@ -197,6 +199,18 @@ export function ThumbnailBar({
                       {preset.suggested && <span className="thumbnail-add-menu-suggested">suggested</span>}
                     </div>
                   ))}
+                  {onAddWorker && (
+                    <>
+                      <div className="thumbnail-add-menu-separator" />
+                      <div
+                        className="thumbnail-add-menu-item"
+                        onClick={() => { onAddWorker(); setShowAddMenu(false) }}
+                      >
+                        <span className="thumbnail-add-menu-icon" style={{ color: '#56b6c2' }}>⚙</span>
+                        Worker (Procfile)
+                      </div>
+                    </>
+                  )}
                 </div>,
                 document.body
               )}

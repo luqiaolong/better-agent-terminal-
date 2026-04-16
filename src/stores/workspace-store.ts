@@ -182,6 +182,16 @@ class WorkspaceStore {
     this.save()
   }
 
+  setTerminalProcfile(terminalId: string, procfilePath: string): void {
+    this.state = {
+      ...this.state,
+      terminals: this.state.terminals.map(t =>
+        t.id === terminalId ? { ...t, procfilePath, title: `Worker: ${procfilePath.split('/').pop()}` } : t
+      )
+    }
+    this.notify()
+  }
+
   setTerminalPendingPrompt(terminalId: string, prompt: string, images?: string[]): void {
     this.state = {
       ...this.state,
@@ -522,6 +532,7 @@ class WorkspaceStore {
         sdkSessionId: t.sdkSessionId,
         model: t.model,
         sessionMeta: t.sessionMeta,
+        procfilePath: t.procfilePath,
       }))
       const data = JSON.stringify({
         workspaces: this.state.workspaces,
@@ -564,6 +575,7 @@ class WorkspaceStore {
             sdkSessionId: t.sdkSessionId,
             model: t.model,
             sessionMeta: t.sessionMeta,
+            procfilePath: t.procfilePath,
             scrollbackBuffer: [],
             pid: undefined,
           }
