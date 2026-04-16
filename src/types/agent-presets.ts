@@ -39,7 +39,6 @@ export const AGENT_PRESETS: AgentPreset[] = [
     name: 'Claude Agent V1 (Worktree)',
     icon: '🌳',
     color: '#22c55e',
-    debug: true,
     backend: 'sdk',
     needsGitRepo: true,
   },

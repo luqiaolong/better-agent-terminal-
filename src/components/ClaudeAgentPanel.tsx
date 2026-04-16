@@ -3107,8 +3107,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         />
       )}
 
-      {/* Plan file bar */}
-      {activePlanFile && dismissedPlanFileRef.current !== activePlanFile && (
+      {/* Plan file bar — debug only */}
+      {window.electronAPI?.debug?.isDebugMode && activePlanFile && dismissedPlanFileRef.current !== activePlanFile && (
         <div className="claude-plan-file-bar">
           <span className="claude-plan-file-label" style={{ cursor: 'pointer' }} onClick={() => {
             window.electronAPI.fs.readFile(activePlanFile).then(r => {
@@ -3636,7 +3636,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                   {hist.length === 0 && <div style={{ color: '#666', padding: '8px 0' }}>No readings yet.</div>}
                 </div>
                 <div style={{ fontSize: 12, color: '#e05252', marginTop: 8, lineHeight: 1.5 }}>
-                  ⚠ Experimental: cost is estimated from built-in pricing table. Result (R) rows have 5m/1h cache TTL breakdown and include sub-agent costs — use these as more accurate estimates. Non-result rows lack TTL info and default to 5m rate (lower estimate). Verify independently.
+                  ⚠ Experimental: cost is estimated from built-in pricing table. Result (R) rows include sub-agent costs and per-model token breakdown — use these as more accurate estimates. The real $ column shows exact API billing (costUSD). Verify independently.
                 </div>
               </div>
             </div>
