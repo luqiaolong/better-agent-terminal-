@@ -4,7 +4,7 @@
 
 <img src="assets/icon.png" width="128" height="128" alt="Better Agent Terminal">
 
-![Version](https://img.shields.io/badge/version-2.1.21-blue.svg)
+![Version](https://img.shields.io/badge/version-2.1.41-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20|%20macOS%20|%20Linux-lightgrey.svg)
 ![Electron](https://img.shields.io/badge/electron-28.3.3-47848F.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -54,32 +54,74 @@ Manage multiple project terminals in one window, with a built-in Claude Code age
 ### Terminal
 - **Split-panel layout** — 70% main panel + 30% scrollable thumbnail bar showing all terminals
 - **Multiple terminals per workspace** — Powered by xterm.js with full Unicode/CJK support
-- **Agent presets** — Pre-configured terminal roles: Claude Code, Gemini CLI, Codex, GitHub Copilot, or plain terminal
+- **Agent presets** — Pre-configured terminal roles: Claude Code, Claude Code (worktree), Codex CLI, or plain terminal
 - **Git worktree isolation** — Spawn Claude agents in an isolated worktree to prevent destructive changes to your main working tree
 - **Tab navigation** — Switch between Terminal, Files, and Git views per workspace
 - **File browser** — Search, navigate, and preview files with syntax highlighting (highlight.js)
 - **Git integration** — Commit log, diff viewer, branch display, untracked file list, GitHub link detection
+- **GitHub panel** — Browse PRs and issues directly from the Git tab
 - **Snippet manager** — Save, organize, search, and paste code snippets (SQLite-backed with categories and favorites)
+- **Markdown preview** — Preview `.md` files in a dedicated right sidebar panel with live file watching and right-click context menu
 - **Worker panel (Procfile)** — Run multiple processes from a [Procfile](https://github.com/DarthSim/overmind?tab=readme-ov-file#procfile-format) in a single tab with combined log view and per-process start/stop/restart controls, inspired by [Overmind](https://github.com/DarthSim/overmind)
+- **Per-terminal prompt history** — Access previous commands per terminal session
 
 ### Claude Code Agent
 - **Built-in Claude Code** via SDK — Runs the agent directly inside the app; no separate terminal needed
 - **Message streaming** with extended thinking blocks (collapsible)
-- **Permission-based tool execution** — Every tool call is intercepted; approve individually, or enable bypass/plan mode for auto-approval
-- **Subagent tracking** — See spawned subagent tasks with progress indicators and stall detection
+- **Permission modes** — Multiple levels of tool execution control:
+  - **Default** — Approve each tool call individually
+  - **Accept Edits** — Auto-approve file edits, prompt for other tools
+  - **Plan mode** — Agent proposes a plan file first; approve the plan to auto-execute
+  - **Bypass** — Full auto-approval (use with caution)
+- **Subagent tracking** — See spawned subagent tasks with progress indicators, elapsed time, and stall detection
 - **Session resume** — Persist conversations and resume them across app restarts
-- **Session fork** — Branch off from any point in a conversation
+- **Session fork** — Branch off from any point in a conversation with pending prompt auto-send
 - **Rest/Wake sessions** — Pause and resume agent sessions from the context menu to save resources
-- **Statusline** — Live display of token usage, cost, context window %, model name, git branch, turn count, and session duration
-- **Usage monitoring** — Track API rate limits (5-hour and 7-day windows) via Anthropic OAuth
-- **Context usage panel** — Visualize token usage breakdown by category (code, conversation, tools, memory, etc.)
-- **Account switching** — `/login`, `/logout`, `/whoami` slash commands for managing Claude accounts
-- **Prompt history** — View and copy all previous user prompts from the statusline
+- **Effort level** — Configure default effort level (high/medium/low) for new agent sessions
+- **Auto-compact** — Automatically compact context when token count exceeds a configurable threshold
+
+#### Statusline
+A configurable status bar at the bottom of the agent panel, with 15 items across three zones (left / center / right):
+
+| Item | Description |
+|---|---|
+| Session ID | First 8 chars of SDK session ID (click to resume a past session) |
+| Git Branch | Current git branch name |
+| Tokens | Total input + output token count (click for context breakdown) |
+| Turns | Number of conversation turns |
+| Duration | Session duration |
+| Context % | Percentage of context window used (color-coded) |
+| Cost | Total session cost in USD |
+| Workspace | Current workspace name |
+| 5h Usage / Reset | 5-hour API rate limit usage and reset countdown |
+| 7d Usage / Reset | 7-day API rate limit usage and reset countdown |
+| Max Output | Maximum output tokens for current model |
+| Cache Eff. | Cache read efficiency percentage (click for cache history with per-turn cost breakdown) |
+| Prompts | Link to view prompt history |
+
+Items can be reordered, colored, and toggled on/off via a drag-and-drop template editor in Settings.
+
+#### Cache Cost Awareness
+- **Cache history** — Per-turn cache read/write breakdown with cost calculations per model (Opus, Sonnet, Haiku)
+- **Cache TTL countdown** — Optional floating badge in the top-right corner showing remaining time for 5-minute and 1-hour cache TTLs; updates every 30 seconds, only appears after 1 minute of idle
+- **Cache expiry warning** — Pre-send confirmation dialog when >150k cached tokens have expired (>1 hour), preventing accidental full-price reprocessing
+
+#### Account & Usage
+- **Multi-account switching** — `/switch` to manage and switch between multiple Claude accounts
+- **Usage monitoring** — Track API rate limits (5-hour and 7-day windows) via Anthropic OAuth or Chrome session key
+- **Context usage panel** — Visualize token usage breakdown by category (code, conversation, tools, memory, MCP, etc.)
+
+#### UI & Interaction
 - **Image attachment** — Drag-drop or use the attach button (up to 5 images per message)
 - **Clickable URLs** — Markdown links and bare URLs open in the default browser
 - **Clickable file paths** — Click any file path in agent output to preview it with syntax highlighting and search (Ctrl+F)
 - **Ctrl+P file picker** — Fuzzy-search project files and attach them to the conversation context
+- **Skills & Agents panels** — Browse available slash commands and agent configurations in the right sidebar
+- **Notifications** — Dock badge, sound, and system notifications on agent completion (configurable)
 - **Update notifications** — Automatic check for new releases on GitHub
+
+### Internationalization (i18n)
+- **English**, **Traditional Chinese (繁體中文)**, **Simplified Chinese (简体中文)**
 
 ---
 
@@ -107,7 +149,9 @@ Manage multiple project terminals in one window, with a built-in Claude Code age
 | `/resume` | Resume a previous Claude session from history |
 | `/model` | Switch between available Claude models |
 | `/new` / `/clear` | Reset session (clear conversation, fresh start) |
+| `/abort` | Stop the current agent session immediately |
 | `/snippet` | Show snippets to Claude for management |
+| `/switch` | Switch between Claude accounts |
 | `/login` | Sign in to Claude (switch account) |
 | `/logout` | Sign out of Claude |
 | `/whoami` | Show current account info and usage |
@@ -208,11 +252,15 @@ better-agent-terminal/
 │   ├── preload.ts                     # Context bridge (window.electronAPI)
 │   ├── pty-manager.ts                 # PTY process lifecycle, multi-window broadcast
 │   ├── claude-agent-manager.ts        # Claude SDK session management
+│   ├── codex-agent-manager.ts         # Codex/OpenAI agent integration
 │   ├── worktree-manager.ts            # Git worktree lifecycle (create, remove, rehydrate)
+│   ├── account-manager.ts             # Multi-account switching infrastructure
+│   ├── window-registry.ts             # Multi-window management
 │   ├── logger.ts                      # Disk-based logger (enable with BAT_DEBUG=1)
 │   ├── snippet-db.ts                  # SQLite snippet storage
-│   ├── profile-manager.ts            # Profile CRUD and persistence
-│   ├── update-checker.ts             # GitHub release update check
+│   ├── profile-manager.ts             # Profile CRUD and persistence
+│   ├── node-resolver.ts               # Node.js dependency resolution
+│   ├── update-checker.ts              # GitHub release update check
 │   └── remote/
 │       ├── protocol.ts                # Proxied channel/event definitions
 │       ├── handler-registry.ts        # Unified IPC + remote handler registry
@@ -225,31 +273,46 @@ better-agent-terminal/
 │   ├── components/
 │   │   ├── Sidebar.tsx                # Workspace list, groups, drag-drop, context menu
 │   │   ├── WorkspaceView.tsx          # Per-workspace container
-│   │   ├── ClaudeAgentPanel.tsx       # Claude agent chat UI and streaming
+│   │   ├── ClaudeAgentPanel.tsx       # Claude agent chat UI, streaming, cache tracking
 │   │   ├── TerminalPanel.tsx          # xterm.js terminal wrapper
 │   │   ├── ThumbnailBar.tsx           # Scrollable terminal thumbnail strip
 │   │   ├── MainPanel.tsx              # Tab container (Terminal / Files / Git)
 │   │   ├── GitPanel.tsx               # Git log, diff, status viewer
-│   │   ├── FileTree.tsx               # In-app file browser
+│   │   ├── GitHubPanel.tsx            # GitHub PR/Issue browser
+│   │   ├── FileTree.tsx               # In-app file browser with markdown preview
 │   │   ├── PathLinker.tsx             # Clickable file paths & URLs, preview modal
+│   │   ├── MarkdownPreviewPanel.tsx   # Markdown preview sidebar with live reload
 │   │   ├── SnippetPanel.tsx           # Snippet manager sidebar
+│   │   ├── SkillsPanel.tsx            # Skills/commands reference panel
+│   │   ├── AgentsPanel.tsx            # Agent configurations panel
+│   │   ├── WorkerPanel.tsx            # Procfile multi-process runner
 │   │   ├── PromptBox.tsx              # Agent message input with image attach
 │   │   ├── SettingsPanel.tsx          # App settings UI
 │   │   ├── ProfilePanel.tsx           # Profile switcher
+│   │   ├── AboutPanel.tsx             # About dialog
 │   │   ├── EnvVarEditor.tsx           # Per-workspace env var editor
+│   │   ├── WorkspaceEnvDialog.tsx     # Workspace env var dialog
+│   │   ├── CloseConfirmDialog.tsx     # Worktree cleanup confirmation
+│   │   ├── ResizeHandle.tsx           # Resizable panel divider
 │   │   └── UpdateNotification.tsx     # Update banner
 │   ├── stores/
 │   │   ├── workspace-store.ts         # Workspace + terminal state (pub/sub)
 │   │   └── settings-store.ts          # App settings persistence
+│   ├── locales/
+│   │   ├── en.json                    # English
+│   │   ├── zh-TW.json                # Traditional Chinese
+│   │   └── zh-CN.json                # Simplified Chinese
 │   ├── types/
-│   │   ├── index.ts                   # Core types (Workspace, AppSettings, etc.)
-│   │   ├── claude-agent.ts            # Claude message and tool call types
+│   │   ├── index.ts                   # Core types (Workspace, AppSettings, Statusline, etc.)
+│   │   ├── claude-agent.ts            # Claude message, tool call, and thinking types
 │   │   ├── agent-presets.ts           # Agent preset definitions
 │   │   └── electron.d.ts             # window.electronAPI type declarations
 │   └── styles/
 │       ├── main.css
 │       ├── claude-agent.css
-│       └── path-linker.css
+│       ├── path-linker.css
+│       ├── context-menu.css
+│       └── ...                        # Component-specific styles
 ├── assets/                            # App icons and screenshots
 ├── scripts/
 │   └── build-version.js               # Version string generator
@@ -257,7 +320,7 @@ better-agent-terminal/
 ```
 
 ### Tech Stack
-- **Frontend:** React 18 + TypeScript
+- **Frontend:** React 18 + TypeScript + i18next (EN / zh-TW / zh-CN)
 - **Terminal:** xterm.js + node-pty
 - **Framework:** Electron 28
 - **AI:** @anthropic-ai/claude-agent-sdk
@@ -351,17 +414,17 @@ Set the `BAT_DEBUG=1` environment variable to enable disk-based debug logging. L
 
 ### Version Format
 
-Follows semantic versioning: `vMAJOR.MINOR.PATCH` (e.g., `v2.1.21`)
+Follows semantic versioning: `vMAJOR.MINOR.PATCH` (e.g., `v2.1.41`)
 
-Pre-release versions use the `-pre.N` suffix (e.g., `v2.1.21-pre.1`). Tags containing `-pre` are automatically marked as pre-release on GitHub and do not update the Homebrew tap.
+Pre-release versions use the `-pre.N` suffix (e.g., `v2.1.42-pre.1`). Tags containing `-pre` are automatically marked as pre-release on GitHub and do not update the Homebrew tap.
 
 ### Automated Release (GitHub Actions)
 
 Push a tag to trigger builds for all platforms:
 
 ```bash
-git tag v2.1.21
-git push origin v2.1.21
+git tag v2.1.42
+git push origin v2.1.42
 ```
 
 ---

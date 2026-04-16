@@ -3594,7 +3594,10 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
             <div className="claude-plan-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 1060 }}>
               <div className="claude-plan-modal-header">
                 <span className="claude-plan-modal-title">Cache Efficiency History (last {hist.length})</span>
-                <button className="claude-plan-modal-close" onClick={() => setShowCacheHistory(false)}>&times;</button>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button className="claude-plan-modal-close" title="Clear history" style={{ fontSize: 14, opacity: 0.6 }} onClick={() => { cacheHistoryRef.current = []; setShowCacheHistory(false) }}>Clear</button>
+                  <button className="claude-plan-modal-close" onClick={() => setShowCacheHistory(false)}>&times;</button>
+                </div>
               </div>
               <div className="claude-plan-modal-body" style={{ padding: '12px 16px', fontFamily: 'inherit' }}>
                 {significant.length > 0 && (
