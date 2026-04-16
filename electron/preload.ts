@@ -360,7 +360,13 @@ const electronAPI = {
     getCategories: () => ipcRenderer.invoke('snippet:getCategories'),
     getFavorites: () => ipcRenderer.invoke('snippet:getFavorites'),
     getByWorkspace: (workspaceId?: string) => ipcRenderer.invoke('snippet:getByWorkspace', workspaceId)
-  }
+  },
+  workerBuffer: {
+    init: (panelId: string) => ipcRenderer.invoke('worker-buffer:init', panelId),
+    append: (panelId: string, lines: string) => ipcRenderer.invoke('worker-buffer:append', panelId, lines),
+    readAll: (panelId: string) => ipcRenderer.invoke('worker-buffer:readAll', panelId) as Promise<string>,
+    clear: (panelId: string) => ipcRenderer.invoke('worker-buffer:clear', panelId),
+  },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)

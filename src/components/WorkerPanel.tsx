@@ -67,6 +67,8 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
   const processesRef = useRef<WorkerProcess[]>([])
   const shellRef = useRef<string | undefined>()
   const logVisibleRef = useRef<Map<string, boolean>>(new Map())
+  const pendingBatchRef = useRef<Array<{ name: string; color: string; data: string }>>([])
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [processes, setProcesses] = useState<WorkerProcess[]>([])
   const [logVisible, setLogVisible] = useState<Record<string, boolean>>({})
@@ -80,9 +82,83 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
     logVisibleRef.current = map
   }, [logVisible])
 
-  const toggleLogVisible = useCallback((name: string) => {
-    setLogVisible(prev => ({ ...prev, [name]: prev[name] === false ? true : false }))
+  // Flush pending batch to disk
+  const flushToDisk = useCallback(async () => {
+    const batch = pendingBatchRef.current
+    if (batch.length === 0) return
+    pendingBatchRef.current = []
+    const lines = batch.map(e => JSON.stringify(e)).join('\n') + '\n'
+    await window.electronAPI.workerBuffer.append(terminalId, lines)
+  }, [terminalId])
+
+  // Schedule a flush (debounced 500ms)
+  const scheduleFlush = useCallback(() => {
+    if (flushTimerRef.current) return
+    flushTimerRef.current = setTimeout(() => {
+      flushTimerRef.current = null
+      flushToDisk()
+    }, 500)
+  }, [flushToDisk])
+
+  // Re-render terminal from entries with only visible processes
+  const reRenderTerminal = useCallback((entries: Array<{ name: string; color: string; data: string }>, visibleMap: Map<string, boolean>) => {
+    const terminal = terminalRef.current
+    if (!terminal) return
+
+    terminal.clear()
+    terminal.write('\x1b[2J\x1b[H') // full clear + cursor home
+    midLineRef.current = new Map()
+
+    for (const entry of entries) {
+      // __header__ entries are always shown and already formatted
+      if (entry.name === '__header__') {
+        terminal.write(entry.data)
+        continue
+      }
+
+      if (visibleMap.get(entry.name) === false) continue
+
+      const maxLen = Math.max(...processesRef.current.map(p => p.name.length))
+      const paddedName = entry.name.padEnd(maxLen)
+      const prefix = ansiColor(entry.color, paddedName) + '\x1b[90m | \x1b[0m'
+
+      const atLineStart = !midLineRef.current.get(entry.name)
+      let output = entry.data.replace(/\n/g, '\n' + prefix)
+      if (atLineStart) output = prefix + output
+
+      if (entry.data.endsWith('\n')) {
+        output = output.slice(0, -prefix.length)
+        midLineRef.current.set(entry.name, false)
+      } else {
+        midLineRef.current.set(entry.name, true)
+      }
+
+      terminal.write(output)
+    }
   }, [])
+
+  const toggleLogVisible = useCallback(async (name: string) => {
+    // Compute next visibility state from current ref
+    const next: Record<string, boolean> = Object.fromEntries(logVisibleRef.current)
+    next[name] = next[name] === false ? true : false
+    const map = new Map<string, boolean>(Object.entries(next))
+    logVisibleRef.current = map
+    setLogVisible(next)
+
+    // Flush pending batch, then read full buffer from disk
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current)
+      flushTimerRef.current = null
+    }
+    await flushToDisk()
+
+    const raw = await window.electronAPI.workerBuffer.readAll(terminalId)
+    const entries: Array<{ name: string; color: string; data: string }> = raw
+      ? raw.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+      : []
+
+    reRenderTerminal(entries, map)
+  }, [flushToDisk, terminalId, reRenderTerminal])
 
   const toggleAutoStart = useCallback((name: string) => {
     setProcesses(prev => {
@@ -102,7 +178,17 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
     const terminal = terminalRef.current
     if (!terminal) return
 
-    // Skip output for hidden processes (default = visible)
+    // Queue for disk flush
+    pendingBatchRef.current.push({ name, color, data })
+    scheduleFlush()
+
+    // __header__ entries are pre-formatted, write directly
+    if (name === '__header__') {
+      terminal.write(data)
+      return
+    }
+
+    // Skip rendering for hidden processes (default = visible)
     if (logVisibleRef.current.get(name) === false) return
 
     const maxLen = Math.max(...processesRef.current.map(p => p.name.length))
@@ -121,7 +207,7 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
     }
 
     terminal.write(output)
-  }, [])
+  }, [scheduleFlush])
 
   // Start a single process PTY
   const startProcess = useCallback(async (proc: WorkerProcess) => {
@@ -148,43 +234,110 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
     }, 300)
   }, [cwd])
 
-  // Stop a single process
-  const stopProcess = useCallback((proc: WorkerProcess) => {
-    dlog(`[worker] stopping process: ${proc.name}`)
-    window.electronAPI.pty.kill(proc.ptyId)
-  }, [])
+  // Stop a single process (reload Procfile to sync list)
+  const stopProcess = useCallback(async (proc: WorkerProcess) => {
+    await reloadProcfile()
+    const fresh = processesRef.current.find(p => p.name === proc.name)
+    if (!fresh) return
+    dlog(`[worker] stopping process: ${fresh.name}`)
+    window.electronAPI.pty.kill(fresh.ptyId)
+  }, [reloadProcfile])
 
-  // Restart a single process
+  // Restart a single process (reload Procfile first to pick up command changes)
   const restartProcess = useCallback(async (proc: WorkerProcess) => {
-    dlog(`[worker] restarting process: ${proc.name}`)
-    await window.electronAPI.pty.kill(proc.ptyId)
+    const updated = await reloadProcfile()
+    const fresh = (updated || processesRef.current).find(p => p.name === proc.name)
+    if (!fresh) return // process was removed from Procfile
 
-    const terminal = terminalRef.current
-    if (terminal) {
-      const maxLen = Math.max(...processesRef.current.map(p => p.name.length))
-      const paddedName = proc.name.padEnd(maxLen)
-      terminal.write(`\r\n${ansiColor(proc.color, paddedName)}\x1b[90m | \x1b[33mRestarting...\x1b[0m\r\n`)
+    dlog(`[worker] restarting process: ${fresh.name}`)
+    await window.electronAPI.pty.kill(fresh.ptyId)
+
+    midLineRef.current.set(fresh.name, false)
+    writeOutput(fresh.name, fresh.color, `\n\x1b[33mRestarting...\x1b[0m\n`)
+    await startProcess(fresh)
+  }, [startProcess, writeOutput, reloadProcfile])
+
+  // Re-read Procfile and sync process list (add new, remove deleted, update commands)
+  const reloadProcfile = useCallback(async () => {
+    const result = await window.electronAPI.fs.readFile(procfilePath)
+    if (result.error || !result.content) return
+    const entries = parseProcfile(result.content)
+    if (entries.length === 0) return
+
+    const autoStartPrefs = loadAutoStartPrefs(procfilePath)
+    const current = processesRef.current
+    const currentByName = new Map(current.map(p => [p.name, p]))
+    const newNames = new Set(entries.map(e => e.name))
+
+    // Stop and remove processes that no longer exist in Procfile
+    for (const proc of current) {
+      if (!newNames.has(proc.name)) {
+        if (proc.status === 'running' || proc.status === 'starting') {
+          window.electronAPI.pty.kill(proc.ptyId)
+        }
+        writeOutput(proc.name, proc.color, `\n\x1b[90mRemoved from Procfile\x1b[0m\n`)
+      }
     }
-    midLineRef.current.set(proc.name, false)
-    await startProcess(proc)
-  }, [startProcess])
 
-  // Batch operations
-  const startAll = useCallback(() => {
+    // Build updated process list
+    const updated: WorkerProcess[] = entries.map((entry, i) => {
+      const existing = currentByName.get(entry.name)
+      if (existing) {
+        // Keep existing process state, but update command if changed
+        if (existing.command !== entry.command) {
+          writeOutput(existing.name, existing.color, `\n\x1b[33mCommand updated: ${entry.command}\x1b[0m\n`)
+        }
+        return { ...existing, command: entry.command, color: WORKER_COLORS[i % WORKER_COLORS.length] }
+      }
+      // New process
+      const proc: WorkerProcess = {
+        name: entry.name,
+        command: entry.command,
+        ptyId: `${terminalId}__w__${entry.name}`,
+        color: WORKER_COLORS[i % WORKER_COLORS.length],
+        autoStart: autoStartPrefs[entry.name] !== false,
+        status: 'stopped' as ProcessStatus,
+      }
+      writeOutput(proc.name, proc.color, `\n\x1b[32mAdded from Procfile\x1b[0m\n`)
+      return proc
+    })
+
+    processesRef.current = updated
+    setProcesses(updated)
+    return updated
+  }, [procfilePath, terminalId, writeOutput])
+
+  // Batch operations (reload Procfile once, then act on fresh list)
+  const startAll = useCallback(async () => {
+    await reloadProcfile()
     for (const p of processesRef.current) {
       if (p.status === 'stopped' || p.status === 'crashed') startProcess(p)
     }
-  }, [startProcess])
+  }, [startProcess, reloadProcfile])
 
-  const stopAll = useCallback(() => {
+  const stopAll = useCallback(async () => {
+    await reloadProcfile()
     for (const p of processesRef.current) {
-      if (p.status === 'running' || p.status === 'starting') stopProcess(p)
+      if (p.status === 'running' || p.status === 'starting') {
+        dlog(`[worker] stopping process: ${p.name}`)
+        window.electronAPI.pty.kill(p.ptyId)
+      }
     }
-  }, [stopProcess])
+  }, [reloadProcfile])
 
-  const restartAll = useCallback(() => {
-    for (const p of processesRef.current) restartProcess(p)
-  }, [restartProcess])
+  const restartAll = useCallback(async () => {
+    const updated = await reloadProcfile()
+    const procs = updated || processesRef.current
+    for (const p of procs) {
+      dlog(`[worker] restarting process: ${p.name}`)
+      if (p.status === 'running' || p.status === 'starting') {
+        await window.electronAPI.pty.kill(p.ptyId)
+      }
+      midLineRef.current.set(p.name, false)
+      writeOutput(p.name, p.color, `\n\x1b[33mRestarting...\x1b[0m\n`)
+      await startProcess(p)
+    }
+  }, [reloadProcfile, startProcess, writeOutput])
 
   // Main init effect: create xterm, parse Procfile, start processes
   useEffect(() => {
@@ -270,11 +423,11 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
     const unsubExit = window.electronAPI.pty.onExit((id, exitCode) => {
       const proc = processesRef.current.find(p => p.ptyId === id)
       if (!proc) return
-      const maxLen = Math.max(...processesRef.current.map(p => p.name.length))
-      const paddedName = proc.name.padEnd(maxLen)
       midLineRef.current.set(proc.name, false)
       const colorCode = exitCode === 0 ? '32' : '31'
-      terminal.write(`\r\n${ansiColor(proc.color, paddedName)}\x1b[90m | \x1b[${colorCode}mProcess exited with code ${exitCode}\x1b[0m\r\n`)
+      const exitMsg = `\x1b[${colorCode}mProcess exited with code ${exitCode}\x1b[0m`
+      // Buffer as a special entry (uses \n so prefix logic applies)
+      writeOutput(proc.name, proc.color, `\n${exitMsg}\n`)
       setProcesses(prev => prev.map(p =>
         p.ptyId === id ? { ...p, status: (exitCode === 0 ? 'stopped' : 'crashed') as ProcessStatus, exitCode } : p
       ))
@@ -296,6 +449,9 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
 
     // --- Async: read Procfile and start processes ---
     ;(async () => {
+      // Init worker buffer file on disk
+      await window.electronAPI.workerBuffer.init(terminalId)
+
       // Resolve shell path
       if (settings.shell === 'custom' && settings.customShellPath) {
         shellRef.current = settings.customShellPath
@@ -331,10 +487,11 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
       processesRef.current = procs
       setProcesses(procs)
 
-      // Write header
+      // Write header (use __header__ as a virtual name so it's always visible during re-render)
       const filename = procfilePath.split('/').pop() || 'Procfile'
-      terminal.write(ansiColor('#888', `Worker: ${filename} (${procs.length} processes)\r\n`))
-      terminal.write(ansiColor('#555', '\u2500'.repeat(60) + '\r\n'))
+      const headerText = ansiColor('#888', `Worker: ${filename} (${procs.length} processes)\r\n`) +
+        ansiColor('#555', '\u2500'.repeat(60) + '\r\n')
+      writeOutput('__header__', '', headerText)
 
       // Start only processes with autoStart enabled
       for (const proc of procs) {
@@ -364,11 +521,13 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
       unsubExit()
       unsubSettings()
       if (resizeTimer) clearTimeout(resizeTimer)
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current)
       resizeObserver.disconnect()
       doResizeRef.current = null
       terminal.dispose()
       terminalRef.current = null
       fitAddonRef.current = null
+      window.electronAPI.workerBuffer.clear(terminalId)
       for (const id of ptyIds) {
         window.electronAPI.pty.kill(id)
       }
@@ -428,7 +587,11 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
                     {proc.autoStart ? '⚡' : '💤'}
                   </button>
                   {(proc.status === 'stopped' || proc.status === 'crashed') && (
-                    <button className="worker-btn" onClick={() => startProcess(proc)} title="Start">
+                    <button className="worker-btn" onClick={async () => {
+                      await reloadProcfile()
+                      const fresh = processesRef.current.find(p => p.name === proc.name)
+                      if (fresh) startProcess(fresh)
+                    }} title="Start">
                       ▶
                     </button>
                   )}
