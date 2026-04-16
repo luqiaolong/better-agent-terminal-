@@ -22,8 +22,8 @@ export interface Workspace {
 
 // Claude Agent effort levels — single source of truth.
 // Note: values must match what the Claude Code CLI's --effort flag accepts.
-// (xhigh is not yet supported by the CLI; re-add when confirmed.)
-export const EFFORT_LEVELS = ['low', 'medium', 'high', 'max'] as const
+// xhigh requires Claude Code CLI >= 2.1.111.
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export type EffortLevel = typeof EFFORT_LEVELS[number]
 
 export const WORKSPACE_COLORS = [
