@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import i18next from 'i18next'
 import QRCode from 'qrcode'
-import type { AppSettings, ShellType, FontType, ColorPresetId, StatuslineItemConfig, LanguageCode } from '../types'
-import { FONT_OPTIONS, COLOR_PRESETS, SHELL_OPTIONS, STATUSLINE_ITEMS } from '../types'
+import type { AppSettings, ShellType, FontType, ColorPresetId, StatuslineItemConfig, LanguageCode, EffortLevel } from '../types'
+import { FONT_OPTIONS, COLOR_PRESETS, SHELL_OPTIONS, STATUSLINE_ITEMS, EFFORT_LEVELS } from '../types'
 import { settingsStore, parseStatuslineTemplate, exportStatuslineTemplate } from '../stores/settings-store'
 import { EnvVarEditor } from './EnvVarEditor'
 import { AgentPresetId, getVisiblePresets } from '../types/agent-presets'
@@ -444,13 +444,14 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               <label>{t('settings.defaultEffort')}</label>
               <select
                 value={settings.defaultEffort || 'high'}
-                onChange={e => settingsStore.setDefaultEffort(e.target.value as 'low' | 'medium' | 'high' | 'xhigh' | 'max')}
+                onChange={e => settingsStore.setDefaultEffort(e.target.value as EffortLevel)}
               >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="xhigh">XHigh</option>
-                <option value="max">Max (Opus only)</option>
+                {EFFORT_LEVELS.map(level => (
+                  <option key={level} value={level}>
+                    {level.charAt(0).toUpperCase() + level.slice(1)}
+                    {level === 'max' ? ' (Opus only)' : ''}
+                  </option>
+                ))}
               </select>
               <p className="settings-hint">{t('settings.defaultEffortHint')}</p>
             </div>

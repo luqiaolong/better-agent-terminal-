@@ -1,4 +1,4 @@
-import type { AppSettings, ShellType, FontType, ColorPresetId, EnvVariable, AgentCommandType, StatuslineItemConfig, StatuslineItemId, LanguageCode } from '../types'
+import type { AppSettings, ShellType, FontType, ColorPresetId, EnvVariable, AgentCommandType, StatuslineItemConfig, StatuslineItemId, LanguageCode, EffortLevel } from '../types'
 import type { AgentPresetId } from '../types/agent-presets'
 import { FONT_OPTIONS, COLOR_PRESETS, AGENT_COMMAND_OPTIONS, STATUSLINE_ITEMS } from '../types'
 
@@ -211,7 +211,7 @@ class SettingsStore {
     this.save()
   }
 
-  setDefaultEffort(effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'): void {
+  setDefaultEffort(effort: EffortLevel): void {
     this.settings = { ...this.settings, defaultEffort: effort }
     this.notify()
     this.save()

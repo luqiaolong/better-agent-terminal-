@@ -4,6 +4,7 @@ import * as fsSync from 'fs'
 import * as fsPromises from 'fs/promises'
 import * as pathModule from 'path'
 import type { ClaudeMessage, ClaudeToolCall, ClaudeSessionState } from '../src/types/claude-agent'
+import type { EffortLevel } from '../src/types'
 import type { Query, PermissionMode, CanUseTool, SlashCommand, SDKSession } from '@anthropic-ai/claude-agent-sdk'
 import { logger } from './logger'
 import { getNodeExecutable, isElectronFallback } from './node-resolver'
@@ -165,7 +166,7 @@ interface SessionInstance {
   pendingPermissions: Map<string, PendingRequest>
   pendingAskUser: Map<string, PendingRequest>
   permissionMode: AppPermissionMode
-  effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  effort: EffortLevel
   autoCompactWindow?: number
   model?: string
   messageQueue: QueuedMessage[]
@@ -309,7 +310,7 @@ export class ClaudeAgentManager {
     this.send('claude:tool-result', sessionId, { id: toolId, ...updates })
   }
 
-  async startSession(sessionId: string, options: { cwd: string; prompt?: string; sdkSessionId?: string; permissionMode?: AppPermissionMode; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; apiVersion?: 'v1' | 'v2'; useWorktree?: boolean; worktreePath?: string; worktreeBranch?: string; autoCompactWindow?: number }): Promise<boolean> {
+  async startSession(sessionId: string, options: { cwd: string; prompt?: string; sdkSessionId?: string; permissionMode?: AppPermissionMode; model?: string; effort?: EffortLevel; apiVersion?: 'v1' | 'v2'; useWorktree?: boolean; worktreePath?: string; worktreeBranch?: string; autoCompactWindow?: number }): Promise<boolean> {
     // Prevent duplicate session creation
     if (this.sessions.has(sessionId)) {
       return true
@@ -1693,7 +1694,7 @@ export class ClaudeAgentManager {
     }
   }
 
-  setEffort(sessionId: string, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'): boolean {
+  setEffort(sessionId: string, effort: EffortLevel): boolean {
     const session = this.sessions.get(sessionId)
     if (!session) return false
     session.effort = effort

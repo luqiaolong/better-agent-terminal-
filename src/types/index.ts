@@ -20,6 +20,12 @@ export interface Workspace {
   lastSdkSessionId?: string;     // 上次使用的 SDK session ID，下次自動 resume
 }
 
+// Claude Agent effort levels — single source of truth.
+// Note: values must match what the Claude Code CLI's --effort flag accepts.
+// (xhigh is not yet supported by the CLI; re-add when confirmed.)
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'max'] as const
+export type EffortLevel = typeof EFFORT_LEVELS[number]
+
 export const WORKSPACE_COLORS = [
   { id: 'red', value: '#e74c3c', label: 'Red' },
   { id: 'orange', value: '#e67e22', label: 'Orange' },
@@ -219,7 +225,7 @@ export interface AppSettings {
   createDefaultAgentTerminal: boolean;  // 是否預設建立 Agent Terminal
   allowBypassPermissions: boolean;  // 允許切換 bypassPermissions 模式時不再確認
   defaultModel?: string;     // 預設模型（空 = 使用 SDK 預設）
-  defaultEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';  // 預設 effort level
+  defaultEffort?: EffortLevel;  // 預設 effort level
   showDockBadge?: boolean;               // Dock 圖示顯示待處理數量
   notifyOnComplete?: boolean;           // Agent 完成時發送系統通知
   notifySound?: boolean;               // 通知時播放聲音

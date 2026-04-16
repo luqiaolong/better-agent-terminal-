@@ -3,6 +3,8 @@ import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { ClaudeMessage, ClaudeToolCall } from '../types/claude-agent'
 import { isToolCall } from '../types/claude-agent'
+import type { EffortLevel } from '../types'
+import { EFFORT_LEVELS } from '../types'
 import { settingsStore } from '../stores/settings-store'
 import { workspaceStore } from '../stores/workspace-store'
 import type { AgentPresetId } from '../types/agent-presets'
@@ -897,7 +899,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         dlog(`${stag} FRESH startSession`)
         window.electronAPI.claude.startSession(sessionId, {
           cwd, permissionMode, model: effectiveModel,
-          effort: effectiveEffort as 'low' | 'medium' | 'high' | 'xhigh' | 'max', apiVersion,
+          effort: effectiveEffort as EffortLevel, apiVersion,
           agentPreset: terminal?.agentPreset,
           ...(useWorktree ? { useWorktree: true, worktreePath: terminal?.worktreePath, worktreeBranch: terminal?.worktreeBranch } : {}),
           ...(globalSettings.autoCompactWindow ? { autoCompactWindow: globalSettings.autoCompactWindow } : {}),
@@ -3359,11 +3361,9 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                 onChange={handleEffortChange}
                 title={t('claude.effortLevel')}
               >
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-                <option value="xhigh">xhigh</option>
-                <option value="max">max</option>
+                {EFFORT_LEVELS.map(level => (
+                  <option key={level} value={level}>{level}</option>
+                ))}
               </select>
             )}
             {accountInfo?.organization && (

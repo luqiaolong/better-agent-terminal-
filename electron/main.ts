@@ -64,6 +64,7 @@ import { RemoteServer } from './remote/remote-server'
 import { RemoteClient } from './remote/remote-client'
 import { getConnectionInfo } from './remote/tunnel-manager'
 import { logger } from './logger'
+import type { EffortLevel } from '../src/types'
 
 // Startup timing — capture module load time before anything else
 const _processStart = Number(process.env._BAT_T0 || Date.now())
@@ -868,7 +869,7 @@ function registerProxiedHandlers() {
     if (mgr instanceof ClaudeAgentManager) return mgr.setModel(sessionId, model, autoCompactWindow)
     return (mgr as CodexAgentManager)?.setModel(sessionId, model)
   })
-  registerHandler('claude:set-effort', (_ctx, sessionId: string, effort: string) => getManager(sessionId)?.setEffort(sessionId, effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max'))
+  registerHandler('claude:set-effort', (_ctx, sessionId: string, effort: string) => getManager(sessionId)?.setEffort(sessionId, effort as EffortLevel))
   registerHandler('claude:reset-session', (_ctx, sessionId: string) => getManager(sessionId)?.resetSession(sessionId))
   registerHandler('claude:get-supported-models', (_ctx, sessionId: string) => getManager(sessionId)?.getSupportedModels(sessionId))
   registerHandler('claude:get-account-info', (_ctx, sessionId: string) => getManager(sessionId)?.getAccountInfo(sessionId))
