@@ -1893,6 +1893,23 @@
   text-decoration: underline;
 }
 
+/* Cache Alarm Timer — floating badge top-right */
+.claude-cache-alarm {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 20;
+  display: flex;
+  gap: 10px;
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+  background: rgba(30, 30, 30, 0.75);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  pointer-events: none;
+  opacity: 0.85;
+}
+
 .claude-usage-mid {
   color: #e6a700;
 }

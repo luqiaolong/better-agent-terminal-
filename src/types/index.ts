@@ -229,6 +229,7 @@ export interface AppSettings {
   perTerminalHistory?: boolean;   // Per-terminal shell history (separate HISTFILE per terminal)
   accountSwitching?: boolean;     // Claude account quick-switch (default: true)
   cacheExpiryWarning?: boolean;   // Warn before sending when cache (>150k) has expired (>1h)
+  cacheAlarmTimer?: boolean;      // Show floating cache TTL countdown (5m / 1h) in top-right corner
 }
 
 // ============================================

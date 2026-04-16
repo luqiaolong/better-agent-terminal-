@@ -417,6 +417,18 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               <p className="settings-hint">{t('settings.cacheExpiryWarningHint')}</p>
             </div>
 
+            <div className="settings-group checkbox-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.cacheAlarmTimer === true}
+                  onChange={e => settingsStore.setCacheAlarmTimer(e.target.checked)}
+                />
+                {t('settings.cacheAlarmTimer')}
+              </label>
+              <p className="settings-hint">{t('settings.cacheAlarmTimerHint')}</p>
+            </div>
+
             <div className="settings-group">
               <label>{t('settings.defaultModel')}</label>
               <input

@@ -226,6 +226,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   const lastResultRef = useRef<{ timestamp: number; totalInput: number } | null>(null)
   const [showCacheHistory, setShowCacheHistory] = useState(false)
   const [cacheEntryModal, setCacheEntryModal] = useState<number | null>(null)
+  const [cacheCountdown, setCacheCountdown] = useState<{ m5: number; h1: number } | null>(null)
+  const [cacheAlarmEnabled, setCacheAlarmEnabled] = useState(settingsStore.getSettings().cacheAlarmTimer === true)
   const [statuslineConfig, setStatuslineConfig] = useState(settingsStore.getStatuslineItems())
   const [contextUsagePopup, setContextUsagePopup] = useState<{
     categories: { name: string; tokens: number; color: string; isDeferred?: boolean }[]
@@ -975,13 +977,34 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     }).catch(() => {})
   }, [taskModal?.taskId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Subscribe to settings changes (font size, statusline config)
+  // Subscribe to settings changes (font size, statusline config, cache alarm)
   useEffect(() => {
     return settingsStore.subscribe(() => {
       setClaudeFontSize(settingsStore.getSettings().fontSize)
       setStatuslineConfig(settingsStore.getStatuslineItems())
+      setCacheAlarmEnabled(settingsStore.getSettings().cacheAlarmTimer === true)
     })
   }, [])
+
+  // Cache alarm timer — update every 30s, only show after 1min idle
+  useEffect(() => {
+    if (!cacheAlarmEnabled) {
+      setCacheCountdown(null)
+      return
+    }
+    const tick = () => {
+      if (!lastResultRef.current) { setCacheCountdown(null); return }
+      const elapsed = Date.now() - lastResultRef.current.timestamp
+      if (elapsed < 60_000) { setCacheCountdown(null); return } // hide until 1min idle
+      const h1 = 60 * 60 * 1000 - elapsed
+      if (h1 <= 0) { setCacheCountdown(null); return }
+      const m5 = 5 * 60 * 1000 - elapsed
+      setCacheCountdown({ m5: Math.max(0, m5), h1 })
+    }
+    tick()
+    const id = setInterval(tick, 30_000)
+    return () => clearInterval(id)
+  }, [cacheAlarmEnabled])
 
   // Subscribe to global Claude usage from workspace store
   useEffect(() => {
@@ -2729,6 +2752,21 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {cacheCountdown && (() => {
+        const fmtMin = (ms: number) => {
+          if (ms <= 0) return t('settings.cacheAlarmExpired')
+          const m = Math.ceil(ms / 60_000)
+          return m >= 60 ? `${Math.floor(m / 60)}h${m % 60}m` : `${m}m`
+        }
+        const m5Color = cacheCountdown.m5 <= 0 ? '#e05252' : cacheCountdown.m5 <= 60_000 ? '#e6a700' : '#89ca78'
+        const h1Color = cacheCountdown.h1 <= 5 * 60_000 ? '#e05252' : cacheCountdown.h1 <= 20 * 60_000 ? '#e6a700' : '#89ca78'
+        return (
+          <div className="claude-cache-alarm">
+            <span style={{ color: m5Color }}>5m: {fmtMin(cacheCountdown.m5)}</span>
+            <span style={{ color: h1Color }}>1h: {fmtMin(cacheCountdown.h1)}</span>
+          </div>
+        )
+      })()}
       {pinnedMessages.length > 0 && (
         <div className="claude-pinned-messages">
           {pinnedMessages.map(msg => (

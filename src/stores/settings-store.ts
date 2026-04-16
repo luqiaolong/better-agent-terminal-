@@ -199,6 +199,12 @@ class SettingsStore {
     this.save()
   }
 
+  setCacheAlarmTimer(enabled: boolean): void {
+    this.settings = { ...this.settings, cacheAlarmTimer: enabled }
+    this.notify()
+    this.save()
+  }
+
   setDefaultModel(model: string): void {
     this.settings = { ...this.settings, defaultModel: model || undefined }
     this.notify()
