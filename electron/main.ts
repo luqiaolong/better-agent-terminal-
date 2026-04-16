@@ -1287,6 +1287,11 @@ function registerProxiedHandlers() {
 
   // Profile (subset exposed to remote clients)
   registerHandler('profile:list', (_ctx) => profileManager.list())
+  // Local-only profile list (never proxied to remote). Used by the renderer
+  // to resolve the window's own identity when connected to a remote host,
+  // since the proxied profile:list returns the REMOTE host's profiles and
+  // the client's local aliases won't be found there.
+  ipcMain.handle('profile:list-local', () => profileManager.list())
   registerHandler('profile:load', (_ctx, profileId: string) => profileManager.load(profileId))
   registerHandler('profile:load-snapshot', (_ctx, profileId: string) => profileManager.loadSnapshot(profileId))
   registerHandler('profile:get-active-ids', (_ctx) => profileManager.getActiveProfileIds())
@@ -1296,11 +1301,21 @@ function registerProxiedHandlers() {
 
 // ── Bind all proxied handlers to ipcMain ──
 
+// Channels that MUST run locally even when connected to a remote host.
+// These handlers depend on ctx.windowId which the remote protocol doesn't
+// forward; proxying them would return null and break the UI.
+// The snapshot data for workspaces is already replicated into the local
+// windowRegistry via applySnapshot() at startup, so reading locally works.
+const ALWAYS_LOCAL_CHANNELS = new Set([
+  'workspace:save', 'workspace:load',
+])
+
 function bindProxiedHandlersToIpc() {
   for (const channel of PROXIED_CHANNELS) {
     ipcMain.handle(channel, async (event, ...args: unknown[]) => {
-      // If remote client is connected, route to remote server
-      if (remoteClient?.isConnected) {
+      // If remote client is connected, route to remote server — unless this
+      // channel is pinned to local execution.
+      if (remoteClient?.isConnected && !ALWAYS_LOCAL_CHANNELS.has(channel)) {
         return remoteClient.invoke(channel, args)
       }
       const windowId = getWindowIdByWebContents(event.sender)
