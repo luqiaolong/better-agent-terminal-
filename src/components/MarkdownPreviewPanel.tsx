@@ -12,6 +12,8 @@ export function MarkdownPreviewPanel({ filePath, onClose }: MarkdownPreviewPanel
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const watchingDir = useRef<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
 
   const fileName = filePath.split(/[/\\]/).pop() || filePath
 
@@ -34,6 +36,18 @@ export function MarkdownPreviewPanel({ filePath, onClose }: MarkdownPreviewPanel
   useEffect(() => {
     loadContent()
   }, [loadContent])
+
+  // Dismiss context menu on outside click
+  useEffect(() => {
+    if (!contextMenu) return
+    const handler = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [contextMenu])
 
   // Watch for file changes
   useEffect(() => {
@@ -60,7 +74,7 @@ export function MarkdownPreviewPanel({ filePath, onClose }: MarkdownPreviewPanel
   }, [filePath, loadContent])
 
   return (
-    <div className="md-preview-panel">
+    <div className="md-preview-panel" onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY }) }}>
       <div className="md-preview-header">
         <span className="md-preview-filename" title={filePath}>{fileName}</span>
         <div className="md-preview-actions">
@@ -87,6 +101,13 @@ export function MarkdownPreviewPanel({ filePath, onClose }: MarkdownPreviewPanel
         {error && <div className="md-preview-error">{error}</div>}
         {content !== null && <MarkdownPreview content={content} />}
       </div>
+      {contextMenu && (
+        <div ref={contextMenuRef} className="workspace-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+          <div className="context-menu-item" onClick={() => { setContextMenu(null); onClose() }}>
+            {t('common.close')}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
