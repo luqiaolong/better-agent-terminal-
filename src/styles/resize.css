@@ -167,6 +167,21 @@
   margin: 4px 0;
 }
 
+.thumbnail-add-menu-hint {
+  padding: 4px 14px 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0.6;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.thumbnail-add-menu-hint:hover {
+  opacity: 1;
+  color: var(--accent-color);
+}
+
 .thumbnail-add-menu-suggested {
   font-size: 10px;
   color: #22c55e;

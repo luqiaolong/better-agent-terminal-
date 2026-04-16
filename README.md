@@ -60,6 +60,7 @@ Manage multiple project terminals in one window, with a built-in Claude Code age
 - **File browser** — Search, navigate, and preview files with syntax highlighting (highlight.js)
 - **Git integration** — Commit log, diff viewer, branch display, untracked file list, GitHub link detection
 - **Snippet manager** — Save, organize, search, and paste code snippets (SQLite-backed with categories and favorites)
+- **Worker panel (Procfile)** — Run multiple processes from a [Procfile](https://github.com/DarthSim/overmind?tab=readme-ov-file#procfile-format) in a single tab with combined log view and per-process start/stop/restart controls, inspired by [Overmind](https://github.com/DarthSim/overmind)
 
 ### Claude Code Agent
 - **Built-in Claude Code** via SDK — Runs the agent directly inside the app; no separate terminal needed
@@ -384,6 +385,12 @@ MIT License - see [LICENSE](LICENSE) for details.
 - **Owen** - [@Owen0857](https://github.com/Owen0857) - Windows zombie process fix, terminal resize black screen fix, debug log cleanup
 - **MikeThai** - [@mikethai](https://github.com/mikethai) - macOS .dmg spawn ENOENT fix
 - **Luke Chang** - [@lukeme117](https://github.com/lukeme117) - Snippet sidebar and UI improvements
+
+---
+
+## Acknowledgments
+
+- **[Overmind](https://github.com/DarthSim/overmind)** — Inspired our Worker panel and Procfile-based multi-process management integration
 
 ---
 
