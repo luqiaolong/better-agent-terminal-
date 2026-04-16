@@ -897,7 +897,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         dlog(`${stag} FRESH startSession`)
         window.electronAPI.claude.startSession(sessionId, {
           cwd, permissionMode, model: effectiveModel,
-          effort: effectiveEffort as 'low' | 'medium' | 'high' | 'max', apiVersion,
+          effort: effectiveEffort as 'low' | 'medium' | 'high' | 'xhigh' | 'max', apiVersion,
           agentPreset: terminal?.agentPreset,
           ...(useWorktree ? { useWorktree: true, worktreePath: terminal?.worktreePath, worktreeBranch: terminal?.worktreeBranch } : {}),
           ...(globalSettings.autoCompactWindow ? { autoCompactWindow: globalSettings.autoCompactWindow } : {}),
@@ -3362,6 +3362,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                 <option value="low">low</option>
                 <option value="medium">medium</option>
                 <option value="high">high</option>
+                <option value="xhigh">xhigh</option>
                 <option value="max">max</option>
               </select>
             )}

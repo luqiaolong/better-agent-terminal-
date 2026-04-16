@@ -211,7 +211,7 @@ class SettingsStore {
     this.save()
   }
 
-  setDefaultEffort(effort: 'low' | 'medium' | 'high' | 'max'): void {
+  setDefaultEffort(effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'): void {
     this.settings = { ...this.settings, defaultEffort: effort }
     this.notify()
     this.save()

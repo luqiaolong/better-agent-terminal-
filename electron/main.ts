@@ -868,7 +868,7 @@ function registerProxiedHandlers() {
     if (mgr instanceof ClaudeAgentManager) return mgr.setModel(sessionId, model, autoCompactWindow)
     return (mgr as CodexAgentManager)?.setModel(sessionId, model)
   })
-  registerHandler('claude:set-effort', (_ctx, sessionId: string, effort: string) => getManager(sessionId)?.setEffort(sessionId, effort as 'low' | 'medium' | 'high' | 'max'))
+  registerHandler('claude:set-effort', (_ctx, sessionId: string, effort: string) => getManager(sessionId)?.setEffort(sessionId, effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max'))
   registerHandler('claude:reset-session', (_ctx, sessionId: string) => getManager(sessionId)?.resetSession(sessionId))
   registerHandler('claude:get-supported-models', (_ctx, sessionId: string) => getManager(sessionId)?.getSupportedModels(sessionId))
   registerHandler('claude:get-account-info', (_ctx, sessionId: string) => getManager(sessionId)?.getAccountInfo(sessionId))
