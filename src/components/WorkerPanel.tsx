@@ -234,29 +234,6 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
     }, 300)
   }, [cwd])
 
-  // Stop a single process (reload Procfile to sync list)
-  const stopProcess = useCallback(async (proc: WorkerProcess) => {
-    await reloadProcfile()
-    const fresh = processesRef.current.find(p => p.name === proc.name)
-    if (!fresh) return
-    dlog(`[worker] stopping process: ${fresh.name}`)
-    window.electronAPI.pty.kill(fresh.ptyId)
-  }, [reloadProcfile])
-
-  // Restart a single process (reload Procfile first to pick up command changes)
-  const restartProcess = useCallback(async (proc: WorkerProcess) => {
-    const updated = await reloadProcfile()
-    const fresh = (updated || processesRef.current).find(p => p.name === proc.name)
-    if (!fresh) return // process was removed from Procfile
-
-    dlog(`[worker] restarting process: ${fresh.name}`)
-    await window.electronAPI.pty.kill(fresh.ptyId)
-
-    midLineRef.current.set(fresh.name, false)
-    writeOutput(fresh.name, fresh.color, `\n\x1b[33mRestarting...\x1b[0m\n`)
-    await startProcess(fresh)
-  }, [startProcess, writeOutput, reloadProcfile])
-
   // Re-read Procfile and sync process list (add new, remove deleted, update commands)
   const reloadProcfile = useCallback(async () => {
     const result = await window.electronAPI.fs.readFile(procfilePath)
@@ -306,6 +283,29 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
     setProcesses(updated)
     return updated
   }, [procfilePath, terminalId, writeOutput])
+
+  // Stop a single process (reload Procfile to sync list)
+  const stopProcess = useCallback(async (proc: WorkerProcess) => {
+    await reloadProcfile()
+    const fresh = processesRef.current.find(p => p.name === proc.name)
+    if (!fresh) return
+    dlog(`[worker] stopping process: ${fresh.name}`)
+    window.electronAPI.pty.kill(fresh.ptyId)
+  }, [reloadProcfile])
+
+  // Restart a single process (reload Procfile first to pick up command changes)
+  const restartProcess = useCallback(async (proc: WorkerProcess) => {
+    const updated = await reloadProcfile()
+    const fresh = (updated || processesRef.current).find(p => p.name === proc.name)
+    if (!fresh) return // process was removed from Procfile
+
+    dlog(`[worker] restarting process: ${fresh.name}`)
+    await window.electronAPI.pty.kill(fresh.ptyId)
+
+    midLineRef.current.set(fresh.name, false)
+    writeOutput(fresh.name, fresh.color, `\n\x1b[33mRestarting...\x1b[0m\n`)
+    await startProcess(fresh)
+  }, [startProcess, writeOutput, reloadProcfile])
 
   // Batch operations (reload Procfile once, then act on fresh list)
   const startAll = useCallback(async () => {
