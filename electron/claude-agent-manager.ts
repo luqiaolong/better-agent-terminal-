@@ -165,7 +165,7 @@ interface SessionInstance {
   pendingPermissions: Map<string, PendingRequest>
   pendingAskUser: Map<string, PendingRequest>
   permissionMode: AppPermissionMode
-  effort: 'low' | 'medium' | 'high' | 'max'
+  effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   autoCompactWindow?: number
   model?: string
   messageQueue: QueuedMessage[]
@@ -309,7 +309,7 @@ export class ClaudeAgentManager {
     this.send('claude:tool-result', sessionId, { id: toolId, ...updates })
   }
 
-  async startSession(sessionId: string, options: { cwd: string; prompt?: string; sdkSessionId?: string; permissionMode?: AppPermissionMode; model?: string; effort?: 'low' | 'medium' | 'high' | 'max'; apiVersion?: 'v1' | 'v2'; useWorktree?: boolean; worktreePath?: string; worktreeBranch?: string; autoCompactWindow?: number }): Promise<boolean> {
+  async startSession(sessionId: string, options: { cwd: string; prompt?: string; sdkSessionId?: string; permissionMode?: AppPermissionMode; model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; apiVersion?: 'v1' | 'v2'; useWorktree?: boolean; worktreePath?: string; worktreeBranch?: string; autoCompactWindow?: number }): Promise<boolean> {
     // Prevent duplicate session creation
     if (this.sessions.has(sessionId)) {
       return true
@@ -1693,7 +1693,7 @@ export class ClaudeAgentManager {
     }
   }
 
-  setEffort(sessionId: string, effort: 'low' | 'medium' | 'high' | 'max'): boolean {
+  setEffort(sessionId: string, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'): boolean {
     const session = this.sessions.get(sessionId)
     if (!session) return false
     session.effort = effort
