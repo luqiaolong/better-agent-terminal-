@@ -17,6 +17,8 @@ import { broadcastHub } from './remote/broadcast-hub'
 
 // BAT built-in curated model list (always available, shown first)
 const BAT_BUILTIN_MODELS: Array<{ value: string; displayName: string; description: string }> = [
+  { value: 'claude-opus-4-7',     displayName: 'Opus 4.7 (200k)',  description: 'claude-opus-4-7 · 200k context' },
+  { value: 'claude-opus-4-7[1m]', displayName: 'Opus 4.7 (1M)',   description: 'claude-opus-4-7 · 1M context · CLI recommended for better cache efficiency' },
   { value: 'claude-opus-4-6',     displayName: 'Opus 4.6 (200k)',  description: 'claude-opus-4-6 · 200k context' },
   { value: 'claude-opus-4-6[1m]', displayName: 'Opus 4.6 (1M)',   description: 'claude-opus-4-6 · 1M context · CLI recommended for better cache efficiency' },
   { value: 'claude-sonnet-4-6',     displayName: 'Sonnet 4.6 (200k)',  description: 'claude-sonnet-4-6 · 200k context' },
