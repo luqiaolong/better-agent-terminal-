@@ -228,6 +228,7 @@ export interface AppSettings {
   autoCompactWindow?: number;     // Auto-compact context window size (token count)
   perTerminalHistory?: boolean;   // Per-terminal shell history (separate HISTFILE per terminal)
   accountSwitching?: boolean;     // Claude account quick-switch (default: true)
+  cacheExpiryWarning?: boolean;   // Warn before sending when cache (>150k) has expired (>1h)
 }
 
 // ============================================

@@ -405,6 +405,18 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               <p className="settings-hint">{t('settings.collapseToolOutputsHint')}</p>
             </div>
 
+            <div className="settings-group checkbox-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.cacheExpiryWarning === true}
+                  onChange={e => settingsStore.setCacheExpiryWarning(e.target.checked)}
+                />
+                {t('settings.cacheExpiryWarning')}
+              </label>
+              <p className="settings-hint">{t('settings.cacheExpiryWarningHint')}</p>
+            </div>
+
             <div className="settings-group">
               <label>{t('settings.defaultModel')}</label>
               <input

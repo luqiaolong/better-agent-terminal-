@@ -222,6 +222,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   }, [activePlanFile, planFileTrigger])
   // Cache efficiency history — last 20 readings for smoothed display
   const cacheHistoryRef = useRef<{ pct: number; cacheRead: number; cacheCreate: number; totalInput: number; contextSize: number; callCacheRead: number; callCacheWrite: number; calls: number; isResult?: boolean; modelUsage?: SessionMeta['modelUsage']; model?: string; outputTokens?: number; cacheWrite5mTokens?: number; cacheWrite1hTokens?: number; timestamp?: number; messageCount?: number; turnStartMsgId?: string | null; apiTotalCost?: number }[]>([])
+  // Track last result for cache expiry warning (timestamp + total input tokens)
+  const lastResultRef = useRef<{ timestamp: number; totalInput: number } | null>(null)
   const [showCacheHistory, setShowCacheHistory] = useState(false)
   const [cacheEntryModal, setCacheEntryModal] = useState<number | null>(null)
   const [statuslineConfig, setStatuslineConfig] = useState(settingsStore.getStatuslineItems())
@@ -686,6 +688,10 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
             const pct = Math.round((m.cacheReadTokens / m.inputTokens) * 100)
             const entry = { pct, cacheRead: m.cacheReadTokens, cacheCreate: m.cacheCreationTokens || 0, totalInput: m.inputTokens, contextSize: m.contextTokens || 0, callCacheRead: m.callCacheRead || 0, callCacheWrite: m.callCacheWrite || 0, calls: isResult ? (m.lastQueryCalls || 0) : 1, isResult, modelUsage: m.modelUsage ? { ...m.modelUsage } : undefined, model: m.model, outputTokens: m.outputTokens || 0, cacheWrite5mTokens: m.cacheWrite5mTokens, cacheWrite1hTokens: m.cacheWrite1hTokens, timestamp: Date.now(), messageCount: messageCountRef.current, turnStartMsgId: currentTurnMsgIdRef.current, apiTotalCost: m.totalCost || 0 }
             hist.push(entry)
+            // Update last result ref for cache expiry warning
+            if (isResult) {
+              lastResultRef.current = { timestamp: Date.now(), totalInput: m.inputTokens }
+            }
             // Trim: keep max 20 non-result entries; result entries are extra
             while (hist.filter(h => !h.isResult).length > 20) {
               const idx = hist.findIndex(h => !h.isResult)
@@ -1380,6 +1386,19 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         }])
       }
       return
+    }
+
+    // Cache expiry warning: if enabled, last result had >150k tokens, and >1h has passed
+    if (settingsStore.getSettings().cacheExpiryWarning && lastResultRef.current) {
+      const { timestamp, totalInput } = lastResultRef.current
+      const elapsed = Date.now() - timestamp
+      if (totalInput > 150_000 && elapsed > 60 * 60 * 1000) {
+        const mins = Math.floor(elapsed / 60000)
+        const ok = await window.electronAPI.dialog.confirm(
+          `⚠️ Cache expired\n\nLast turn had ${(totalInput / 1000).toFixed(0)}k input tokens, but ${mins} minutes have passed (cache TTL: 60 min).\n\nThis request will re-process all tokens at full price, which may incur significant costs.\n\nContinue?`
+        )
+        if (!ok) return
+      }
     }
 
     const imageDataUrls = attachedImages.map(i => i.dataUrl)

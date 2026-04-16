@@ -127,25 +127,7 @@ export const MainPanel = memo(function MainPanel({ terminal, isActive, onClose, 
               💬
             </button>
           )}
-          {isClaudeCode && onSwitchApiVersion && terminal.agentPreset !== 'codex-cli' && (
-            <>
-              <button
-                className="action-btn"
-                onClick={() => onSwitchApiVersion(terminal.id)}
-                title={terminal.agentPreset === 'claude-code' ? t('claude.switchToV2') : t('claude.switchToV1')}
-              >
-                {terminal.agentPreset === 'claude-code' ? t('claude.switchToV2') : t('claude.switchToV1')}
-              </button>
-              <button
-                className="action-btn"
-                onClick={() => window.alert(t('claude.v1v2Help'))}
-                title="V1 vs V2"
-                style={{ padding: '0 4px', minWidth: 'auto' }}
-              >
-                ?
-              </button>
-            </>
-          )}
+          {/* V1/V2 switch buttons hidden — logic preserved in WorkspaceView.handleSwitchApiVersion */}
           <button
             className="action-btn"
             onClick={() => onRestart(terminal.id)}

@@ -37,6 +37,8 @@
     "allowBypassPermissionsHint": "启用后，在 Claude Agent 面板中切换至 bypassPermissions 模式时不会显示确认对话框。请谨慎使用。",
     "collapseToolOutputs": "默认折叠所有工具输出",
     "collapseToolOutputsHint": "启用后，所有工具输出默认为折叠状态，点击可展开。只读工具（Read、Glob、Grep）不受此设置影响，始终折叠。",
+    "cacheExpiryWarning": "Cache 过期成本警告",
+    "cacheExpiryWarningHint": "启用后，当 session 有超过 150k 缓存 token 且 1 小时 cache TTL 已过期时，发送消息前会显示警告。避免意外以全价重新处理大量 context。",
     "defaultModel": "默认模型",
     "defaultModelPlaceholder": "例如 claude-sonnet-4-5-20250514",
     "defaultModelHint": "新 Agent 对话使用的模型 ID。留空则使用 SDK 默认。",

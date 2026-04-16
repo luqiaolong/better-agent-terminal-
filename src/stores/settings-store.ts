@@ -193,6 +193,12 @@ class SettingsStore {
     this.save()
   }
 
+  setCacheExpiryWarning(enabled: boolean): void {
+    this.settings = { ...this.settings, cacheExpiryWarning: enabled }
+    this.notify()
+    this.save()
+  }
+
   setDefaultModel(model: string): void {
     this.settings = { ...this.settings, defaultModel: model || undefined }
     this.notify()
