@@ -188,12 +188,19 @@ export class PtyManager {
         })
 
         ptyProcess.onData((data: string) => {
-          this.broadcast('pty:output', id, data)
+          // Only emit if this instance is still the current one
+          if (this.instances.get(id)?.process === ptyProcess) {
+            this.broadcast('pty:output', id, data)
+          }
         })
 
         ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
           this.broadcast('pty:exit', id, exitCode)
-          this.instances.delete(id)
+          // Only clean up if this instance is still the current one
+          // (a restart may have already replaced it with a new instance)
+          if (this.instances.get(id)?.process === ptyProcess) {
+            this.instances.delete(id)
+          }
         })
 
         this.instances.set(id, { process: ptyProcess, type, cwd, usePty: true })
@@ -245,16 +252,22 @@ export class PtyManager {
         })
 
         childProcess.stdout?.on('data', (data: Buffer) => {
-          this.broadcast('pty:output', id, data.toString())
+          if (this.instances.get(id)?.process === childProcess) {
+            this.broadcast('pty:output', id, data.toString())
+          }
         })
 
         childProcess.stderr?.on('data', (data: Buffer) => {
-          this.broadcast('pty:output', id, data.toString())
+          if (this.instances.get(id)?.process === childProcess) {
+            this.broadcast('pty:output', id, data.toString())
+          }
         })
 
         childProcess.on('exit', (exitCode: number | null) => {
           this.broadcast('pty:exit', id, exitCode ?? 0)
-          this.instances.delete(id)
+          if (this.instances.get(id)?.process === childProcess) {
+            this.instances.delete(id)
+          }
         })
 
         childProcess.on('error', (error) => {

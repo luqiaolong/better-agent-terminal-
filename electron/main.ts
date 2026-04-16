@@ -1670,7 +1670,33 @@ function registerLocalHandlers() {
     detachedWindows.delete(workspaceId)
     return true
   })
+
+  // ── Worker buffer file operations ──
+  const wbDir = path.join(app.getPath('userData'), 'worker-buffers')
+
+  ipcMain.handle('worker-buffer:init', async (_event, panelId: string) => {
+    await fs.mkdir(wbDir, { recursive: true })
+    await fs.writeFile(path.join(wbDir, `${panelId}.jsonl`), '', 'utf-8')
+  })
+
+  ipcMain.handle('worker-buffer:append', async (_event, panelId: string, lines: string) => {
+    await fs.appendFile(path.join(wbDir, `${panelId}.jsonl`), lines, 'utf-8')
+  })
+
+  ipcMain.handle('worker-buffer:readAll', async (_event, panelId: string) => {
+    try {
+      return await fs.readFile(path.join(wbDir, `${panelId}.jsonl`), 'utf-8')
+    } catch { return '' }
+  })
+
+  ipcMain.handle('worker-buffer:clear', async (_event, panelId: string) => {
+    try { await fs.unlink(path.join(wbDir, `${panelId}.jsonl`)) } catch { /* ignore */ }
+  })
 }
+
+// ── Worker buffer cleanup on startup ──
+const workerBufferDir = path.join(app.getPath('userData'), 'worker-buffers')
+fs.rm(workerBufferDir, { recursive: true, force: true }).catch(() => {})
 
 // ── Initialize all IPC ──
 const _t0 = Date.now()
