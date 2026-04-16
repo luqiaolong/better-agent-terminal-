@@ -15,7 +15,7 @@ export interface AgentPreset {
   needsGitRepo?: boolean; // 需要 git repo（worktree 類）
 }
 
-export type AgentPresetId = 'claude-code' | 'claude-code-v2' | 'claude-code-worktree' | 'claude-cli' | 'claude-cli-worktree' | 'gemini-cli' | 'codex-cli' | 'copilot-cli' | 'none';
+export type AgentPresetId = 'claude-code' | 'claude-code-v2' | 'claude-code-worktree' | 'claude-cli' | 'claude-cli-worktree' | 'codex-cli' | 'none';
 
 export const AGENT_PRESETS: AgentPreset[] = [
   {
@@ -59,27 +59,11 @@ export const AGENT_PRESETS: AgentPreset[] = [
     needsGitRepo: true,
   },
   {
-    id: 'gemini-cli',
-    name: 'Gemini CLI',
-    icon: '◇',
-    color: '#4285f4',
-    command: 'gemini',
-    backend: 'pty',
-  },
-  {
     id: 'codex-cli',
-    name: 'Codex Agent',
+    name: 'Codex CLI',
     icon: '⬡',
     color: '#10a37f',
     command: 'codex',
-    backend: 'pty',
-  },
-  {
-    id: 'copilot-cli',
-    name: 'GitHub Copilot CLI',
-    icon: '⬢',
-    color: '#6e40c9',
-    command: 'gh copilot',
     backend: 'pty',
   },
   {
