@@ -401,3 +401,135 @@
   flex: 1;
   margin-top: 0;
 }
+
+/* Worker Panel */
+.worker-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.worker-process-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.worker-process-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.worker-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.worker-status-dot.worker-status-starting {
+  background: #e5c07b;
+  animation: worker-pulse 1s infinite;
+}
+
+.worker-status-dot.worker-status-running {
+  background: #98c379;
+}
+
+.worker-status-dot.worker-status-stopped {
+  background: #666;
+}
+
+.worker-status-dot.worker-status-crashed {
+  background: #e06c75;
+}
+
+@keyframes worker-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.worker-process-name {
+  font-weight: 500;
+  font-size: 11px;
+}
+
+.worker-process-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: 2px;
+}
+
+.worker-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.worker-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.worker-global-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  padding-left: 8px;
+  border-left: 1px solid var(--border-color);
+}
+
+.worker-terminal {
+  flex: 1;
+  overflow: hidden;
+}
+
+.worker-terminal .xterm {
+  height: 100%;
+  width: 100%;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.worker-error {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.worker-error-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--danger-color);
+  margin-bottom: 8px;
+}
+
+.worker-error-detail {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.worker-error-path {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  font-family: monospace;
+}

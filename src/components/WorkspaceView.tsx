@@ -7,6 +7,7 @@ import { ThumbnailBar } from './ThumbnailBar'
 import { CloseConfirmDialog } from './CloseConfirmDialog'
 import { ResizeHandle } from './ResizeHandle'
 import { AgentPresetId, getAgentPreset, getVisiblePresets } from '../types/agent-presets'
+import { PROCFILE_NAMES } from '../utils/procfile-parser'
 
 // Lazy load heavy components (xterm.js, Claude SDK, etc.)
 const MainPanel = lazy(() => import('./MainPanel').then(m => ({ default: m.MainPanel })))
@@ -219,6 +220,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         // Restored terminals: start PTY processes for non-Claude terminals
         // Claude agent terminals will be started by ClaudeAgentPanel on mount
         for (const terminal of terminals) {
+          // Worker terminals manage their own PTYs internally via WorkerPanel
+          if (terminal.procfilePath) continue
           if (terminal.agentPreset === 'claude-code' || terminal.agentPreset === 'claude-code-v2' || terminal.agentPreset === 'claude-code-worktree' || terminal.agentPreset === 'codex-cli') continue
           // claude-cli presets use startClaudeCliPty for bundled CLI + env setup
           if (terminal.agentPreset === 'claude-cli' || terminal.agentPreset === 'claude-cli-worktree') {
@@ -418,11 +421,43 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
     }
   }, [workspace.id, workspace.folderPath, workspace.envVars, startClaudeCliPty])
 
+  const handleAddWorker = useCallback(async () => {
+    // Try to auto-detect Procfile in workspace folder
+    let procfilePath: string | null = null
+    try {
+      const entries = await window.electronAPI.fs.readdir(workspace.folderPath)
+      const names = entries.map(e => e.name)
+      for (const candidate of PROCFILE_NAMES) {
+        if (names.includes(candidate)) {
+          procfilePath = `${workspace.folderPath}/${candidate}`
+          break
+        }
+      }
+    } catch { /* ignore */ }
+
+    // If not found, let user pick a file
+    if (!procfilePath) {
+      const files = await window.electronAPI.dialog.selectFiles()
+      if (!files || files.length === 0) return
+      procfilePath = files[0]
+    }
+
+    const terminal = workspaceStore.addTerminal(workspace.id)
+    workspaceStore.setTerminalProcfile(terminal.id, procfilePath)
+    workspaceStore.setFocusedTerminal(terminal.id)
+    workspaceStore.save()
+  }, [workspace.id, workspace.folderPath])
 
   const isDebugMode = window.electronAPI?.debug?.isDebugMode
 
   const handleCloseTerminal = useCallback((id: string) => {
     const terminal = terminals.find(t => t.id === id)
+    // Worker terminals: sub-PTYs are cleaned up by WorkerPanel unmount
+    if (terminal?.procfilePath) {
+      workspaceStore.removeTerminal(id)
+      workspaceStore.save()
+      return
+    }
     // Show confirm for agent terminals
     if (terminal?.agentPreset && terminal.agentPreset !== 'none') {
       setShowCloseConfirm(id)
@@ -623,6 +658,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         onFocus={handleFocus}
         onAddTerminal={handleAddTerminal}
         onAddAgent={handleAddAgent}
+        onAddWorker={handleAddWorker}
         agentPresets={getVisiblePresets().filter(p => p.id !== 'none' && (!p.needsGitRepo || isGitRepo))}
         onReorder={handleReorderTerminals}
         showAddButton={true}

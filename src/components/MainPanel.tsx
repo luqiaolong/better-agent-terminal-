@@ -7,8 +7,9 @@ import { PromptBox } from './PromptBox'
 import { getAgentPreset } from '../types/agent-presets'
 import { workspaceStore } from '../stores/workspace-store'
 
-// Lazy load Claude Agent SDK (~240KB chunk) — only needed for claude-code terminals
+// Lazy load heavy components
 const ClaudeAgentPanel = lazy(() => import('./ClaudeAgentPanel').then(m => ({ default: m.ClaudeAgentPanel })))
+const WorkerPanel = lazy(() => import('./WorkerPanel').then(m => ({ default: m.WorkerPanel })))
 
 interface MainPanelProps {
   terminal: TerminalInstance
@@ -20,6 +21,7 @@ interface MainPanelProps {
 }
 
 export const MainPanel = memo(function MainPanel({ terminal, isActive, onClose, onRestart, onSwitchApiVersion, workspaceId }: Readonly<MainPanelProps>) {
+  const isWorker = !!terminal.procfilePath
   const isAgent = terminal.agentPreset && terminal.agentPreset !== 'none'
   const isSdkManaged = terminal.agentPreset === 'claude-code' || terminal.agentPreset === 'claude-code-v2' || terminal.agentPreset === 'claude-code-worktree' || terminal.agentPreset === 'codex-cli'
   const isClaudeCode = isSdkManaged
@@ -77,7 +79,7 @@ export const MainPanel = memo(function MainPanel({ terminal, isActive, onClose, 
             <span>{terminal.title}</span>
           )}
         </div>
-        {isClaudeCode && (
+        {isClaudeCode && !isWorker && (
           <div className="msg-filter-bar">
             <button
               className={`msg-filter-btn${showUserMsg ? ' active' : ''}`}
@@ -145,7 +147,16 @@ export const MainPanel = memo(function MainPanel({ terminal, isActive, onClose, 
         </div>
       </div>
       <div className="main-panel-content">
-        {isClaudeCode ? (
+        {isWorker ? (
+          <Suspense fallback={<div className="loading-panel" />}>
+            <WorkerPanel
+              terminalId={terminal.id}
+              procfilePath={terminal.procfilePath!}
+              cwd={terminal.cwd}
+              isActive={isActive}
+            />
+          </Suspense>
+        ) : isClaudeCode ? (
           <Suspense fallback={<div className="loading-panel" />}>
             <ClaudeAgentPanel
               sessionId={terminal.id}

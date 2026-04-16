@@ -60,6 +60,7 @@ export interface TerminalInstance {
   worktreePath?: string;          // Path to the worktree if running in worktree isolation
   worktreeBranch?: string;        // Branch name in the worktree
   historyKey?: string;            // Stable key for per-terminal HISTFILE (persisted across restarts)
+  procfilePath?: string;          // If set, this terminal is a Worker panel running processes from this Procfile
 }
 
 export interface AppState {

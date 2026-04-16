@@ -161,6 +161,12 @@
   flex-shrink: 0;
 }
 
+.thumbnail-add-menu-separator {
+  height: 1px;
+  background: var(--border-color);
+  margin: 4px 0;
+}
+
 .thumbnail-add-menu-suggested {
   font-size: 10px;
   color: #22c55e;
