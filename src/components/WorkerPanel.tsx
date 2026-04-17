@@ -50,6 +50,21 @@ function ansiColor(hex: string, text: string): string {
   return `\x1b[38;2;${r};${g};${b}m${text}\x1b[0m`
 }
 
+// Build the line written to the PTY to launch a Procfile command so that the
+// PTY exits with the command's status. The wrapper differs per shell because
+// `exec` is a POSIX shell builtin and PowerShell has no direct equivalent.
+function buildLaunchCommand(shell: string | undefined, command: string): string {
+  const isPowerShell = !!shell && /pwsh|powershell/i.test(shell)
+  if (isPowerShell) {
+    // PowerShell: run inline, then exit with the child's status code so the
+    // pty onExit handler reports the real result.
+    return `${command}; exit $LASTEXITCODE\r`
+  }
+  // POSIX shells: exec replaces the parent shell with the command.
+  const escaped = command.replace(/'/g, "'\\''")
+  return `exec bash -c '${escaped}'\r`
+}
+
 interface WorkerPanelProps {
   terminalId: string
   procfilePath: string
@@ -225,9 +240,9 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
     })
 
     // Use exec to replace the shell — pty exits when command exits
-    const escaped = proc.command.replace(/'/g, "'\\''")
+    const launch = buildLaunchCommand(shellRef.current, proc.command)
     setTimeout(() => {
-      window.electronAPI.pty.write(proc.ptyId, `exec bash -c '${escaped}'\r`)
+      window.electronAPI.pty.write(proc.ptyId, launch)
       setProcesses(prev => prev.map(p =>
         p.ptyId === proc.ptyId && p.status === 'starting' ? { ...p, status: 'running' as const } : p
       ))
@@ -503,8 +518,7 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
           type: 'terminal',
           shell: shellRef.current,
         })
-        const escaped = proc.command.replace(/'/g, "'\\''")
-        window.electronAPI.pty.write(proc.ptyId, `exec bash -c '${escaped}'\r`)
+        window.electronAPI.pty.write(proc.ptyId, buildLaunchCommand(shellRef.current, proc.command))
       }
 
       // Mark started processes as running
