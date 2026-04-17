@@ -2,7 +2,7 @@ import { app, safeStorage } from 'electron'
 import * as fs from 'fs/promises'
 import * as fsSync from 'fs'
 import * as path from 'path'
-import { execFile, execSync } from 'child_process'
+import { execFile, execFileSync } from 'child_process'
 import { logger } from './logger'
 import * as os from 'os'
 
@@ -43,8 +43,9 @@ function readCliCredentials(): string | null {
   if (isDarwin) {
     try {
       const account = getKeychainAccount()
-      return execSync(
-        `security find-generic-password -a "${account}" -s "${CLI_KEYCHAIN_SERVICE}" -w`,
+      return execFileSync(
+        '/usr/bin/security',
+        ['find-generic-password', '-a', account, '-s', CLI_KEYCHAIN_SERVICE, '-w'],
         { encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }
       ).trim() || null
     } catch {
@@ -64,8 +65,9 @@ function writeCliCredentials(credentialJson: string): boolean {
   if (isDarwin) {
     try {
       const account = getKeychainAccount()
-      execSync(
-        `security add-generic-password -U -a "${account}" -s "${CLI_KEYCHAIN_SERVICE}" -w "${credentialJson.replace(/"/g, '\\"')}"`,
+      execFileSync(
+        '/usr/bin/security',
+        ['add-generic-password', '-U', '-a', account, '-s', CLI_KEYCHAIN_SERVICE, '-w', credentialJson],
         { timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }
       )
       return true
