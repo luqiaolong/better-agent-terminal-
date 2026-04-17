@@ -1464,7 +1464,7 @@ function registerLocalHandlers() {
 
   // Remote server handlers (always local)
   ipcMain.handle('remote:start-server', async (_event, options?: { port?: number; token?: string; bindInterface?: 'localhost' | 'tailscale' | 'all' }) => {
-    try { return remoteServer.start(options ?? {}) }
+    try { return await remoteServer.start(options ?? {}) }
     catch (err: unknown) { return { error: err instanceof Error ? err.message : String(err) } }
   })
   ipcMain.handle('remote:stop-server', async () => {
@@ -1491,7 +1491,7 @@ function registerLocalHandlers() {
         // QR/mobile implies broader reachability — if the user explicitly
         // triggers this, start the server bound to all interfaces. They still
         // need the token + fingerprint to connect.
-        const result = remoteServer.start({ bindInterface: 'all' })
+        const result = await remoteServer.start({ bindInterface: 'all' })
         port = result.port
         token = result.token
         fingerprint = result.fingerprint

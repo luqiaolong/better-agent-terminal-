@@ -185,7 +185,7 @@ export class RemoteServer {
     this.authFailures.delete(ip)
   }
 
-  start(options: StartServerOptions = {}): StartServerResult {
+  async start(options: StartServerOptions = {}): Promise<StartServerResult> {
     if (this.httpsServer) throw new Error('Server already running')
 
     const port = options.port ?? 9876
@@ -197,7 +197,7 @@ export class RemoteServer {
     this.persistToken(this.token)
 
     // Load or generate self-signed cert
-    this.certificate = ensureCertificate(this.configDir)
+    this.certificate = await ensureCertificate(this.configDir)
 
     this.httpsServer = https.createServer({
       cert: this.certificate.cert,

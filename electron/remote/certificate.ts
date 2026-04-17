@@ -30,9 +30,9 @@ function computeFingerprint(certPem: string): string {
   return hex.match(/.{2}/g)!.join(':')
 }
 
-function generate(): StoredCertificate {
+async function generate(): Promise<StoredCertificate> {
   const attrs = [{ name: 'commonName', value: 'better-agent-terminal' }]
-  const pems = selfsigned.generate(attrs, {
+  const pems = await selfsigned.generate(attrs, {
     keySize: 2048,
     days: DEFAULT_VALIDITY_DAYS,
     algorithm: 'sha256',
@@ -66,13 +66,13 @@ function generate(): StoredCertificate {
  * Load an existing server certificate (safeStorage-encrypted at rest) or generate a new one.
  * Fingerprint is derived from the cert — not stored — so there is no drift.
  */
-export function ensureCertificate(configDir: string): ServerCertificate {
+export async function ensureCertificate(configDir: string): Promise<ServerCertificate> {
   const certPath = path.join(configDir, CERT_FILE)
   let stored = readEncryptedJson<StoredCertificate>(certPath)
 
   if (!stored || !stored.cert || !stored.privateKey) {
     logger.log('[certificate] generating new self-signed cert')
-    stored = generate()
+    stored = await generate()
     try {
       writeEncryptedJson(certPath, stored)
     } catch (e) {
