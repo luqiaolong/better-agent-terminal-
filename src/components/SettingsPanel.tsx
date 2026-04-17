@@ -28,8 +28,13 @@ const checkFontAvailable = (fontFamily: string): boolean => {
 interface RemoteServerStatus {
   running: boolean
   port: number | null
+  fingerprint: string | null
+  bindInterface: 'localhost' | 'tailscale' | 'all' | null
+  boundHost: string | null
   clients: { label: string; connectedAt: number }[]
 }
+
+type BindInterface = 'localhost' | 'tailscale' | 'all'
 
 interface RemoteClientStatus {
   connected: boolean
@@ -42,9 +47,10 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [availableFonts, setAvailableFonts] = useState<Set<FontType>>(new Set())
 
   // Remote server state
-  const [serverStatus, setServerStatus] = useState<RemoteServerStatus>({ running: false, port: null, clients: [] })
+  const [serverStatus, setServerStatus] = useState<RemoteServerStatus>({ running: false, port: null, fingerprint: null, bindInterface: null, boundHost: null, clients: [] })
   const [serverPort, setServerPort] = useState('9876')
   const [serverToken, setServerToken] = useState<string | null>(null)
+  const [bindInterface, setBindInterface] = useState<BindInterface>('localhost')
   const [clientStatus, setClientStatus] = useState<RemoteClientStatus>({ connected: false, info: null })
 
   // QR code state
@@ -54,6 +60,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [qrError, setQrError] = useState<string | null>(null)
   const [qrAddresses, setQrAddresses] = useState<{ ip: string; mode: string; label: string }[]>([])
   const [qrToken, setQrToken] = useState<string | null>(null)
+  const [qrFingerprint, setQrFingerprint] = useState<string | null>(null)
   const [qrPort, setQrPort] = useState<number>(9876)
 
   // Statusline config state
@@ -221,7 +228,10 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   }, [])
 
   const handleStartServer = async () => {
-    const result = await window.electronAPI.remote.startServer(parseInt(serverPort) || 9876)
+    const result = await window.electronAPI.remote.startServer({
+      port: parseInt(serverPort) || 9876,
+      bindInterface,
+    })
     if ('error' in result) {
       alert(t('settings.failedToStartServer', { error: result.error }))
     } else {
@@ -239,9 +249,9 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     setServerStatus(ss)
   }
 
-  const generateQrForIp = useCallback(async (ip: string, mode: string, token: string, port: number) => {
-    const url = `ws://${ip}:${port}`
-    const payload = JSON.stringify({ url, token, mode })
+  const generateQrForIp = useCallback(async (ip: string, mode: string, token: string, fingerprint: string, port: number) => {
+    const url = `wss://${ip}:${port}`
+    const payload = JSON.stringify({ url, token, fingerprint, mode })
     const dataUrl = await QRCode.toDataURL(payload, { width: 256, margin: 2 })
     setQrDataUrl(dataUrl)
     setQrInfo({ url, mode })
@@ -258,9 +268,10 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
       }
       setQrAddresses(result.addresses)
       setQrToken(result.token)
+      setQrFingerprint(result.fingerprint)
       const port = parseInt(result.url.split(':').pop() || '9876')
       setQrPort(port)
-      await generateQrForIp(result.addresses[0].ip, result.addresses[0].mode, result.token, port)
+      await generateQrForIp(result.addresses[0].ip, result.addresses[0].mode, result.token, result.fingerprint, port)
       // Refresh server status since we may have started it
       const ss = await window.electronAPI.remote.serverStatus()
       setServerStatus(ss)
@@ -933,7 +944,10 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             {serverStatus.running ? (
               <>
                 <div className="settings-group" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ color: '#3fb950', fontSize: 12 }}>{t('settings.serverRunningOnPort', { port: serverStatus.port })}</span>
+                  <span style={{ color: '#3fb950', fontSize: 12 }}>
+                    {t('settings.serverRunningOnPort', { port: serverStatus.port })}
+                    {serverStatus.bindInterface && ` [${serverStatus.bindInterface}]`}
+                  </span>
                   <button className="profile-action-btn danger" onClick={handleStopServer} style={{ marginLeft: 'auto' }}>
                     {t('settings.stopServer')}
                   </button>
@@ -959,6 +973,30 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                     </div>
                   </div>
                 )}
+                {serverStatus.fingerprint && (
+                  <div className="settings-group">
+                    <label>{t('settings.certFingerprint', 'Certificate fingerprint (SHA-256)')}</label>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        readOnly
+                        value={serverStatus.fingerprint}
+                        style={{ fontFamily: 'monospace', fontSize: 11, flex: 1 }}
+                        onClick={e => (e.target as HTMLInputElement).select()}
+                      />
+                      <button
+                        className="profile-action-btn"
+                        onClick={() => navigator.clipboard.writeText(serverStatus.fingerprint || '')}
+                        title="Copy fingerprint"
+                      >
+                        {t('common.copy')}
+                      </button>
+                    </div>
+                    <p style={{ fontSize: 11, color: '#8b949e', marginTop: 4, lineHeight: 1.4 }}>
+                      {t('settings.certFingerprintHint', 'Clients must pin this fingerprint on first connect (TOFU).')}
+                    </p>
+                  </div>
+                )}
                 {serverStatus.clients.length > 0 && (
                   <div className="settings-group">
                     <label>{t('settings.connectedClients', { count: serverStatus.clients.length })}</label>
@@ -972,7 +1010,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               </>
             ) : (
               <div className="settings-group">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <input
                     type="number"
                     value={serverPort}
@@ -980,6 +1018,16 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                     placeholder={t('settings.port')}
                     style={{ width: 80 }}
                   />
+                  <select
+                    value={bindInterface}
+                    onChange={e => setBindInterface(e.target.value as BindInterface)}
+                    style={{ fontSize: 12 }}
+                    title={t('settings.bindInterfaceHint', 'Network interface to listen on')}
+                  >
+                    <option value="localhost">{t('settings.bindLocalhost', 'localhost (this machine only)')}</option>
+                    <option value="tailscale">{t('settings.bindTailscale', 'Tailscale (tailnet only)')}</option>
+                    <option value="all">{t('settings.bindAll', 'All interfaces (LAN / public)')}</option>
+                  </select>
                   <button className="profile-action-btn primary" onClick={handleStartServer}>
                     {t('settings.startServer')}
                   </button>
@@ -1038,8 +1086,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                       value={qrInfo?.url?.split('//')[1]?.split(':')[0] || ''}
                       onChange={async (e) => {
                         const addr = qrAddresses.find(a => a.ip === e.target.value)
-                        if (addr && qrToken) {
-                          await generateQrForIp(addr.ip, addr.mode, qrToken, qrPort)
+                        if (addr && qrToken && qrFingerprint) {
+                          await generateQrForIp(addr.ip, addr.mode, qrToken, qrFingerprint, qrPort)
                         }
                       }}
                     >

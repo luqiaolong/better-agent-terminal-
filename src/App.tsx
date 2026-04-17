@@ -319,13 +319,14 @@ export default function App() {
           }
         }
 
-        if (active?.type === 'remote' && active.remoteHost && active.remoteToken) {
+        if (active?.type === 'remote' && active.remoteHost && active.remoteToken && active.remoteFingerprint) {
           // Try connecting to remote
           const tRemote = performance.now()
           const connectResult = await window.electronAPI.remote.connect(
             active.remoteHost,
             active.remotePort || 9876,
-            active.remoteToken
+            active.remoteToken,
+            active.remoteFingerprint
           )
           dlog(`[init] remote.connect: ${(performance.now() - tRemote).toFixed(0)}ms`)
           if ('error' in connectResult) {

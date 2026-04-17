@@ -300,45 +300,45 @@ const electronAPI = {
     },
   },
   profile: {
-    list: () => ipcRenderer.invoke('profile:list') as Promise<{ profiles: { id: string; name: string; type: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; remoteProfileId?: string; createdAt: number; updatedAt: number }[]; activeProfileIds: string[] }>,
+    list: () => ipcRenderer.invoke('profile:list') as Promise<{ profiles: { id: string; name: string; type: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; remoteFingerprint?: string; remoteProfileId?: string; createdAt: number; updatedAt: number }[]; activeProfileIds: string[] }>,
     // Local-only profile list — returns THIS machine's profiles even when
     // connected to a remote host (where profile:list would return the remote's
     // profiles). Used to resolve window identity / local aliases.
-    listLocal: () => ipcRenderer.invoke('profile:list-local') as Promise<{ profiles: { id: string; name: string; type: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; remoteProfileId?: string; createdAt: number; updatedAt: number }[]; activeProfileIds: string[] }>,
-    create: (name: string, options?: { type?: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; remoteProfileId?: string }) =>
+    listLocal: () => ipcRenderer.invoke('profile:list-local') as Promise<{ profiles: { id: string; name: string; type: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; remoteFingerprint?: string; remoteProfileId?: string; createdAt: number; updatedAt: number }[]; activeProfileIds: string[] }>,
+    create: (name: string, options?: { type?: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; remoteFingerprint?: string; remoteProfileId?: string }) =>
       ipcRenderer.invoke('profile:create', name, options) as Promise<{ id: string; name: string; type: 'local' | 'remote'; createdAt: number; updatedAt: number }>,
     save: (profileId: string) => ipcRenderer.invoke('profile:save', profileId) as Promise<boolean>,
     load: (profileId: string) => ipcRenderer.invoke('profile:load', profileId) as Promise<unknown>,
     delete: (profileId: string) => ipcRenderer.invoke('profile:delete', profileId) as Promise<boolean>,
     rename: (profileId: string, newName: string) => ipcRenderer.invoke('profile:rename', profileId, newName) as Promise<boolean>,
-    update: (profileId: string, updates: { remoteHost?: string; remotePort?: number; remoteToken?: string; remoteProfileId?: string }) => ipcRenderer.invoke('profile:update', profileId, updates) as Promise<boolean>,
+    update: (profileId: string, updates: { remoteHost?: string; remotePort?: number; remoteToken?: string; remoteFingerprint?: string; remoteProfileId?: string }) => ipcRenderer.invoke('profile:update', profileId, updates) as Promise<boolean>,
     duplicate: (profileId: string, newName: string) => ipcRenderer.invoke('profile:duplicate', profileId, newName) as Promise<{ id: string; name: string; createdAt: number; updatedAt: number } | null>,
-    get: (profileId: string) => ipcRenderer.invoke('profile:get', profileId) as Promise<{ id: string; name: string; type: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; remoteProfileId?: string; createdAt: number; updatedAt: number } | null>,
+    get: (profileId: string) => ipcRenderer.invoke('profile:get', profileId) as Promise<{ id: string; name: string; type: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; remoteFingerprint?: string; remoteProfileId?: string; createdAt: number; updatedAt: number } | null>,
     getActiveIds: () => ipcRenderer.invoke('profile:get-active-ids') as Promise<string[]>,
     activate: (profileId: string) => ipcRenderer.invoke('profile:activate', profileId) as Promise<void>,
     deactivate: (profileId: string) => ipcRenderer.invoke('profile:deactivate', profileId) as Promise<void>,
   },
   remote: {
-    startServer: (port?: number, token?: string) =>
-      ipcRenderer.invoke('remote:start-server', port, token) as Promise<{ port: number; token: string } | { error: string }>,
+    startServer: (options?: { port?: number; token?: string; bindInterface?: 'localhost' | 'tailscale' | 'all' }) =>
+      ipcRenderer.invoke('remote:start-server', options) as Promise<{ port: number; token: string; fingerprint: string; bindInterface: 'localhost' | 'tailscale' | 'all'; boundHost: string } | { error: string }>,
     stopServer: () =>
       ipcRenderer.invoke('remote:stop-server') as Promise<boolean>,
     serverStatus: () =>
-      ipcRenderer.invoke('remote:server-status') as Promise<{ running: boolean; port: number | null; clients: { label: string; connectedAt: number }[] }>,
-    connect: (host: string, port: number, token: string, label?: string) =>
-      ipcRenderer.invoke('remote:connect', host, port, token, label) as Promise<{ connected: boolean } | { error: string }>,
+      ipcRenderer.invoke('remote:server-status') as Promise<{ running: boolean; port: number | null; fingerprint: string | null; bindInterface: 'localhost' | 'tailscale' | 'all' | null; boundHost: string | null; clients: { label: string; connectedAt: number }[] }>,
+    connect: (host: string, port: number, token: string, fingerprint: string, label?: string) =>
+      ipcRenderer.invoke('remote:connect', host, port, token, fingerprint, label) as Promise<{ connected: boolean } | { error: string }>,
     disconnect: () =>
       ipcRenderer.invoke('remote:disconnect') as Promise<boolean>,
     clientStatus: () =>
       ipcRenderer.invoke('remote:client-status') as Promise<{ connected: boolean; info: { host: string; port: number } | null }>,
-    testConnection: (host: string, port: number, token: string) =>
-      ipcRenderer.invoke('remote:test-connection', host, port, token) as Promise<{ ok: boolean }>,
-    listProfiles: (host: string, port: number, token: string) =>
-      ipcRenderer.invoke('remote:list-profiles', host, port, token) as Promise<{ profiles: { id: string; name: string; type: string }[] } | { error: string }>,
+    testConnection: (host: string, port: number, token: string, fingerprint: string) =>
+      ipcRenderer.invoke('remote:test-connection', host, port, token, fingerprint) as Promise<{ ok: boolean; error?: string }>,
+    listProfiles: (host: string, port: number, token: string, fingerprint: string) =>
+      ipcRenderer.invoke('remote:list-profiles', host, port, token, fingerprint) as Promise<{ profiles: { id: string; name: string; type: string }[] } | { error: string }>,
   },
   tunnel: {
     getConnection: () =>
-      ipcRenderer.invoke('tunnel:get-connection') as Promise<{ url: string; token: string; mode: string } | { error: string }>,
+      ipcRenderer.invoke('tunnel:get-connection') as Promise<{ url: string; token: string; fingerprint: string; mode: string; addresses: { ip: string; mode: string; label: string }[] } | { error: string }>,
   },
   system: {
     onResume: (callback: () => void) => {
@@ -375,8 +375,10 @@ const electronAPI = {
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)
 
+export type ElectronAPI = typeof electronAPI
+
 declare global {
   interface Window {
-    electronAPI: typeof electronAPI
+    electronAPI: ElectronAPI
   }
 }

@@ -10,6 +10,7 @@ export interface ProfileEntry {
   remoteHost?: string
   remotePort?: number
   remoteToken?: string
+  remoteFingerprint?: string  // SHA-256 of remote server's TLS cert (pinned, TOFU)
   remoteProfileId?: string  // which profile to load on the remote server
   createdAt: number
   updatedAt: number
@@ -200,7 +201,7 @@ export class ProfileManager {
     return { profiles: index.profiles, activeProfileIds: index.activeProfileIds }
   }
 
-  async create(name: string, options?: { type?: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; remoteProfileId?: string }): Promise<ProfileEntry> {
+  async create(name: string, options?: { type?: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; remoteFingerprint?: string; remoteProfileId?: string }): Promise<ProfileEntry> {
     const index = await ensureInitialized()
     let id = toSlug(name)
     // Ensure unique ID
@@ -216,6 +217,7 @@ export class ProfileManager {
       remoteHost: options?.remoteHost,
       remotePort: options?.remotePort,
       remoteToken: options?.remoteToken,
+      remoteFingerprint: options?.remoteFingerprint,
       remoteProfileId: options?.remoteProfileId,
       createdAt: now,
       updatedAt: now,
@@ -346,7 +348,7 @@ export class ProfileManager {
     return entry
   }
 
-  async update(profileId: string, updates: { remoteHost?: string; remotePort?: number; remoteToken?: string; remoteProfileId?: string }): Promise<boolean> {
+  async update(profileId: string, updates: { remoteHost?: string; remotePort?: number; remoteToken?: string; remoteFingerprint?: string; remoteProfileId?: string }): Promise<boolean> {
     const index = await ensureInitialized()
     const entry = index.profiles.find(p => p.id === profileId)
     if (!entry) return false
@@ -354,6 +356,7 @@ export class ProfileManager {
     if (updates.remoteHost !== undefined) entry.remoteHost = updates.remoteHost
     if (updates.remotePort !== undefined) entry.remotePort = updates.remotePort
     if (updates.remoteToken !== undefined) entry.remoteToken = updates.remoteToken
+    if (updates.remoteFingerprint !== undefined) entry.remoteFingerprint = updates.remoteFingerprint
     if (updates.remoteProfileId !== undefined) entry.remoteProfileId = updates.remoteProfileId
     entry.updatedAt = Date.now()
     await writeIndex(index)

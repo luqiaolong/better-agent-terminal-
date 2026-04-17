@@ -8,6 +8,7 @@ interface ProfileEntry {
   remoteHost?: string
   remotePort?: number
   remoteToken?: string
+  remoteFingerprint?: string
   remoteProfileId?: string
   createdAt: number
   updatedAt: number
@@ -36,12 +37,14 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
   const [remoteHost, setRemoteHost] = useState('')
   const [remotePort, setRemotePort] = useState('9876')
   const [remoteToken, setRemoteToken] = useState('')
+  const [remoteFingerprint, setRemoteFingerprint] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const [editingRemoteId, setEditingRemoteId] = useState<string | null>(null)
   const [editRemoteHost, setEditRemoteHost] = useState('')
   const [editRemotePort, setEditRemotePort] = useState('')
   const [editRemoteToken, setEditRemoteToken] = useState('')
+  const [editRemoteFingerprint, setEditRemoteFingerprint] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<Record<string, 'ok' | 'fail' | 'testing'>>({})
@@ -96,18 +99,18 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
     return () => window.removeEventListener('keydown', handler)
   }, [creating, editingId, confirmDelete, onClose])
 
-  const fetchRemoteProfileList = async (host: string, port: number, token: string): Promise<RemoteProfileOption[]> => {
-    const result = await window.electronAPI.remote.listProfiles(host, port, token)
+  const fetchRemoteProfileList = async (host: string, port: number, token: string, fingerprint: string): Promise<RemoteProfileOption[]> => {
+    const result = await window.electronAPI.remote.listProfiles(host, port, token, fingerprint)
     if ('error' in result) throw new Error(result.error)
     return result.profiles
   }
 
   const handleFetchRemoteProfiles = async () => {
-    if (!remoteHost.trim() || !remoteToken.trim()) return
+    if (!remoteHost.trim() || !remoteToken.trim() || !remoteFingerprint.trim()) return
     setFetchingRemoteProfiles(true)
     setRemoteProfileError('')
     try {
-      const profiles = await fetchRemoteProfileList(remoteHost.trim(), parseInt(remotePort) || 9876, remoteToken.trim())
+      const profiles = await fetchRemoteProfileList(remoteHost.trim(), parseInt(remotePort) || 9876, remoteToken.trim(), remoteFingerprint.trim())
       setRemoteProfiles(profiles)
       // Auto-select default or first
       const defaultP = profiles.find(p => p.id === 'default') || profiles[0]
@@ -124,13 +127,14 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
     const trimmed = newName.trim()
     if (!trimmed) return
     if (creating === 'remote') {
-      if (!remoteHost.trim() || !remoteToken.trim()) return
+      if (!remoteHost.trim() || !remoteToken.trim() || !remoteFingerprint.trim()) return
       if (!selectedRemoteProfileId) return
       await window.electronAPI.profile.create(trimmed, {
         type: 'remote',
         remoteHost: remoteHost.trim(),
         remotePort: parseInt(remotePort) || 9876,
         remoteToken: remoteToken.trim(),
+        remoteFingerprint: remoteFingerprint.trim(),
         remoteProfileId: selectedRemoteProfileId,
       })
     } else {
@@ -141,6 +145,7 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
     setRemoteHost('')
     setRemotePort('9876')
     setRemoteToken('')
+    setRemoteFingerprint('')
     setRemoteProfiles([])
     setSelectedRemoteProfileId('')
     loadProfiles()
@@ -161,15 +166,16 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
     setEditRemoteHost(profile.remoteHost || '')
     setEditRemotePort(String(profile.remotePort || 9876))
     setEditRemoteToken(profile.remoteToken || '')
+    setEditRemoteFingerprint(profile.remoteFingerprint || '')
     setEditRemoteProfiles([])
     setEditSelectedRemoteProfileId(profile.remoteProfileId || '')
   }
 
   const handleFetchEditRemoteProfiles = async () => {
-    if (!editRemoteHost.trim() || !editRemoteToken.trim()) return
+    if (!editRemoteHost.trim() || !editRemoteToken.trim() || !editRemoteFingerprint.trim()) return
     setEditFetchingRemoteProfiles(true)
     try {
-      const profiles = await fetchRemoteProfileList(editRemoteHost.trim(), parseInt(editRemotePort) || 9876, editRemoteToken.trim())
+      const profiles = await fetchRemoteProfileList(editRemoteHost.trim(), parseInt(editRemotePort) || 9876, editRemoteToken.trim(), editRemoteFingerprint.trim())
       setEditRemoteProfiles(profiles)
       // Keep current selection if still valid, else auto-select
       if (!profiles.some(p => p.id === editSelectedRemoteProfileId)) {
@@ -186,11 +192,13 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
   const handleSaveRemote = async (profileId: string) => {
     const host = editRemoteHost.trim()
     const token = editRemoteToken.trim()
-    if (!host || !token) return
+    const fingerprint = editRemoteFingerprint.trim()
+    if (!host || !token || !fingerprint) return
     await window.electronAPI.profile.update(profileId, {
       remoteHost: host,
       remotePort: parseInt(editRemotePort) || 9876,
       remoteToken: token,
+      remoteFingerprint: fingerprint,
       remoteProfileId: editSelectedRemoteProfileId || undefined,
     })
     setEditingRemoteId(null)
@@ -212,14 +220,15 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
   }
 
   const handleTestConnection = useCallback(async (profile: ProfileEntry) => {
-    if (!profile.remoteHost || !profile.remoteToken) return
+    if (!profile.remoteHost || !profile.remoteToken || !profile.remoteFingerprint) return
     setTestingId(profile.id)
     setTestResult(prev => ({ ...prev, [profile.id]: 'testing' }))
     try {
       const result = await window.electronAPI.remote.testConnection(
         profile.remoteHost,
         profile.remotePort || 9876,
-        profile.remoteToken
+        profile.remoteToken,
+        profile.remoteFingerprint
       )
       setTestResult(prev => ({ ...prev, [profile.id]: result.ok ? 'ok' : 'fail' }))
     } catch {
@@ -307,11 +316,19 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
                       style={{ flex: '1 1 160px' }}
                     />
                   </div>
+                  <input
+                    type="text"
+                    className="profile-name-input"
+                    placeholder={t('profiles.fingerprintPlaceholder', 'Cert fingerprint (SHA-256)')}
+                    value={remoteFingerprint}
+                    onChange={e => { setRemoteFingerprint(e.target.value); setRemoteProfiles([]); setSelectedRemoteProfileId('') }}
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: 11 }}
+                  />
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <button
                       className="profile-action-btn"
                       onClick={handleFetchRemoteProfiles}
-                      disabled={fetchingRemoteProfiles || !remoteHost.trim() || !remoteToken.trim()}
+                      disabled={fetchingRemoteProfiles || !remoteHost.trim() || !remoteToken.trim() || !remoteFingerprint.trim()}
                     >
                       {fetchingRemoteProfiles ? t('profiles.fetchingProfiles') : t('profiles.fetchProfiles')}
                     </button>
@@ -414,11 +431,19 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
                       onChange={e => { setEditRemoteToken(e.target.value); setEditRemoteProfiles([]) }}
                       style={{ flex: '1 1 160px' }}
                     />
+                    <input
+                      type="text"
+                      className="profile-name-input"
+                      placeholder={t('profiles.fingerprintPlaceholder', 'Cert fingerprint (SHA-256)')}
+                      value={editRemoteFingerprint}
+                      onChange={e => { setEditRemoteFingerprint(e.target.value); setEditRemoteProfiles([]) }}
+                      style={{ width: '100%', fontFamily: 'monospace', fontSize: 11 }}
+                    />
                     <div style={{ display: 'flex', gap: 6, width: '100%', alignItems: 'center' }}>
                       <button
                         className="profile-action-btn"
                         onClick={handleFetchEditRemoteProfiles}
-                        disabled={editFetchingRemoteProfiles || !editRemoteHost.trim() || !editRemoteToken.trim()}
+                        disabled={editFetchingRemoteProfiles || !editRemoteHost.trim() || !editRemoteToken.trim() || !editRemoteFingerprint.trim()}
                       >
                         {editFetchingRemoteProfiles ? t('profiles.fetchingProfiles') : t('profiles.fetchProfiles')}
                       </button>

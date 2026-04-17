@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto'
 import { BrowserWindow } from 'electron'
 import { PROXIED_EVENTS, type RemoteFrame } from './protocol'
 import { logger } from '../logger'
+import { normalizeFingerprint } from './certificate'
 
 interface PendingInvoke {
   resolve: (result: unknown) => void
@@ -10,17 +11,45 @@ interface PendingInvoke {
   timer: ReturnType<typeof setTimeout>
 }
 
+export interface ConnectOptions {
+  host: string
+  port: number
+  token: string
+  label?: string
+  /**
+   * Expected SHA-256 fingerprint of the server's TLS certificate. Required: if
+   * undefined, the client aborts (TOFU happens at the caller layer by prompting
+   * the user for the fingerprint on first connect). Accepts colon-separated or
+   * bare hex, case-insensitive.
+   */
+  fingerprint: string
+}
+
+const BACKOFF_BASE_MS = 3_000
+const BACKOFF_MAX_MS = 30_000
+const AUTH_TIMEOUT_MS = 10_000
+const DEFAULT_INVOKE_TIMEOUT_MS = 30_000
+
 export class RemoteClient {
   private ws: WebSocket | null = null
   private pending: Map<string, PendingInvoke> = new Map()
   private getWindows: () => BrowserWindow[]
   private _connected = false
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private reconnectAttempt = 0
+
   private host = ''
   private port = 0
   private token = ''
   private label = ''
+  private pinnedFingerprint = ''
   private shouldReconnect = false
+
+  /**
+   * Signed by doConnect() on each close so that a stale in-flight reconnect can detect
+   * it was superseded by a newer connect() call and abandon itself.
+   */
+  private generation = 0
 
   constructor(getWindows: () => BrowserWindow[]) {
     this.getWindows = getWindows
@@ -35,46 +64,73 @@ export class RemoteClient {
     return { host: this.host, port: this.port }
   }
 
-  connect(host: string, port: number, token: string, label?: string): Promise<boolean> {
+  connect(options: ConnectOptions): Promise<boolean> {
     if (this.ws) this.disconnect()
 
-    this.host = host
-    this.port = port
-    this.token = token
-    this.label = label || `Client-${randomBytes(3).toString('hex')}`
+    this.host = options.host
+    this.port = options.port
+    this.token = options.token
+    this.label = options.label || `Client-${randomBytes(3).toString('hex')}`
+    this.pinnedFingerprint = normalizeFingerprint(options.fingerprint)
+    if (!this.pinnedFingerprint) {
+      return Promise.reject(new Error('fingerprint is required for TLS pinning'))
+    }
     this.shouldReconnect = true
+    this.generation++
 
-    return this.doConnect()
+    return this.doConnect(this.generation)
   }
 
-  private doConnect(): Promise<boolean> {
+  private doConnect(generation: number): Promise<boolean> {
     return new Promise((resolve) => {
-      const url = `ws://${this.host}:${this.port}`
-      this.ws = new WebSocket(url)
+      if (generation !== this.generation) {
+        resolve(false)
+        return
+      }
+      const url = `wss://${this.host}:${this.port}`
+      // rejectUnauthorized:false because we use fingerprint pinning instead of CA trust.
+      // Verification of the cert happens manually on 'open' via the underlying socket.
+      const ws = new WebSocket(url, {
+        rejectUnauthorized: false,
+        handshakeTimeout: AUTH_TIMEOUT_MS
+      })
+      this.ws = ws
 
       let authResolved = false
-
-      const authTimeout = setTimeout(() => {
-        if (!authResolved) {
-          authResolved = true
+      const finish = (ok: boolean) => {
+        if (authResolved) return
+        authResolved = true
+        if (!ok) {
           this._connected = false
-          this.ws?.close()
-          resolve(false)
+          try { ws.close() } catch { /* ignore */ }
         }
-      }, 10000)
+        resolve(ok)
+      }
 
-      this.ws.on('open', () => {
-        // Send auth frame
+      const authTimeout = setTimeout(() => finish(false), AUTH_TIMEOUT_MS)
+
+      ws.on('open', () => {
+        // Pin check: read the peer cert via the underlying TLS socket.
+        const rawSocket = (ws as unknown as { _socket?: { getPeerCertificate?: (detailed?: boolean) => { fingerprint256?: string } } })._socket
+        const peerCert = rawSocket?.getPeerCertificate?.(false)
+        const peerFingerprint = peerCert ? normalizeFingerprint(peerCert.fingerprint256 ?? '') : ''
+        if (!peerFingerprint || peerFingerprint !== this.pinnedFingerprint) {
+          logger.error(`[RemoteClient] fingerprint mismatch: expected ${this.pinnedFingerprint.slice(0, 16)}..., got ${peerFingerprint.slice(0, 16) || '(none)'}`)
+          clearTimeout(authTimeout)
+          finish(false)
+          return
+        }
+
         const authFrame: RemoteFrame = {
           type: 'auth',
           id: this.nextId(),
           token: this.token,
           args: [this.label]
         }
-        this.ws!.send(JSON.stringify(authFrame))
+        ws.send(JSON.stringify(authFrame))
       })
 
-      this.ws.on('message', (raw) => {
+      ws.on('message', (raw) => {
         let frame: RemoteFrame
         try {
           frame = JSON.parse(raw.toString())
@@ -82,25 +138,20 @@ export class RemoteClient {
           return
         }
 
-        // Auth result
         if (frame.type === 'auth-result') {
           clearTimeout(authTimeout)
-          if (!authResolved) {
-            authResolved = true
-            if (frame.error) {
-              this._connected = false
-              logger.error(`[RemoteClient] Auth failed: ${frame.error}`)
-              resolve(false)
-            } else {
-              this._connected = true
-              logger.log(`[RemoteClient] Connected to ${this.host}:${this.port}`)
-              resolve(true)
-            }
+          if (frame.error) {
+            logger.error(`[RemoteClient] Auth failed: ${frame.error}`)
+            finish(false)
+          } else {
+            this._connected = true
+            this.reconnectAttempt = 0
+            logger.log(`[RemoteClient] Connected to ${this.host}:${this.port}`)
+            finish(true)
           }
           return
         }
 
-        // Invoke result
         if (frame.type === 'invoke-result' || frame.type === 'invoke-error') {
           const pending = this.pending.get(frame.id)
           if (pending) {
@@ -115,10 +166,8 @@ export class RemoteClient {
           return
         }
 
-        // Pong (ignore)
         if (frame.type === 'pong') return
 
-        // Event — forward to renderer
         if (frame.type === 'event' && frame.channel && PROXIED_EVENTS.has(frame.channel)) {
           for (const win of this.getWindows()) {
             if (!win.isDestroyed()) {
@@ -129,69 +178,75 @@ export class RemoteClient {
         }
       })
 
-      this.ws.on('close', () => {
+      ws.on('close', () => {
         clearTimeout(authTimeout)
         const wasConnected = this._connected
         this._connected = false
 
-        // Reject all pending invokes
         for (const [id, pending] of this.pending) {
           clearTimeout(pending.timer)
           pending.reject(new Error('Connection closed'))
           this.pending.delete(id)
         }
 
-        if (wasConnected) {
-          logger.log('[RemoteClient] Disconnected')
-        }
+        if (wasConnected) logger.log('[RemoteClient] Disconnected')
 
-        // Auto-reconnect if we should
-        if (this.shouldReconnect && wasConnected) {
-          this.scheduleReconnect()
+        // Only ever reconnect if this close corresponds to the current
+        // generation AND the previous attempt had authenticated at least once.
+        if (this.shouldReconnect && generation === this.generation && wasConnected) {
+          this.scheduleReconnect(generation)
         }
+        if (!authResolved) finish(false)
       })
 
-      this.ws.on('error', (err) => {
+      ws.on('error', (err) => {
         logger.error('[RemoteClient] WebSocket error:', err.message)
         if (!authResolved) {
           clearTimeout(authTimeout)
-          authResolved = true
-          this._connected = false
-          resolve(false)
+          finish(false)
         }
       })
     })
   }
 
-  private scheduleReconnect() {
+  private scheduleReconnect(generation: number) {
     if (this.reconnectTimer) return
-    logger.log('[RemoteClient] Reconnecting in 3 seconds...')
+    if (generation !== this.generation) return
+
+    this.reconnectAttempt++
+    // Exponential backoff with jitter: base * 2^(n-1), capped, ±25% jitter.
+    const exp = Math.min(BACKOFF_BASE_MS * Math.pow(2, this.reconnectAttempt - 1), BACKOFF_MAX_MS)
+    const jitter = exp * (0.75 + Math.random() * 0.5)
+    const delay = Math.round(jitter)
+
+    logger.log(`[RemoteClient] Reconnect attempt ${this.reconnectAttempt} in ${delay}ms`)
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null
-      if (!this.shouldReconnect) return
+      if (!this.shouldReconnect || generation !== this.generation) return
       try {
-        const ok = await this.doConnect()
-        if (!ok && this.shouldReconnect) {
-          this.scheduleReconnect()
+        const ok = await this.doConnect(generation)
+        if (!ok && this.shouldReconnect && generation === this.generation) {
+          this.scheduleReconnect(generation)
         }
       } catch {
-        if (this.shouldReconnect) {
-          this.scheduleReconnect()
+        if (this.shouldReconnect && generation === this.generation) {
+          this.scheduleReconnect(generation)
         }
       }
-    }, 3000)
+    }, delay)
   }
 
   disconnect(): void {
     this.shouldReconnect = false
     this._connected = false
+    this.reconnectAttempt = 0
+    this.generation++
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
 
-    // Reject all pending
     for (const [id, pending] of this.pending) {
       clearTimeout(pending.timer)
       pending.reject(new Error('Disconnected'))
@@ -199,14 +254,14 @@ export class RemoteClient {
     }
 
     if (this.ws) {
-      this.ws.close()
+      try { this.ws.close() } catch { /* ignore */ }
       this.ws = null
     }
 
     logger.log('[RemoteClient] Disconnected')
   }
 
-  invoke(channel: string, args: unknown[], timeout = 30000): Promise<unknown> {
+  invoke(channel: string, args: unknown[], timeout = DEFAULT_INVOKE_TIMEOUT_MS): Promise<unknown> {
     if (!this.isConnected) {
       return Promise.reject(new Error('Not connected to remote server'))
     }

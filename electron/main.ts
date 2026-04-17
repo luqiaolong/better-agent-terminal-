@@ -64,6 +64,7 @@ import { RemoteServer } from './remote/remote-server'
 import { RemoteClient } from './remote/remote-client'
 import { getConnectionInfo } from './remote/tunnel-manager'
 import { logger } from './logger'
+import { isSensitivePath } from './path-guard'
 import type { EffortLevel } from '../src/types'
 
 // Startup timing — capture module load time before anything else
@@ -460,30 +461,56 @@ const launchProfileId = profileArg ? profileArg.split('=')[1] || null : null
 const windowRegistry = new WindowRegistry()
 profileManager.setWindowRegistry(windowRegistry)
 
+// Serialize remote client connect/disconnect so two profile loads don't race.
+let remoteClientConnectInFlight: Promise<void> | null = null
+
+async function withRemoteClientLock<T>(fn: () => Promise<T>): Promise<T> {
+  while (remoteClientConnectInFlight) {
+    await remoteClientConnectInFlight
+  }
+  let release!: () => void
+  remoteClientConnectInFlight = new Promise<void>(r => { release = r })
+  try {
+    return await fn()
+  } finally {
+    release()
+    remoteClientConnectInFlight = null
+  }
+}
+
 // Helper: load snapshot for a profile, handling remote profiles by fetching from the remote server
 async function loadProfileSnapshot(profileId: string): Promise<ProfileSnapshot | null> {
   const profileEntry = await profileManager.getProfile(profileId)
-  if (profileEntry?.type === 'remote' && profileEntry.remoteHost && profileEntry.remoteToken) {
-    try {
-      const client = new RemoteClient(getAllWindows)
-      const ok = await client.connect(
-        profileEntry.remoteHost,
-        profileEntry.remotePort || 9876,
-        profileEntry.remoteToken,
-      )
-      if (!ok) {
-        logger.error(`[profile] remote connect failed for profile ${profileId} (${profileEntry.remoteHost}:${profileEntry.remotePort})`)
+  if (profileEntry?.type === 'remote' && profileEntry.remoteHost && profileEntry.remoteToken && profileEntry.remoteFingerprint) {
+    return await withRemoteClientLock(async () => {
+      try {
+        const client = new RemoteClient(getAllWindows)
+        const ok = await client.connect({
+          host: profileEntry.remoteHost!,
+          port: profileEntry.remotePort || 9876,
+          token: profileEntry.remoteToken!,
+          fingerprint: profileEntry.remoteFingerprint!
+        })
+        if (!ok) {
+          logger.error(`[profile] remote connect failed for profile ${profileId} (${profileEntry.remoteHost}:${profileEntry.remotePort})`)
+          return null
+        }
+        // Replace any previous connection cleanly.
+        try { remoteClient?.disconnect() } catch { /* ignore */ }
+        remoteClient = client
+        const targetProfileId = profileEntry.remoteProfileId || 'default'
+        const snapshot = await client.invoke('profile:load-snapshot', [targetProfileId]) as ProfileSnapshot | null
+        logger.log(`[profile] remote profile ${profileId} → got ${snapshot?.windows?.length ?? 0} window(s) from remote (target: ${targetProfileId})`)
+        return snapshot
+      } catch (err) {
+        logger.error(`[profile] remote profile ${profileId} snapshot fetch failed:`, err instanceof Error ? err.message : String(err))
         return null
       }
-      remoteClient = client
-      const targetProfileId = profileEntry.remoteProfileId || 'default'
-      const snapshot = await client.invoke('profile:load-snapshot', [targetProfileId]) as ProfileSnapshot | null
-      logger.log(`[profile] remote profile ${profileId} → got ${snapshot?.windows?.length ?? 0} window(s) from remote (target: ${targetProfileId})`)
-      return snapshot
-    } catch (err) {
-      logger.error(`[profile] remote profile ${profileId} snapshot fetch failed:`, err instanceof Error ? err.message : String(err))
-      return null
-    }
+    })
+  }
+  if (profileEntry?.type === 'remote' && !profileEntry.remoteFingerprint) {
+    logger.warn(`[profile] remote profile ${profileId} is missing remoteFingerprint — refusing to connect (legacy plaintext setup, please re-pair)`)
+    return null
   }
   return await profileManager.loadSnapshot(profileId)
 }
@@ -1211,12 +1238,14 @@ function registerProxiedHandlers() {
   const fileWatchers = new Map<string, ReturnType<typeof fsSync.watch>>()
   registerHandler('fs:watch', (_ctx, _dirPath: string) => {
     if (fileWatchers.has(_dirPath)) return true
+    const abs = path.resolve(_dirPath)
+    if (isSensitivePath(abs)) return false
     try {
       let debounceTimer: ReturnType<typeof setTimeout> | null = null
-      const watcher = fsSync.watch(_dirPath, { recursive: true }, () => {
+      const watcher = fsSync.watch(abs, { recursive: true }, () => {
         if (debounceTimer) clearTimeout(debounceTimer)
         debounceTimer = setTimeout(() => {
-          broadcastHub.broadcast('fs:changed', _dirPath)
+          broadcastHub.broadcast('fs:changed', abs)
         }, 500)
       })
       watcher.on('error', () => {
@@ -1238,18 +1267,23 @@ function registerProxiedHandlers() {
   registerHandler('fs:readdir', async (_ctx, dirPath: string) => {
     const IGNORED = new Set(['.git', 'node_modules', '.next', 'dist', 'dist-electron', '.cache', '__pycache__', '.DS_Store'])
     try {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true })
+      const abs = path.resolve(dirPath)
+      if (isSensitivePath(abs)) return []
+      const entries = await fs.readdir(abs, { withFileTypes: true })
       return entries
         .filter(e => !IGNORED.has(e.name))
+        .filter(e => !isSensitivePath(path.join(abs, e.name)))
         .sort((a, b) => { if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1; return a.name.localeCompare(b.name) })
-        .map(e => ({ name: e.name, path: path.join(dirPath, e.name), isDirectory: e.isDirectory() }))
+        .map(e => ({ name: e.name, path: path.join(abs, e.name), isDirectory: e.isDirectory() }))
     } catch { return [] }
   })
   registerHandler('fs:readFile', async (_ctx, filePath: string) => {
     try {
-      const stat = await fs.stat(filePath)
+      const abs = path.resolve(filePath)
+      if (isSensitivePath(abs)) return { error: 'Access denied (sensitive path)' }
+      const stat = await fs.stat(abs)
       if (stat.size > 512 * 1024) return { error: 'File too large', size: stat.size }
-      const content = await fs.readFile(filePath, 'utf-8')
+      const content = await fs.readFile(abs, 'utf-8')
       return { content }
     } catch { return { error: 'Failed to read file' } }
   })
@@ -1259,18 +1293,20 @@ function registerProxiedHandlers() {
     const lowerQuery = query.toLowerCase()
     async function walk(dir: string, depth: number) {
       if (depth > 8 || results.length >= 100) return
+      if (isSensitivePath(dir)) return
       try {
         const entries = await fs.readdir(dir, { withFileTypes: true })
         for (const e of entries) {
           if (results.length >= 100) return
           if (IGNORED.has(e.name)) continue
           const fullPath = path.join(dir, e.name)
+          if (isSensitivePath(fullPath)) continue
           if (e.name.toLowerCase().includes(lowerQuery)) results.push({ name: e.name, path: fullPath, isDirectory: e.isDirectory() })
           if (e.isDirectory()) await walk(fullPath, depth + 1)
         }
       } catch { /* skip */ }
     }
-    await walk(dirPath, 0)
+    await walk(path.resolve(dirPath), 0)
     return results.sort((a, b) => { if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1; return a.name.localeCompare(b.name) })
   })
 
@@ -1410,16 +1446,25 @@ function registerLocalHandlers() {
   })
 
   ipcMain.handle('image:read-as-data-url', async (_event, filePath: string) => {
-    const ext = path.extname(filePath).toLowerCase()
-    const mimeMap: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }
-    const mime = mimeMap[ext] || 'image/png'
-    const data = await fs.readFile(filePath)
-    return `data:${mime};base64,${data.toString('base64')}`
+    try {
+      const abs = path.resolve(filePath)
+      if (isSensitivePath(abs)) throw new Error('Access denied (sensitive path)')
+      const ext = path.extname(abs).toLowerCase()
+      const mimeMap: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }
+      const mime = mimeMap[ext] || 'image/png'
+      const stat = await fs.stat(abs)
+      if (stat.size > 10 * 1024 * 1024) throw new Error(`Image too large (${Math.round(stat.size / 1024)}KB)`)
+      const data = await fs.readFile(abs)
+      return `data:${mime};base64,${data.toString('base64')}`
+    } catch (err) {
+      logger.warn('[image:read-as-data-url] failed:', err instanceof Error ? err.message : String(err))
+      throw err instanceof Error ? err : new Error(String(err))
+    }
   })
 
   // Remote server handlers (always local)
-  ipcMain.handle('remote:start-server', async (_event, port?: number, token?: string) => {
-    try { return remoteServer.start(port, token) }
+  ipcMain.handle('remote:start-server', async (_event, options?: { port?: number; token?: string; bindInterface?: 'localhost' | 'tailscale' | 'all' }) => {
+    try { return remoteServer.start(options ?? {}) }
     catch (err: unknown) { return { error: err instanceof Error ? err.message : String(err) } }
   })
   ipcMain.handle('remote:stop-server', async () => {
@@ -1429,67 +1474,89 @@ function registerLocalHandlers() {
   ipcMain.handle('remote:server-status', async () => ({
     running: remoteServer.isRunning,
     port: remoteServer.port,
+    fingerprint: remoteServer.fingerprint,
+    bindInterface: remoteServer.isRunning ? remoteServer.bindInterface : null,
+    boundHost: remoteServer.isRunning ? remoteServer.boundHost : null,
     clients: remoteServer.connectedClients
   }))
 
-  // Mobile QR code connection: ensure server is running, return connection URL
+  // Mobile QR code connection: ensure server is running, return connection URL + fingerprint
   ipcMain.handle('tunnel:get-connection', async () => {
     try {
       let port: number
       let token: string
+      let fingerprint: string
+      let boundHost: string
       if (!remoteServer.isRunning) {
-        const result = remoteServer.start()
+        // QR/mobile implies broader reachability — if the user explicitly
+        // triggers this, start the server bound to all interfaces. They still
+        // need the token + fingerprint to connect.
+        const result = remoteServer.start({ bindInterface: 'all' })
         port = result.port
         token = result.token
+        fingerprint = result.fingerprint
+        boundHost = result.boundHost
       } else {
         port = remoteServer.port!
-        const tokenPath = path.join(app.getPath('userData'), 'server-token.json')
-        token = JSON.parse(fsSync.readFileSync(tokenPath, 'utf-8')).token
+        const persisted = remoteServer.getPersistedToken()
+        if (!persisted) return { error: 'Server running but token is unavailable' }
+        token = persisted
+        fingerprint = remoteServer.fingerprint!
+        boundHost = remoteServer.boundHost
       }
-      return getConnectionInfo(port, token)
+      return getConnectionInfo(port, token, fingerprint, boundHost)
     } catch (err: unknown) {
       return { error: err instanceof Error ? err.message : String(err) }
     }
   })
 
   // Remote client handlers
-  ipcMain.handle('remote:connect', async (_event, host: string, port: number, token: string, label?: string) => {
-    try {
-      remoteClient = new RemoteClient(getAllWindows)
-      const ok = await remoteClient.connect(host, port, token, label)
-      if (!ok) {
-        remoteClient = null
-        return { error: 'Connection failed (auth rejected or unreachable)' }
+  ipcMain.handle('remote:connect', async (_event, host: string, port: number, token: string, fingerprint: string, label?: string) => {
+    return withRemoteClientLock(async () => {
+      try {
+        if (!fingerprint) return { error: 'fingerprint is required' }
+        // Drop any previous connection before creating a new one.
+        try { remoteClient?.disconnect() } catch { /* ignore */ }
+        const client = new RemoteClient(getAllWindows)
+        const ok = await client.connect({ host, port, token, fingerprint, label })
+        if (!ok) {
+          return { error: 'Connection failed (auth rejected, unreachable, or fingerprint mismatch)' }
+        }
+        remoteClient = client
+        return { connected: true }
+      } catch (err: unknown) {
+        return { error: err instanceof Error ? err.message : String(err) }
       }
-      return { connected: true }
-    } catch (err: unknown) {
-      remoteClient = null
-      return { error: err instanceof Error ? err.message : String(err) }
-    }
+    })
   })
   ipcMain.handle('remote:disconnect', async () => {
-    remoteClient?.disconnect()
-    remoteClient = null
-    return true
+    return withRemoteClientLock(async () => {
+      try { remoteClient?.disconnect() } catch { /* ignore */ }
+      remoteClient = null
+      return true
+    })
   })
   ipcMain.handle('remote:client-status', async () => ({
     connected: remoteClient?.isConnected ?? false,
     info: remoteClient?.connectionInfo ?? null
   }))
-  ipcMain.handle('remote:test-connection', async (_event, host: string, port: number, token: string) => {
+  ipcMain.handle('remote:test-connection', async (_event, host: string, port: number, token: string, fingerprint: string) => {
+    if (!fingerprint) return { ok: false, error: 'fingerprint is required' }
     const testClient = new RemoteClient(getAllWindows)
     try {
-      const ok = await testClient.connect(host, port, token)
+      const ok = await testClient.connect({ host, port, token, fingerprint })
       testClient.disconnect()
       return { ok }
-    } catch {
-      return { ok: false }
+    } catch (err) {
+      testClient.disconnect()
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
-  ipcMain.handle('remote:list-profiles', async (_event, host: string, port: number, token: string) => {
+  ipcMain.handle('remote:list-profiles', async (_event, host: string, port: number, token: string, fingerprint: string) => {
+    if (!fingerprint) return { error: 'fingerprint is required' }
     const tempClient = new RemoteClient(getAllWindows)
     try {
-      const ok = await tempClient.connect(host, port, token)
+      const ok = await tempClient.connect({ host, port, token, fingerprint })
       if (!ok) return { error: 'Connection failed' }
       const result = await tempClient.invoke('profile:list', []) as { profiles: { id: string; name: string; type: string }[] }
       tempClient.disconnect()
@@ -1501,12 +1568,12 @@ function registerLocalHandlers() {
   })
 
   // Profile handlers (local-only — list/load/activate/deactivate/get-active-ids are proxied)
-  ipcMain.handle('profile:create', async (_event, name: string, options?: { type?: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; remoteProfileId?: string }) => profileManager.create(name, options))
+  ipcMain.handle('profile:create', async (_event, name: string, options?: { type?: 'local' | 'remote'; remoteHost?: string; remotePort?: number; remoteToken?: string; remoteFingerprint?: string; remoteProfileId?: string }) => profileManager.create(name, options))
   ipcMain.handle('profile:save', async (_event, profileId: string) => profileManager.save(profileId))
   ipcMain.handle('profile:delete', async (_event, profileId: string) => profileManager.delete(profileId))
   ipcMain.handle('profile:rename', async (_event, profileId: string, newName: string) => profileManager.rename(profileId, newName))
   ipcMain.handle('profile:duplicate', async (_event, profileId: string, newName: string) => profileManager.duplicate(profileId, newName))
-  ipcMain.handle('profile:update', async (_event, profileId: string, updates: { remoteHost?: string; remotePort?: number; remoteToken?: string; remoteProfileId?: string }) => profileManager.update(profileId, updates))
+  ipcMain.handle('profile:update', async (_event, profileId: string, updates: { remoteHost?: string; remotePort?: number; remoteToken?: string; remoteFingerprint?: string; remoteProfileId?: string }) => profileManager.update(profileId, updates))
   ipcMain.handle('profile:get', async (_event, profileId: string) => profileManager.getProfile(profileId))
 
   // Get the profile ID this instance was launched with (--profile= argument)

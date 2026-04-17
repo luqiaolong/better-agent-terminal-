@@ -26,6 +26,7 @@
     "@anthropic-ai/claude-code": "^2.1.111",
     "@openai/codex-sdk": "^0.120.0",
     "better-sqlite3": "^12.5.0",
+    "selfsigned": "^5.5.0",
     "uuid": "^9.0.0",
     "ws": "^8.19.0"
   },

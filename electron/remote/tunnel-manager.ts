@@ -1,7 +1,7 @@
 import { networkInterfaces } from 'os'
 import { logger } from '../logger'
 
-export type TunnelMode = 'tailscale' | 'lan'
+export type TunnelMode = 'localhost' | 'tailscale' | 'lan'
 
 export interface NetworkAddress {
   ip: string
@@ -12,28 +12,39 @@ export interface NetworkAddress {
 export interface TunnelResult {
   url: string
   token: string
+  fingerprint: string
   mode: TunnelMode
   addresses: NetworkAddress[]
 }
 
 /**
- * List all available IPv4 addresses and build a connection URL.
- * Tailscale IPs (100.x.x.x) are listed first.
+ * Build a connection URL and list of candidate addresses for the given server.
+ *
+ * If `boundHost` is 127.0.0.1/::1 we only return the loopback address, because
+ * the server literally isn't accepting connections from any other interface.
  */
-export function getConnectionInfo(port: number, token: string): TunnelResult | { error: string } {
-  const addresses = getAllAddresses()
-  if (addresses.length === 0) {
-    return { error: 'No network interface found' }
-  }
+export function getConnectionInfo(
+  port: number,
+  token: string,
+  fingerprint: string,
+  boundHost: string
+): TunnelResult | { error: string } {
+  const addresses = getAllAddresses(boundHost)
+  if (addresses.length === 0) return { error: 'No network interface found' }
 
-  // Default to first address (Tailscale first, then LAN)
   const primary = addresses[0]
-  const url = `ws://${primary.ip}:${port}`
+  const url = `wss://${primary.ip}:${port}`
   logger.log(`[TunnelManager] Primary: ${url} (${primary.label}), ${addresses.length} addresses available`)
-  return { url, token, mode: primary.mode, addresses }
+  return { url, token, fingerprint, mode: primary.mode, addresses }
 }
 
-function getAllAddresses(): NetworkAddress[] {
+function getAllAddresses(boundHost: string): NetworkAddress[] {
+  // Loopback-only: the server rejects off-host traffic, so don't even
+  // advertise external IPs in QR codes.
+  if (boundHost === '127.0.0.1' || boundHost === '::1' || boundHost === 'localhost') {
+    return [{ ip: '127.0.0.1', mode: 'localhost', label: 'localhost — 127.0.0.1' }]
+  }
+
   const nets = networkInterfaces()
   const tailscale: NetworkAddress[] = []
   const lan: NetworkAddress[] = []
@@ -50,6 +61,5 @@ function getAllAddresses(): NetworkAddress[] {
     }
   }
 
-  // Tailscale first
   return [...tailscale, ...lan]
 }
