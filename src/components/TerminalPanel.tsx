@@ -333,10 +333,12 @@ export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive 
     // Track IME composition state on xterm's hidden textarea
     // to prevent CAPS LOCK and other keys from committing partial IME input
     let imeComposing = false
-    const xtermTextarea = containerRef.current?.querySelector('.xterm-helper-textarea')
+    const xtermTextarea = containerRef.current?.querySelector('.xterm-helper-textarea') as HTMLElement | null
+    const onCompositionStart = () => { imeComposing = true }
+    const onCompositionEnd = () => { imeComposing = false }
     if (xtermTextarea) {
-      xtermTextarea.addEventListener('compositionstart', () => { imeComposing = true })
-      xtermTextarea.addEventListener('compositionend', () => { imeComposing = false })
+      xtermTextarea.addEventListener('compositionstart', onCompositionStart)
+      xtermTextarea.addEventListener('compositionend', onCompositionEnd)
     }
 
     // Handle copy and paste shortcuts
@@ -424,7 +426,8 @@ export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive 
     })
 
     // Right-click context menu for copy/paste
-    containerRef.current.addEventListener('contextmenu', (e) => {
+    const containerEl = containerRef.current
+    const onContextMenu = (e: MouseEvent) => {
       e.preventDefault()
       const selection = terminal.getSelection()
       setContextMenu({
@@ -432,7 +435,8 @@ export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive 
         y: e.clientY,
         hasSelection: !!selection
       })
-    })
+    }
+    containerEl.addEventListener('contextmenu', onContextMenu)
 
     // Handle terminal output
     const unsubscribeOutput = window.electronAPI.pty.onOutput((id, data) => {
@@ -508,6 +512,11 @@ export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive 
       if (resizeTimer) clearTimeout(resizeTimer)
       resizeObserver.disconnect()
       observer.disconnect()
+      if (xtermTextarea) {
+        xtermTextarea.removeEventListener('compositionstart', onCompositionStart)
+        xtermTextarea.removeEventListener('compositionend', onCompositionEnd)
+      }
+      containerEl.removeEventListener('contextmenu', onContextMenu)
       doResizeRef.current = null
       terminal.dispose()
     }

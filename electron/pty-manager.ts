@@ -63,6 +63,12 @@ export class PtyManager {
   private instances: Map<string, PtyInstance> = new Map()
   private getWindows: () => BrowserWindow[]
 
+  // Per-instance output coalescing: first chunk flushes immediately for
+  // interactive responsiveness; subsequent chunks within OUTPUT_FLUSH_MS are
+  // batched into a single broadcast to reduce IPC traffic under heavy output.
+  private outputBuffers: Map<string, { chunks: string[]; timer: NodeJS.Timeout | null }> = new Map()
+  private readonly OUTPUT_FLUSH_MS = 8
+
   constructor(getWindows: () => BrowserWindow[]) {
     this.getWindows = getWindows
   }
@@ -78,6 +84,42 @@ export class PtyManager {
       }
     }
     broadcastHub.broadcast(channel, ...args)
+  }
+
+  private emitOutput(id: string, data: string): void {
+    const state = this.outputBuffers.get(id)
+    if (!state) {
+      // No active coalescing window: send immediately, open window for follow-ups
+      this.broadcast('pty:output', id, data)
+      const timer = setTimeout(() => this.flushOutput(id), this.OUTPUT_FLUSH_MS)
+      this.outputBuffers.set(id, { chunks: [], timer })
+      return
+    }
+    state.chunks.push(data)
+  }
+
+  private flushOutput(id: string): void {
+    const state = this.outputBuffers.get(id)
+    if (!state) return
+    if (state.chunks.length > 0) {
+      const combined = state.chunks.join('')
+      state.chunks = []
+      this.broadcast('pty:output', id, combined)
+      state.timer = setTimeout(() => this.flushOutput(id), this.OUTPUT_FLUSH_MS)
+    } else {
+      if (state.timer) clearTimeout(state.timer)
+      this.outputBuffers.delete(id)
+    }
+  }
+
+  private clearOutputBuffer(id: string): void {
+    const state = this.outputBuffers.get(id)
+    if (!state) return
+    if (state.timer) clearTimeout(state.timer)
+    if (state.chunks.length > 0) {
+      this.broadcast('pty:output', id, state.chunks.join(''))
+    }
+    this.outputBuffers.delete(id)
   }
 
   private getDefaultShell(): string {
@@ -189,12 +231,14 @@ export class PtyManager {
 
         ptyProcess.onData((data: string) => {
           // Only emit if this instance is still the current one
+          // (a restart may have already replaced it with a new instance)
           if (this.instances.get(id)?.process === ptyProcess) {
-            this.broadcast('pty:output', id, data)
+            this.emitOutput(id, data)
           }
         })
 
         ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
+          this.clearOutputBuffer(id)
           this.broadcast('pty:exit', id, exitCode)
           // Only clean up if this instance is still the current one
           // (a restart may have already replaced it with a new instance)
@@ -253,17 +297,18 @@ export class PtyManager {
 
         childProcess.stdout?.on('data', (data: Buffer) => {
           if (this.instances.get(id)?.process === childProcess) {
-            this.broadcast('pty:output', id, data.toString())
+            this.emitOutput(id, data.toString())
           }
         })
 
         childProcess.stderr?.on('data', (data: Buffer) => {
           if (this.instances.get(id)?.process === childProcess) {
-            this.broadcast('pty:output', id, data.toString())
+            this.emitOutput(id, data.toString())
           }
         })
 
         childProcess.on('exit', (exitCode: number | null) => {
+          this.clearOutputBuffer(id)
           this.broadcast('pty:exit', id, exitCode ?? 0)
           if (this.instances.get(id)?.process === childProcess) {
             this.instances.delete(id)
@@ -272,11 +317,11 @@ export class PtyManager {
 
         childProcess.on('error', (error) => {
           logger.error('Child process error:', error)
-          this.broadcast('pty:output', id, `\r\n[Error: ${error.message}]\r\n`)
+          this.emitOutput(id, `\r\n[Error: ${error.message}]\r\n`)
         })
 
         // Send initial message
-        this.broadcast('pty:output', id, `[Terminal - child_process mode]\r\n`)
+        this.emitOutput(id, `[Terminal - child_process mode]\r\n`)
 
         this.instances.set(id, { process: childProcess, type, cwd, usePty: false })
         logger.log('Created terminal using child_process fallback')
@@ -326,6 +371,7 @@ export class PtyManager {
           execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore', timeout: 3000 })
         } catch { /* process may already be gone */ }
       }
+      this.clearOutputBuffer(id)
       this.instances.delete(id)
       return true
     }

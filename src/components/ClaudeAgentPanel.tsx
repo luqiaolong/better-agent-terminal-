@@ -16,7 +16,14 @@ import DOMPurify from 'dompurify'
 // Note: marked.use() modifies the global marked instance (shared with FileTree).
 // Both use the same settings (gfm, breaks, highlight.js, link interception),
 // so sharing is intentional and avoids configuration drift.
+// Cache keyed by content string: streaming triggers full-list re-renders, so
+// without caching every stable message gets re-parsed on each chunk.
+const markdownCache = new Map<string, string>()
+const MARKDOWN_CACHE_MAX = 500
+
 function renderChatMarkdown(text: string): string {
+  const cached = markdownCache.get(text)
+  if (cached !== undefined) return cached
   // Pre-process: convert bare file:// URLs to markdown links so marked renders them as <a>
   // marked only auto-links http/https by default
   // Skip URLs inside code blocks/inline code and existing markdown links
@@ -33,11 +40,17 @@ function renderChatMarkdown(text: string): string {
   const rawHtml = marked.parse(processed) as string
   // Remove whitespace between block-level HTML tags to prevent anonymous line boxes
   const cleanHtml = rawHtml.replace(/>\s+</g, '><')
-  return DOMPurify.sanitize(cleanHtml, {
+  const result = DOMPurify.sanitize(cleanHtml, {
     ADD_TAGS: ['input'],
     ADD_ATTR: ['checked', 'disabled', 'type', 'data-external-link'],
     ALLOWED_URI_REGEXP: /^(?:https?|mailto|tel|file):/i,
   })
+  if (markdownCache.size >= MARKDOWN_CACHE_MAX) {
+    const oldestKey = markdownCache.keys().next().value
+    if (oldestKey !== undefined) markdownCache.delete(oldestKey)
+  }
+  markdownCache.set(text, result)
+  return result
 }
 
 interface SessionMeta {
@@ -401,18 +414,24 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [])
 
-  // Archive excess messages to disk when threshold is exceeded
+  // Archive excess messages to disk when threshold is exceeded.
+  // Trim in-memory immediately to release memory; the archive IPC writes
+  // the snapshot to disk in parallel. If the archive write fails, we keep
+  // the count (best-effort) — losing the ability to load-back those
+  // messages is preferable to letting memory grow unbounded.
   useEffect(() => {
     if (archivingRef.current || messages.length <= ARCHIVE_TRIGGER) return
     archivingRef.current = true
     const excess = messages.length - VISIBLE_LIMIT
     const toArchive = messages.slice(0, excess)
-    window.electronAPI.claude.archiveMessages(sessionId, toArchive).then(() => {
-      archivedCountRef.current += excess
-      setHasMoreArchived(true)
-      setMessages(prev => prev.slice(excess))
-      archivingRef.current = false
-    }).catch(() => { archivingRef.current = false })
+    setMessages(prev => prev.slice(excess))
+    archivedCountRef.current += excess
+    setHasMoreArchived(true)
+    window.electronAPI.claude.archiveMessages(sessionId, toArchive)
+      .catch((err) => {
+        window.electronAPI?.debug?.log?.('[ClaudeAgentPanel] archiveMessages failed:', String(err))
+      })
+      .finally(() => { archivingRef.current = false })
   }, [messages.length, sessionId])
 
   // Load more archived messages when scrolling to top

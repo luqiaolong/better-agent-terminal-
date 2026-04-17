@@ -40,14 +40,15 @@ interface SnippetData {
 class SnippetDatabase {
     private readonly dataPath: string
     private data: SnippetData = { snippets: [], nextId: 1 }
+    private lastMtime = 0
+    private saveTimer: NodeJS.Timeout | null = null
+    private readonly SAVE_DEBOUNCE_MS = 300
 
     constructor() {
         const userDataPath = app.getPath('userData')
         this.dataPath = path.join(userDataPath, 'snippets.json')
         this.load()
     }
-
-    private lastMtime = 0
 
     private load() {
         try {
@@ -75,17 +76,32 @@ class SnippetDatabase {
         try {
             if (!fs.existsSync(this.dataPath)) return
             const mtime = fs.statSync(this.dataPath).mtimeMs
-            if (mtime > this.lastMtime) this.load()
+            if (mtime > this.lastMtime) {
+                // External modification detected — drop any pending in-memory
+                // write (it was based on stale data) and reload from disk.
+                if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null }
+                this.load()
+            }
         } catch { /* ignore */ }
     }
 
+    // Coalesce burst mutations into a single disk write.
     private save() {
+        if (this.saveTimer) clearTimeout(this.saveTimer)
+        this.saveTimer = setTimeout(() => {
+            this.saveTimer = null
+            this.flushNow()
+        }, this.SAVE_DEBOUNCE_MS)
+    }
+
+    private flushNow() {
         try {
             const dir = path.dirname(this.dataPath)
             if (!fs.existsSync(dir)) {
                 fs.mkdirSync(dir, { recursive: true })
             }
             fs.writeFileSync(this.dataPath, JSON.stringify(this.data, null, 2), 'utf-8')
+            this.lastMtime = fs.statSync(this.dataPath).mtimeMs
         } catch (error) {
             logger.error('Failed to save snippets:', error)
         }
@@ -203,7 +219,11 @@ class SnippetDatabase {
     }
 
     close() {
-        // No-op for JSON storage
+        if (this.saveTimer) {
+            clearTimeout(this.saveTimer)
+            this.saveTimer = null
+            this.flushNow()
+        }
     }
 }
 

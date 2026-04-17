@@ -447,6 +447,7 @@ function cleanupAllProcesses() {
   try { codexManager?.killAll() } catch { /* ignore */ }
   try { codexManager?.dispose() } catch { /* ignore */ }
   try { ptyManager?.dispose() } catch { /* ignore */ }
+  try { snippetDb.close() } catch { /* ignore */ }
   remoteClient = null
   claudeManager = null
   codexManager = null
