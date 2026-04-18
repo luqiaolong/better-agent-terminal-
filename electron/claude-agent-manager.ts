@@ -2387,6 +2387,14 @@ export class ClaudeAgentManager {
     const abortController = new AbortController()
     let newSdkSessionId: string | null = null
 
+    // Safety timeout: if the fork turn never completes, abort so we don't hang forever.
+    const timeoutHandle = setTimeout(() => {
+      if (!abortController.signal.aborted) {
+        logger.warn('[forkSession] timeout waiting for result, aborting')
+        abortController.abort()
+      }
+    }, 60_000)
+
     try {
       const generator = query({
         prompt: ' ',
@@ -2395,16 +2403,21 @@ export class ClaudeAgentManager {
           cwd,
           resume: currentSdkId,
           forkSession: true,
+          maxTurns: 1,
           ...(claudeCodePath ? { pathToClaudeCodeExecutable: claudeCodePath } : {}),
           ...(nodeExecutable !== 'node' ? { executable: nodeExecutable } : {}),
         } as Parameters<typeof query>[0]['options'],
       })
 
+      // Must wait for `result` (not just `init`) — the CLI only writes the forked
+      // transcript file (~/.claude/projects/.../<newId>.jsonl) after at least one
+      // turn completes. Aborting on init leaves the new session_id unresumable.
       for await (const message of generator) {
         if (message.type === 'system' && (message as { subtype?: string }).subtype === 'init') {
           newSdkSessionId = (message as { session_id: string }).session_id
           logger.log(`[forkSession] received init, new session=${newSdkSessionId?.slice(0, 8)}`)
-          abortController.abort()
+        } else if (message.type === 'result') {
+          logger.log(`[forkSession] fork turn complete, transcript persisted`)
           break
         }
       }
@@ -2414,6 +2427,8 @@ export class ClaudeAgentManager {
       if (!isExpectedAbort) {
         logger.error(`[forkSession] unexpected error:`, e)
       }
+    } finally {
+      clearTimeout(timeoutHandle)
     }
 
     if (!newSdkSessionId) {
