@@ -1,7 +1,7 @@
-import { app } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { logger } from './logger'
+import { getDataDir } from './server-core/data-dir'
 
 // Snippet interface
 export type SnippetFormat = 'plaintext' | 'markdown'
@@ -38,15 +38,21 @@ interface SnippetData {
 }
 
 class SnippetDatabase {
-    private readonly dataPath: string
+    private _dataPath: string | null = null
+    private loaded = false
     private data: SnippetData = { snippets: [], nextId: 1 }
     private lastMtime = 0
     private saveTimer: NodeJS.Timeout | null = null
     private readonly SAVE_DEBOUNCE_MS = 300
 
-    constructor() {
-        const userDataPath = app.getPath('userData')
-        this.dataPath = path.join(userDataPath, 'snippets.json')
+    private get dataPath(): string {
+        if (!this._dataPath) this._dataPath = path.join(getDataDir(), 'snippets.json')
+        return this._dataPath
+    }
+
+    private ensureLoaded() {
+        if (this.loaded) return
+        this.loaded = true
         this.load()
     }
 
@@ -108,6 +114,7 @@ class SnippetDatabase {
     }
 
     create(input: CreateSnippetInput): Snippet {
+        this.ensureLoaded()
         this.refreshIfChanged()
         const now = Date.now()
         const snippet: Snippet = {
@@ -129,16 +136,19 @@ class SnippetDatabase {
     }
 
     getById(id: number): Snippet | null {
+        this.ensureLoaded()
         this.refreshIfChanged()
         return this.data.snippets.find(s => s.id === id) || null
     }
 
     getAll(): Snippet[] {
+        this.ensureLoaded()
         this.refreshIfChanged()
         return [...this.data.snippets].sort((a, b) => b.updatedAt - a.updatedAt)
     }
 
     getFavorites(): Snippet[] {
+        this.ensureLoaded()
         this.refreshIfChanged()
         return this.data.snippets
             .filter(s => s.isFavorite)
@@ -146,6 +156,7 @@ class SnippetDatabase {
     }
 
     getByCategory(category: string): Snippet[] {
+        this.ensureLoaded()
         this.refreshIfChanged()
         return this.data.snippets
             .filter(s => s.category === category)
@@ -153,6 +164,7 @@ class SnippetDatabase {
     }
 
     search(query: string): Snippet[] {
+        this.ensureLoaded()
         this.refreshIfChanged()
         const term = query.toLowerCase()
         return this.data.snippets
@@ -165,6 +177,7 @@ class SnippetDatabase {
     }
 
     update(id: number, updates: Partial<CreateSnippetInput>): Snippet | null {
+        this.ensureLoaded()
         this.refreshIfChanged()
         const index = this.data.snippets.findIndex(s => s.id === id)
         if (index === -1) return null
@@ -188,6 +201,7 @@ class SnippetDatabase {
     }
 
     delete(id: number): boolean {
+        this.ensureLoaded()
         this.refreshIfChanged()
         const index = this.data.snippets.findIndex(s => s.id === id)
         if (index === -1) return false
@@ -203,6 +217,7 @@ class SnippetDatabase {
     }
 
     getByWorkspace(workspaceId?: string): Snippet[] {
+        this.ensureLoaded()
         this.refreshIfChanged()
         return this.data.snippets
             .filter(s => !s.workspaceId || s.workspaceId === workspaceId)
@@ -210,6 +225,7 @@ class SnippetDatabase {
     }
 
     getCategories(): string[] {
+        this.ensureLoaded()
         this.refreshIfChanged()
         const categories = new Set<string>()
         for (const s of this.data.snippets) {

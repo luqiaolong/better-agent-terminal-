@@ -1,8 +1,8 @@
-import { app } from 'electron'
 import path from 'path'
 import * as fs from 'fs/promises'
 import type { WindowRegistry } from './window-registry'
 import { logger } from './logger'
+import { getDataDir } from './server-core/data-dir'
 
 export interface ProfileEntry {
   id: string
@@ -54,7 +54,7 @@ export interface ProfileSnapshot {
 }
 
 function getProfilesDir(): string {
-  return path.join(app.getPath('userData'), 'profiles')
+  return path.join(getDataDir(), 'profiles')
 }
 
 function getIndexPath(): string {
@@ -213,7 +213,7 @@ async function ensureInitialized(): Promise<ProfileIndex> {
     activeTerminalId: null,
   }
   try {
-    const raw = await fs.readFile(path.join(app.getPath('userData'), 'workspaces.json'), 'utf-8')
+    const raw = await fs.readFile(path.join(getDataDir(), 'workspaces.json'), 'utf-8')
     const parsed = JSON.parse(raw)
     workspacesData = {
       workspaces: parsed.workspaces || [],

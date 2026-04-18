@@ -1,7 +1,6 @@
-import { safeStorage } from 'electron'
 import * as fs from 'fs'
-import * as path from 'path'
 import { logger } from '../logger'
+import { getSafeStorage } from '../server-core/safe-storage'
 
 // Read a plaintext or safeStorage-encrypted secret file.
 // Files written before safeStorage adoption stored raw JSON — detect via `enc` flag.
@@ -10,6 +9,7 @@ export function readEncryptedJson<T>(filePath: string): T | null {
   try {
     const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as { enc?: boolean; data?: string } & Record<string, unknown>
     if (raw && raw.enc === true && typeof raw.data === 'string') {
+      const safeStorage = getSafeStorage()
       if (!safeStorage.isEncryptionAvailable()) {
         logger.error('[secrets] decryption unavailable, cannot read', filePath)
         return null
@@ -27,6 +27,7 @@ export function readEncryptedJson<T>(filePath: string): T | null {
 
 export function writeEncryptedJson(filePath: string, data: unknown): void {
   const plaintext = JSON.stringify(data)
+  const safeStorage = getSafeStorage()
   let payload: string
   if (safeStorage.isEncryptionAvailable()) {
     payload = JSON.stringify({ enc: true, data: safeStorage.encryptString(plaintext).toString('base64') })

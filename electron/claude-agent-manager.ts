@@ -1,4 +1,4 @@
-import { BrowserWindow, Notification, app } from 'electron'
+import type { BrowserWindow } from 'electron'
 import { createRequire } from 'module'
 import * as fsSync from 'fs'
 import * as fsPromises from 'fs/promises'
@@ -15,6 +15,8 @@ import type { WorktreeInfo } from './worktree-manager'
 // bypassPlan = plan mode (read-only exploration) + auto-approve all tool permissions
 type AppPermissionMode = PermissionMode | 'bypassPlan'
 import { broadcastHub } from './remote/broadcast-hub'
+import { getDataDir } from './server-core/data-dir'
+import { getNotifier } from './server-core/notifier'
 
 // BAT built-in curated model list (always available, shown first)
 const BAT_BUILTIN_MODELS: Array<{ value: string; displayName: string; description: string }> = [
@@ -227,10 +229,11 @@ export class ClaudeAgentManager {
    */
   private sendCompletionNotification(session: { cwd: string }, result?: string) {
     try {
-      if (!Notification.isSupported()) return
+      const notifier = getNotifier()
+      if (!notifier.isSupported()) return
 
       // Read settings directly from file (main process doesn't have settings store)
-      const settingsPath = pathModule.join(app.getPath('userData'), 'settings.json')
+      const settingsPath = pathModule.join(getDataDir(), 'settings.json')
       let settings: Record<string, unknown> = {}
       try {
         settings = JSON.parse(fsSync.readFileSync(settingsPath, 'utf-8'))
@@ -250,24 +253,21 @@ export class ClaudeAgentManager {
         ? result.slice(0, 100) + (result.length > 100 ? '...' : '')
         : 'Task completed'
 
-      const notification = new Notification({
+      notifier.show({
         title: `✅ ${workspaceName}`,
         body,
         silent: settings.notifySound === false,
-      })
-
-      notification.on('click', () => {
-        // Focus the main window when notification is clicked
-        for (const win of this.getWindows()) {
-          if (!win.isDestroyed()) {
-            win.show()
-            win.focus()
-            break
+        onClick: () => {
+          // Focus the main window when notification is clicked
+          for (const win of this.getWindows()) {
+            if (!win.isDestroyed()) {
+              win.show()
+              win.focus()
+              break
+            }
           }
-        }
+        },
       })
-
-      notification.show()
     } catch (err) {
       logger.error('[notification] Failed to send:', err)
     }
