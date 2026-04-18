@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { parseConnectionUrl } from '../utils/connection-url'
 
 interface ProfileEntry {
   id: string
@@ -332,6 +333,23 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
               />
               {creating === 'remote' && (
                 <>
+                  <input
+                    type="text"
+                    className="profile-name-input"
+                    placeholder={t('profiles.connectionUrlPlaceholder', 'Paste connection URL (wss://host:port?token=…&fp=…)')}
+                    onChange={e => {
+                      const parsed = parseConnectionUrl(e.target.value)
+                      if (!parsed) return
+                      setRemoteHost(parsed.host)
+                      setRemotePort(String(parsed.port))
+                      setRemoteToken(parsed.token)
+                      setRemoteFingerprint(parsed.fingerprint)
+                      setRemoteProfiles([])
+                      setSelectedRemoteProfileId('')
+                      e.target.value = ''
+                    }}
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: 11 }}
+                  />
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <input
                       type="text"
@@ -455,6 +473,22 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
                 {/* Remote connection edit form */}
                 {editingRemoteId === profile.id && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, width: '100%' }} onClick={e => e.stopPropagation()}>
+                    <input
+                      type="text"
+                      className="profile-name-input"
+                      placeholder={t('profiles.connectionUrlPlaceholder', 'Paste connection URL (wss://host:port?token=…&fp=…)')}
+                      onChange={e => {
+                        const parsed = parseConnectionUrl(e.target.value)
+                        if (!parsed) return
+                        setEditRemoteHost(parsed.host)
+                        setEditRemotePort(String(parsed.port))
+                        setEditRemoteToken(parsed.token)
+                        setEditRemoteFingerprint(parsed.fingerprint)
+                        setEditRemoteProfiles([])
+                        e.target.value = ''
+                      }}
+                      style={{ width: '100%', fontFamily: 'monospace', fontSize: 11 }}
+                    />
                     <input
                       type="text"
                       className="profile-name-input"

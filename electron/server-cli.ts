@@ -142,12 +142,17 @@ async function main(): Promise<void> {
   })
 
   // Stdout banner — kept stable so containers / log scrapers can parse it.
+  // `connect` is the one-shot URL: paste it into a profile's "Connection URL"
+  // field to auto-fill host/port/token/fingerprint.
+  const connectUrl = `wss://${result.boundHost}:${result.port}` +
+    `?token=${encodeURIComponent(result.token)}&fp=${encodeURIComponent(result.fingerprint)}`
   process.stdout.write(`\nbat-server ready\n`)
   process.stdout.write(`  url:         wss://${result.boundHost}:${result.port}\n`)
   process.stdout.write(`  bind:        ${result.bindInterface}\n`)
   process.stdout.write(`  token:       ${result.token}\n`)
   process.stdout.write(`  fingerprint: ${result.fingerprint}\n`)
-  process.stdout.write(`  data-dir:    ${args.dataDir}\n\n`)
+  process.stdout.write(`  data-dir:    ${args.dataDir}\n`)
+  process.stdout.write(`  connect:     ${connectUrl}\n\n`)
 
   const shutdown = (signal: string) => {
     process.stdout.write(`\nReceived ${signal}, shutting down...\n`)

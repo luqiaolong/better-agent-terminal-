@@ -7,6 +7,7 @@ import { FONT_OPTIONS, COLOR_PRESETS, SHELL_OPTIONS, STATUSLINE_ITEMS, EFFORT_LE
 import { settingsStore, parseStatuslineTemplate, exportStatuslineTemplate } from '../stores/settings-store'
 import { EnvVarEditor } from './EnvVarEditor'
 import { AgentPresetId, getVisiblePresets } from '../types/agent-presets'
+import { buildConnectionUrl } from '../utils/connection-url'
 
 interface SettingsPanelProps {
   onClose: () => void
@@ -62,6 +63,10 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [qrToken, setQrToken] = useState<string | null>(null)
   const [qrFingerprint, setQrFingerprint] = useState<string | null>(null)
   const [qrPort, setQrPort] = useState<number>(9876)
+
+  // One-shot connection URL — for `bind=all` we need a usable host (not 0.0.0.0),
+  // so we resolve it on-demand via tunnel.getConnection().
+  const [connectionUrlHost, setConnectionUrlHost] = useState<string | null>(null)
 
   // Statusline config state
   const [slItems, setSlItems] = useState<StatuslineItemConfig[]>(settingsStore.getStatuslineItems())
@@ -226,6 +231,38 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     const interval = setInterval(refresh, 3000)
     return () => clearInterval(interval)
   }, [])
+
+  // Resolve a usable host for the connection URL. boundHost is the literal
+  // listen address — for `bind=all` that's `0.0.0.0`, which clients can't
+  // connect to, so fall back to enumerating real interfaces.
+  useEffect(() => {
+    if (!serverStatus.running || !serverStatus.boundHost) {
+      setConnectionUrlHost(null)
+      return
+    }
+    const bh = serverStatus.boundHost
+    if (bh !== '0.0.0.0' && bh !== '::') {
+      setConnectionUrlHost(bh)
+      return
+    }
+    let cancelled = false
+    window.electronAPI.tunnel.getConnection().then(result => {
+      if (cancelled) return
+      if ('error' in result || !result.addresses?.length) {
+        setConnectionUrlHost(bh)
+        return
+      }
+      setConnectionUrlHost(result.addresses[0].ip)
+    }).catch(() => { if (!cancelled) setConnectionUrlHost(bh) })
+    return () => { cancelled = true }
+  }, [serverStatus.running, serverStatus.boundHost, serverStatus.port])
+
+  const connectionUrl = (() => {
+    if (!serverStatus.running || !serverStatus.port || !serverStatus.fingerprint || !serverToken) return null
+    const host = connectionUrlHost || serverStatus.boundHost
+    if (!host) return null
+    return buildConnectionUrl({ host, port: serverStatus.port, token: serverToken, fingerprint: serverStatus.fingerprint })
+  })()
 
   const handleStartServer = async () => {
     const result = await window.electronAPI.remote.startServer({
@@ -952,6 +989,30 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                     {t('settings.stopServer')}
                   </button>
                 </div>
+                {connectionUrl && (
+                  <div className="settings-group">
+                    <label>{t('settings.connectionUrl', 'Connection URL')}</label>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        readOnly
+                        value={connectionUrl}
+                        style={{ fontFamily: 'monospace', fontSize: 11, flex: 1 }}
+                        onClick={e => (e.target as HTMLInputElement).select()}
+                      />
+                      <button
+                        className="profile-action-btn"
+                        onClick={() => navigator.clipboard.writeText(connectionUrl)}
+                        title="Copy connection URL"
+                      >
+                        {t('common.copy')}
+                      </button>
+                    </div>
+                    <p style={{ fontSize: 11, color: '#8b949e', marginTop: 4, lineHeight: 1.4 }}>
+                      {t('settings.connectionUrlHint', 'Paste this into a remote profile to auto-fill host, port, token and fingerprint.')}
+                    </p>
+                  </div>
+                )}
                 {serverToken && (
                   <div className="settings-group">
                     <label>{t('settings.connectionToken')}</label>
