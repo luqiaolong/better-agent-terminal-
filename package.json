@@ -92,7 +92,13 @@
         "nsis",
         "zip"
       ],
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "extraFiles": [
+        {
+          "from": "bin/bat-server.cmd",
+          "to": "bat-server.cmd"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -128,6 +134,12 @@
         "NSDesktopFolderUsageDescription": "BetterAgentTerminal needs access to your Desktop folder to open terminals and manage files in your projects.",
         "NSDownloadsFolderUsageDescription": "BetterAgentTerminal needs access to your Downloads folder to open terminals and manage files in your projects."
       },
+      "extraResources": [
+        {
+          "from": "bin/bat-server.sh",
+          "to": "bat-server"
+        }
+      ],
       "files": [
         "!node_modules/@anthropic-ai/claude-code-win32-*/**",
         "!node_modules/@anthropic-ai/claude-code-linux-*/**",
@@ -137,7 +149,13 @@
     },
     "linux": {
       "target": "AppImage",
-      "icon": "assets/icon-512.png"
+      "icon": "assets/icon-512.png",
+      "extraResources": [
+        {
+          "from": "bin/bat-server.sh",
+          "to": "bat-server"
+        }
+      ]
     },
     "forceCodeSigning": false,
     "npmRebuild": false,
@@ -145,6 +163,7 @@
       "dist/**/*",
       "dist-electron/**/*",
       "node_modules/**/*",
+      "bin/bat-server.js",
       "!node_modules/@openai/codex/**",
       "!node_modules/@openai/codex-*-*/**",
       "!node_modules/better-sqlite3/deps/**",
@@ -155,6 +174,7 @@
       "assets/icon-512.png"
     ],
     "asarUnpack": [
+      "bin/**",
       "node_modules/@anthropic-ai/claude-code/bin/**",
       "node_modules/@anthropic-ai/claude-code-*/**",
       "node_modules/@anthropic-ai/claude-agent-sdk-*/**",

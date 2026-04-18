@@ -392,6 +392,85 @@ After installation, sign in with the same account on all devices and they will b
 > - Shut down the server when not in use
 > - Strongly recommended to use Tailscale to avoid direct exposure to the public internet
 
+### Headless Mode (`bat-server`)
+
+You can also run the same WebSocket server **without launching the GUI** — useful for VPS, containers, or background services. The headless entry uses BAT's bundled Node runtime, so no separate `node.exe` install is required.
+
+#### Windows (installed via NSIS)
+
+The installer drops `bat-server.cmd` next to `BetterAgentTerminal.exe` (typically `%LOCALAPPDATA%\Programs\BetterAgentTerminal\`):
+
+```cmd
+"%LOCALAPPDATA%\Programs\BetterAgentTerminal\bat-server.cmd" --bind=all --port=9876
+```
+
+Add the install directory to `PATH` to call it as just `bat-server`. Stdout prints the connection URL, token, and certificate fingerprint on startup.
+
+#### macOS (installed via DMG)
+
+The app bundle ships a `bat-server` shell wrapper inside `Contents/Resources/`:
+
+```bash
+/Applications/BetterAgentTerminal.app/Contents/Resources/bat-server --bind=tailscale --port=9876
+```
+
+For convenience, symlink it onto your `PATH`:
+
+```bash
+sudo ln -sf /Applications/BetterAgentTerminal.app/Contents/Resources/bat-server /usr/local/bin/bat-server
+bat-server --bind=all --port=9876
+```
+
+If the shell wrapper isn't executable (rare, depends on the installer), invoke it via `bash`:
+
+```bash
+bash /Applications/BetterAgentTerminal.app/Contents/Resources/bat-server --bind=all
+```
+
+#### Linux (AppImage)
+
+AppImages mount themselves read-only at runtime, so the simplest path is to extract once and call the wrapper inside:
+
+```bash
+chmod +x BetterAgentTerminal-*.AppImage
+./BetterAgentTerminal-*.AppImage --appimage-extract
+./squashfs-root/resources/bat-server --bind=all --port=9876
+```
+
+You can move `squashfs-root/` anywhere stable (e.g. `/opt/better-agent-terminal/`) and symlink the wrapper onto your `PATH`:
+
+```bash
+sudo mv squashfs-root /opt/better-agent-terminal
+sudo ln -sf /opt/better-agent-terminal/resources/bat-server /usr/local/bin/bat-server
+```
+
+#### From source (any platform)
+
+Clone the repo and run the bundled npm script — handy for development or when you don't want to install the GUI build:
+
+```bash
+git clone https://github.com/tony1223/better-agent-terminal.git
+cd better-agent-terminal
+npm install
+npm run compile
+npm run start:server -- --bind=all --port=9876
+```
+
+#### Options
+
+```
+--port=N            TCP port to listen on (default: 9876)
+--bind=IFACE        localhost | tailscale | all (default: localhost)
+--data-dir=PATH     persistent state directory (default: same as the GUI)
+--token=HEX         pin a known token (default: persisted or random)
+--debug             write debug.log inside data-dir
+-h, --help          show this help
+```
+
+Environment variable equivalents: `BAT_PORT`, `BAT_BIND`, `BAT_DATA_DIR`, `BAT_TOKEN`, `BAT_DEBUG`.
+
+> **Note:** Headless mode runs without the OS keychain, so persisted tokens are stored in plaintext under `--data-dir`. Treat that directory like any other secret.
+
 ---
 
 ## Configuration
