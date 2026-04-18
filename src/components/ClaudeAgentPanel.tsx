@@ -1169,6 +1169,47 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     dlog(`${tag} stored terminal: sdkSessionId=${stored?.sdkSessionId?.slice(0, 8)} pendingPrompt="${stored?.pendingPrompt}" pendingImages=${stored?.pendingImages?.length ?? 0}`)
   }, [sessionId, workspaceId, hasSdkSession, currentModel, attachedImages])
 
+  const handleRewindToPrompt = useCallback(async (promptIndex: number, promptCount: number) => {
+    const removed = promptCount - promptIndex
+    const confirmMsg = `Rewind to before prompt #${promptIndex + 1}?\n\nThis will remove the last ${removed} prompt(s) and their responses from conversation history. The original session history is preserved on disk.`
+    if (!window.confirm(confirmMsg)) return
+
+    let result: { newSdkSessionId: string; removedPromptCount: number } | { error: string }
+    try {
+      result = await window.electronAPI.claude.rewindToPrompt(sessionId, promptIndex)
+    } catch (e) {
+      alert('Rewind failed: ' + (e instanceof Error ? e.message : String(e)))
+      return
+    }
+    if ('error' in result) {
+      alert('Rewind failed: ' + result.error)
+      return
+    }
+
+    // Trim local message state: keep messages BEFORE the Nth user prompt.
+    // Splice allMessages (loadedArchive + messages) at the cutoff and redistribute.
+    const combined = [...loadedArchive, ...messages]
+    let userPromptCount = 0
+    let cutoffIdx = combined.length
+    for (let i = 0; i < combined.length; i++) {
+      const m = combined[i]
+      if (!isToolCall(m) && (m as ClaudeMessage).role === 'user') {
+        if (userPromptCount === promptIndex) {
+          cutoffIdx = i
+          break
+        }
+        userPromptCount++
+      }
+    }
+    const kept = combined.slice(0, cutoffIdx)
+    // Put everything into loadedArchive so later streaming appends to messages cleanly
+    setLoadedArchive(kept)
+    setMessages([])
+
+    workspaceStore.setTerminalSdkSessionId(sessionId, result.newSdkSessionId)
+    setShowPromptHistory(false)
+  }, [sessionId, loadedArchive, messages])
+
   const clearInput = useCallback(() => {
     inputValueRef.current = ''
     if (textareaRef.current) {
@@ -3903,6 +3944,12 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                         onClick={() => navigator.clipboard.writeText(m.content)}
                         title={t('claude.copyThisPrompt')}
                       >copy</button>
+                      <button
+                        className="claude-prompt-history-rewind-one"
+                        onClick={() => handleRewindToPrompt(i, userPrompts.length)}
+                        title={`Rewind to before this prompt (removes ${userPrompts.length - i} prompt(s) and responses)`}
+                        disabled={isStreaming}
+                      >↶ rewind</button>
                     </div>
                     <pre className="claude-prompt-history-content">{m.content}</pre>
                   </div>

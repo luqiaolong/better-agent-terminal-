@@ -1979,6 +1979,29 @@
   color: #fff;
   border-color: rgba(255, 255, 255, 0.3);
 }
+.claude-prompt-history-rewind-one {
+  margin-left: 4px;
+  background: none;
+  border: 1px solid rgba(255, 180, 100, 0.25);
+  color: rgba(255, 180, 100, 0.6);
+  font-size: calc(var(--claude-font-size) - 3px);
+  padding: 1px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.claude-prompt-history-item:hover .claude-prompt-history-rewind-one {
+  opacity: 1;
+}
+.claude-prompt-history-rewind-one:hover:not(:disabled) {
+  color: rgb(255, 180, 100);
+  border-color: rgba(255, 180, 100, 0.5);
+}
+.claude-prompt-history-rewind-one:disabled {
+  cursor: not-allowed;
+  opacity: 0.3;
+}
 .claude-prompt-history-content {
   margin: 0;
   white-space: pre-wrap;

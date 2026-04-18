@@ -195,6 +195,8 @@ const electronAPI = {
       ipcRenderer.invoke('claude:resume-session', sessionId, sdkSessionId, cwd, model, apiVersion, useWorktree, worktreePath, worktreeBranch),
     forkSession: (sessionId: string) =>
       ipcRenderer.invoke('claude:fork-session', sessionId) as Promise<{ newSdkSessionId: string } | null>,
+    rewindToPrompt: (sessionId: string, promptIndex: number) =>
+      ipcRenderer.invoke('claude:rewind-to-prompt', sessionId, promptIndex) as Promise<{ newSdkSessionId: string; removedPromptCount: number } | { error: string }>,
     stopTask: (sessionId: string, taskId: string) =>
       ipcRenderer.invoke('claude:stop-task', sessionId, taskId) as Promise<boolean>,
     restSession: (sessionId: string) =>

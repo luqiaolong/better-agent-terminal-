@@ -345,6 +345,11 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
     return getClaudeManager()?.resumeSession(sessionId, sdkSessionId, cwd, model, apiVersion, useWorktree, worktreePath, worktreeBranch)
   })
   registerHandler('claude:fork-session', (_ctx, sessionId: string) => getManager(sessionId)?.forkSession(sessionId))
+  registerHandler('claude:rewind-to-prompt', (_ctx, sessionId: string, promptIndex: number) => {
+    const mgr = getManager(sessionId)
+    if (!mgr || !('rewindToPrompt' in mgr)) return { error: 'Rewind not supported for this session type' }
+    return (mgr as { rewindToPrompt: (sid: string, idx: number) => Promise<unknown> }).rewindToPrompt(sessionId, promptIndex)
+  })
   registerHandler('claude:stop-task', (_ctx, sessionId: string, taskId: string) => getManager(sessionId)?.stopTask(sessionId, taskId))
   registerHandler('claude:rest-session', (_ctx, sessionId: string) => getManager(sessionId)?.restSession(sessionId))
   registerHandler('claude:wake-session', (_ctx, sessionId: string) => getManager(sessionId)?.wakeSession(sessionId))

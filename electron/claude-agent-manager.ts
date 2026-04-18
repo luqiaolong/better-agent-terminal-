@@ -2271,6 +2271,101 @@ export class ClaudeAgentManager {
     }
   }
 
+  /**
+   * Rewind the session's conversation history to the state BEFORE the user prompt
+   * at `promptIndex` (0-based, counting only user text prompts, not tool_results).
+   *
+   * Writes a new JSONL file containing only entries before the target prompt, then
+   * swaps the session's sdkSessionId to point at it. The original JSONL is kept intact.
+   *
+   * The caller (renderer) is responsible for trimming its local message list to match.
+   */
+  async rewindToPrompt(sessionId: string, promptIndex: number): Promise<{ newSdkSessionId: string; removedPromptCount: number } | { error: string }> {
+    const session = this.sessions.get(sessionId)
+    if (!session) return { error: 'Session not found' }
+
+    const currentSdkId = session.sdkSessionId || sdkSessionIds.get(sessionId)
+    if (!currentSdkId) return { error: 'No SDK session to rewind' }
+
+    if (session.state.isStreaming) {
+      return { error: 'Cannot rewind while Claude is responding — stop the current turn first.' }
+    }
+
+    const os = await import('os')
+    const { randomUUID } = await import('crypto')
+    const cwd = session.cwd
+    const encoded = cwd.replace(/[^a-zA-Z0-9]/g, '-')
+    const projectDir = pathModule.join(os.homedir(), '.claude', 'projects', encoded)
+    const filePath = pathModule.join(projectDir, `${currentSdkId}.jsonl`)
+
+    try {
+      await fsPromises.stat(filePath)
+    } catch {
+      return { error: `Session history file not found: ${filePath}` }
+    }
+
+    const content = await fsPromises.readFile(filePath, 'utf-8')
+    const lines = content.split('\n').filter(l => l.trim())
+
+    let userPromptCount = 0
+    let cutoffIdx = -1
+    for (let i = 0; i < lines.length; i++) {
+      try {
+        const obj = JSON.parse(lines[i]) as { type?: string; message?: { role?: string; content?: unknown } }
+        if (obj.type !== 'user' || obj.message?.role !== 'user') continue
+        const msgContent = obj.message.content
+        let hasText = false
+        if (typeof msgContent === 'string' && msgContent.length > 0) {
+          hasText = true
+        } else if (Array.isArray(msgContent)) {
+          hasText = msgContent.some((b: { type?: string }) => b.type === 'text')
+        }
+        if (!hasText) continue
+        if (userPromptCount === promptIndex) {
+          cutoffIdx = i
+          break
+        }
+        userPromptCount++
+      } catch { /* skip malformed */ }
+    }
+
+    if (cutoffIdx === -1) {
+      return { error: `Prompt index ${promptIndex} not found (only ${userPromptCount} user prompt(s) in history)` }
+    }
+
+    const keptLines = lines.slice(0, cutoffIdx)
+    const newSdkSessionId = randomUUID()
+
+    const rewrittenLines = keptLines.map(line => {
+      try {
+        const obj = JSON.parse(line) as Record<string, unknown>
+        if (typeof obj.sessionId === 'string') obj.sessionId = newSdkSessionId
+        return JSON.stringify(obj)
+      } catch {
+        return line
+      }
+    })
+
+    const newFilePath = pathModule.join(projectDir, `${newSdkSessionId}.jsonl`)
+    await fsPromises.writeFile(newFilePath, rewrittenLines.join('\n') + (rewrittenLines.length > 0 ? '\n' : ''), 'utf-8')
+
+    // Abort any in-flight query (shouldn't be any since we checked isStreaming, but be safe)
+    session.abortController.abort()
+    session.abortController = new AbortController()
+
+    // Swap session to the new SDK session ID
+    session.sdkSessionId = newSdkSessionId
+    sdkSessionIds.set(sessionId, newSdkSessionId)
+    session.metadata.sdkSessionId = newSdkSessionId
+
+    const removedPromptCount = lines.length - cutoffIdx
+    logger.log(`[rewindToPrompt] sessionId=${sessionId.slice(0, 8)} promptIndex=${promptIndex} kept=${keptLines.length}/${lines.length} lines, newSdkSessionId=${newSdkSessionId.slice(0, 8)}`)
+
+    this.send('claude:status', sessionId, { ...session.metadata })
+
+    return { newSdkSessionId, removedPromptCount }
+  }
+
   async forkSession(sessionId: string): Promise<{ newSdkSessionId: string } | null> {
     const session = this.sessions.get(sessionId)
     const currentSdkId = session?.sdkSessionId || sdkSessionIds.get(sessionId)
