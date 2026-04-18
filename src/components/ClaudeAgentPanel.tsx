@@ -226,7 +226,16 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   const [activePlanFile, setActivePlanFile] = useState<string | null>(null)
   const [planFileTitle, setPlanFileTitle] = useState<string | null>(null)
   const [planFileTrigger, setPlanFileTrigger] = useState(0)
+  const [planFileShownAt, setPlanFileShownAt] = useState<number | null>(null)
   const dismissedPlanFileRef = useRef<string | null>(null)
+  const PLAN_BADGE_TTL_MS = 10 * 60 * 1000
+  useEffect(() => {
+    if (!activePlanFile || !planFileShownAt) return
+    const remaining = PLAN_BADGE_TTL_MS - (Date.now() - planFileShownAt)
+    if (remaining <= 0) { setActivePlanFile(null); setPlanFileShownAt(null); return }
+    const timer = setTimeout(() => { setActivePlanFile(null); setPlanFileShownAt(null) }, remaining)
+    return () => clearTimeout(timer)
+  }, [activePlanFile, planFileShownAt])
   useEffect(() => {
     if (!activePlanFile) { setPlanFileTitle(null); return }
     window.electronAPI.fs.readFile(activePlanFile).then(r => {
@@ -574,9 +583,11 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         // EnterPlanMode means we're entering plan mode (writing a new plan) — hide the bar.
         if (toolCall.toolName === 'EnterPlanMode') {
           setActivePlanFile(null)
+          setPlanFileShownAt(null)
         } else if (toolCall.toolName === 'ExitPlanMode' && toolCall.input.planFilePath) {
           setActivePlanFile(String(toolCall.input.planFilePath))
           setPlanFileTrigger(n => n + 1)
+          setPlanFileShownAt(Date.now())
           dismissedPlanFileRef.current = null
         }
         // Use flushSync for Agent/Task tools to ensure the active tasks bar renders immediately
@@ -810,13 +821,18 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           }
         }
         subagentMessagesRef.current = subagentBuckets
-        // Restore activePlanFile from history: only show bar if last plan tool is ExitPlanMode
+        // Restore activePlanFile from history: only show bar if last plan tool is
+        // ExitPlanMode and it fired within the 10-minute badge window.
         for (let i = mainItems.length - 1; i >= 0; i--) {
           const it = mainItems[i]
           if ('toolName' in it && (it.toolName === 'EnterPlanMode' || it.toolName === 'ExitPlanMode')) {
             if (it.toolName === 'ExitPlanMode' && it.input?.planFilePath) {
               const pf = String(it.input.planFilePath)
-              if (dismissedPlanFileRef.current !== pf) setActivePlanFile(pf)
+              const shownAt = typeof it.timestamp === 'number' ? it.timestamp : Date.now()
+              if (dismissedPlanFileRef.current !== pf && Date.now() - shownAt < PLAN_BADGE_TTL_MS) {
+                setActivePlanFile(pf)
+                setPlanFileShownAt(shownAt)
+              }
             }
             break
           }
@@ -3202,7 +3218,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           <div className="claude-plan-file-actions">
             <button
               className="claude-plan-file-btn"
-              onClick={() => { dismissedPlanFileRef.current = activePlanFile; setActivePlanFile(null) }}
+              onClick={() => { dismissedPlanFileRef.current = activePlanFile; setActivePlanFile(null); setPlanFileShownAt(null) }}
             >Dismiss</button>
           </div>
         </div>
