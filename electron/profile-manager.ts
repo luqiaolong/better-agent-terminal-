@@ -186,6 +186,59 @@ async function writeSnapshot(snapshot: ProfileSnapshot): Promise<void> {
   await fs.writeFile(getProfilePath(snapshot.id), JSON.stringify(snapshot, null, 2), 'utf-8')
 }
 
+const LEGACY_DIR_NAME = 'better-agent-terminal'
+
+async function migrateFromLegacyDir(): Promise<ProfileIndex | null> {
+  const currentDataDir = getDataDir()
+  const legacyDataDir = path.join(path.dirname(currentDataDir), LEGACY_DIR_NAME)
+  const legacyProfilesDir = path.join(legacyDataDir, 'profiles')
+  const legacyIndexPath = path.join(legacyProfilesDir, 'index.json')
+
+  try {
+    await fs.access(legacyIndexPath)
+  } catch {
+    return null
+  }
+
+  logger.log(`[profile] found legacy data dir at ${legacyDataDir}, migrating...`)
+
+  // Copy all profile files
+  await ensureDir()
+  const files = await fs.readdir(legacyProfilesDir)
+  for (const file of files) {
+    if (!file.endsWith('.json') || file.includes('.bak') || file.includes('.tmp') || file.includes('.corrupt')) continue
+    const src = path.join(legacyProfilesDir, file)
+    const dst = path.join(getProfilesDir(), file)
+    try {
+      await fs.copyFile(src, dst)
+    } catch (err) {
+      logger.error(`[profile] failed to copy ${file}:`, err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  // Copy top-level config files
+  const configFiles = ['settings.json', 'snippets.json', 'claude-accounts.json', 'claude-account-creds.enc.json', 'server-token.json']
+  for (const file of configFiles) {
+    const src = path.join(legacyDataDir, file)
+    const dst = path.join(currentDataDir, file)
+    try {
+      await fs.access(dst)
+      // Already exists in new dir — skip
+    } catch {
+      try {
+        await fs.copyFile(src, dst)
+        logger.log(`[profile] migrated config ${file}`)
+      } catch { /* source doesn't exist */ }
+    }
+  }
+
+  const index = await readIndex()
+  if (index) {
+    logger.log(`[profile] migration complete: ${index.profiles.length} profile(s)`)
+  }
+  return index
+}
+
 // Initialize on first use: create default profile from current workspaces.json.
 // Only runs when index.json is genuinely missing — NEVER overwrites an existing index,
 // even one that parses to an empty profile list, since that would destroy user data
@@ -193,6 +246,10 @@ async function writeSnapshot(snapshot: ProfileSnapshot): Promise<void> {
 async function ensureInitialized(): Promise<ProfileIndex> {
   const existing = await readIndex()
   if (existing) return existing
+
+  // Try migrating from legacy data directory (better-agent-terminal → BetterAgentTerminal)
+  const migrated = await migrateFromLegacyDir()
+  if (migrated) return migrated
 
   // First time: create default profile from existing workspaces
   const now = Date.now()
