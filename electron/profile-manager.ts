@@ -2,6 +2,7 @@ import { app } from 'electron'
 import path from 'path'
 import * as fs from 'fs/promises'
 import type { WindowRegistry } from './window-registry'
+import { logger } from './logger'
 
 export interface ProfileEntry {
   id: string
@@ -75,27 +76,81 @@ async function ensureDir(): Promise<void> {
   await fs.mkdir(getProfilesDir(), { recursive: true })
 }
 
-async function readIndex(): Promise<ProfileIndex> {
+function normalizeIndex(raw: Record<string, unknown>): ProfileIndex {
+  // Migrate legacy activeProfileId → activeProfileIds
+  if (!raw.activeProfileIds && raw.activeProfileId) {
+    raw.activeProfileIds = [raw.activeProfileId]
+    delete raw.activeProfileId
+  }
+  if (!raw.activeProfileIds) {
+    raw.activeProfileIds = ['default']
+  }
+  if (!Array.isArray(raw.profiles)) {
+    throw new Error('malformed profile index: "profiles" must be an array')
+  }
+  return raw as unknown as ProfileIndex
+}
+
+async function readIndexFile(filePath: string): Promise<ProfileIndex | null> {
+  let data: string
   try {
-    const data = await fs.readFile(getIndexPath(), 'utf-8')
-    const raw = JSON.parse(data)
-    // Migrate legacy activeProfileId → activeProfileIds
-    if (!raw.activeProfileIds && raw.activeProfileId) {
-      raw.activeProfileIds = [raw.activeProfileId]
-      delete raw.activeProfileId
+    data = await fs.readFile(filePath, 'utf-8')
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException
+    if (e.code === 'ENOENT') return null
+    throw new Error(`Failed to read profile index at ${filePath}: ${e.message}`)
+  }
+  return normalizeIndex(JSON.parse(data))
+}
+
+/**
+ * Returns the parsed profile index, or null if no file exists (first run).
+ * Never returns an empty-profiles placeholder, because that placeholder used
+ * to trigger ensureInitialized() to overwrite the real index on any read hiccup.
+ * On corruption, tries the .bak fallback before throwing — never silently drops data.
+ */
+async function readIndex(): Promise<ProfileIndex | null> {
+  const indexPath = getIndexPath()
+  try {
+    return await readIndexFile(indexPath)
+  } catch (err) {
+    const bakPath = `${indexPath}.bak`
+    logger.error(`[profile] index.json unreadable, trying ${bakPath}:`, err instanceof Error ? err.message : String(err))
+    try {
+      const fromBackup = await readIndexFile(bakPath)
+      if (fromBackup) {
+        logger.log(`[profile] recovered index from ${bakPath} (${fromBackup.profiles.length} profile(s))`)
+        return fromBackup
+      }
+    } catch (bakErr) {
+      logger.error(`[profile] backup index also unreadable:`, bakErr instanceof Error ? bakErr.message : String(bakErr))
     }
-    if (!raw.activeProfileIds) {
-      raw.activeProfileIds = ['default']
-    }
-    return raw
-  } catch {
-    return { profiles: [], activeProfileIds: ['default'] }
+    // Preserve the corrupt file so user can recover manually — never silently overwrite.
+    const quarantine = `${indexPath}.corrupt.${Date.now()}`
+    try {
+      await fs.copyFile(indexPath, quarantine)
+      logger.error(`[profile] quarantined corrupt index at ${quarantine}`)
+    } catch { /* best effort */ }
+    throw err
   }
 }
 
 async function writeIndex(index: ProfileIndex): Promise<void> {
   await ensureDir()
-  await fs.writeFile(getIndexPath(), JSON.stringify(index, null, 2), 'utf-8')
+  const indexPath = getIndexPath()
+  const tmpPath = `${indexPath}.tmp`
+  const bakPath = `${indexPath}.bak`
+
+  // Rotate last good file into .bak before clobbering (only if current file parses).
+  // Prevents a corrupt write followed by readIndex seeing neither a valid index nor a valid backup.
+  try {
+    await readIndexFile(indexPath)
+    await fs.copyFile(indexPath, bakPath)
+  } catch { /* no existing file, or unreadable — skip backup */ }
+
+  // Atomic write: write to temp, then rename. Crash mid-write leaves old file intact.
+  await fs.writeFile(tmpPath, JSON.stringify(index, null, 2), 'utf-8')
+  await fs.rename(tmpPath, indexPath)
 }
 
 function migrateSnapshot(raw: ProfileSnapshotV1 | ProfileSnapshot): ProfileSnapshot {
@@ -131,10 +186,13 @@ async function writeSnapshot(snapshot: ProfileSnapshot): Promise<void> {
   await fs.writeFile(getProfilePath(snapshot.id), JSON.stringify(snapshot, null, 2), 'utf-8')
 }
 
-// Initialize on first use: create default profile from current workspaces.json
+// Initialize on first use: create default profile from current workspaces.json.
+// Only runs when index.json is genuinely missing — NEVER overwrites an existing index,
+// even one that parses to an empty profile list, since that would destroy user data
+// on any transient read issue.
 async function ensureInitialized(): Promise<ProfileIndex> {
-  const index = await readIndex()
-  if (index.profiles.length > 0) return index
+  const existing = await readIndex()
+  if (existing) return existing
 
   // First time: create default profile from existing workspaces
   const now = Date.now()
