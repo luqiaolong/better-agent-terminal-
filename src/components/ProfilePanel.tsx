@@ -59,12 +59,54 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
   const createInputRef = useRef<HTMLInputElement>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
 
+  const [remoteActiveByLocalId, setRemoteActiveByLocalId] = useState<Record<string, boolean>>({})
+
   const loadProfiles = useCallback(async () => {
-    const result = await window.electronAPI.profile.list()
+    const result = await window.electronAPI.profile.listLocal()
     setProfiles(result.profiles)
     setActiveProfileIds(result.activeProfileIds)
     const wpId = await window.electronAPI.app.getWindowProfile()
     setWindowProfileId(wpId)
+
+    // Fan out: query each unique remote target for its active profile ids,
+    // so remote-alias entries reflect their REAL state on the target server.
+    const remoteEntries = result.profiles.filter(p =>
+      p.type === 'remote' && p.remoteHost && p.remoteToken && p.remoteFingerprint
+    )
+    if (remoteEntries.length === 0) {
+      setRemoteActiveByLocalId({})
+      return
+    }
+    const targetMap = new Map<string, { host: string; port: number; token: string; fingerprint: string; profiles: typeof remoteEntries }>()
+    for (const p of remoteEntries) {
+      const key = `${p.remoteHost}|${p.remotePort || 9876}|${p.remoteToken}|${p.remoteFingerprint}`
+      const entry = targetMap.get(key)
+      if (entry) entry.profiles.push(p)
+      else targetMap.set(key, {
+        host: p.remoteHost!,
+        port: p.remotePort || 9876,
+        token: p.remoteToken!,
+        fingerprint: p.remoteFingerprint!,
+        profiles: [p],
+      })
+    }
+    const settled = await Promise.allSettled(
+      Array.from(targetMap.values()).map(async target => {
+        const res = await window.electronAPI.remote.listProfiles(target.host, target.port, target.token, target.fingerprint)
+        if ('error' in res) return { profiles: target.profiles, activeIds: [] as string[] }
+        return { profiles: target.profiles, activeIds: res.activeProfileIds }
+      })
+    )
+    const map: Record<string, boolean> = {}
+    for (const s of settled) {
+      if (s.status !== 'fulfilled') continue
+      const { profiles: ps, activeIds } = s.value
+      for (const p of ps) {
+        const targetId = p.remoteProfileId || 'default'
+        map[p.id] = activeIds.includes(targetId)
+      }
+    }
+    setRemoteActiveByLocalId(map)
   }, [])
 
   useEffect(() => {
@@ -365,11 +407,17 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
             </div>
           )}
 
-          <div className="profile-list">
-            {profiles.map(profile => (
+          {(() => {
+            const localList = profiles.filter(p => p.type !== 'remote')
+            const remoteList = profiles.filter(p => p.type === 'remote')
+            const isProfileRunning = (p: ProfileEntry) =>
+              p.type === 'remote'
+                ? !!remoteActiveByLocalId[p.id]
+                : activeProfileIds.includes(p.id)
+            const renderProfile = (profile: ProfileEntry) => (
               <div
                 key={profile.id}
-                className={`profile-item ${profile.id === windowProfileId ? 'active' : ''} ${activeProfileIds.includes(profile.id) ? 'running' : ''}`}
+                className={`profile-item ${profile.id === windowProfileId ? 'active' : ''} ${isProfileRunning(profile) ? 'running' : ''}`}
                 onClick={() => handleSwitchRequest(profile.id)}
               >
                 <div className="profile-item-info">
@@ -541,8 +589,20 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
                   )}
                 </div>
               </div>
-            ))}
-          </div>
+            )
+            return (
+              <div className="profile-list">
+                <div className="profile-section-header">{t('profiles.localSection')}</div>
+                {localList.map(renderProfile)}
+                {remoteList.length > 0 && (
+                  <>
+                    <div className="profile-section-header">{t('profiles.remoteSection')}</div>
+                    {remoteList.map(renderProfile)}
+                  </>
+                )}
+              </div>
+            )
+          })()}
         </div>
       </div>
 

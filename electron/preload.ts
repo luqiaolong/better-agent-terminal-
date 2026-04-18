@@ -336,7 +336,7 @@ const electronAPI = {
     testConnection: (host: string, port: number, token: string, fingerprint: string) =>
       ipcRenderer.invoke('remote:test-connection', host, port, token, fingerprint) as Promise<{ ok: boolean; error?: string }>,
     listProfiles: (host: string, port: number, token: string, fingerprint: string) =>
-      ipcRenderer.invoke('remote:list-profiles', host, port, token, fingerprint) as Promise<{ profiles: { id: string; name: string; type: string }[] } | { error: string }>,
+      ipcRenderer.invoke('remote:list-profiles', host, port, token, fingerprint) as Promise<{ profiles: { id: string; name: string; type: string }[]; activeProfileIds: string[] } | { error: string }>,
   },
   tunnel: {
     getConnection: () =>

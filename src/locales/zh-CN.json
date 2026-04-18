@@ -165,7 +165,9 @@
     "host": "主机",
     "fetchProfiles": "获取配置",
     "fetchingProfiles": "获取中...",
-    "currentTarget": "当前目标"
+    "currentTarget": "当前目标",
+    "localSection": "本地",
+    "remoteSection": "远程"
   },
   "workspace": {
     "terminal": "终端",

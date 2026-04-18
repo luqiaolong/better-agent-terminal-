@@ -328,6 +328,20 @@
   gap: 4px;
 }
 
+.profile-section-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  padding: 8px 12px 4px;
+  margin-top: 4px;
+}
+
+.profile-section-header:first-child {
+  margin-top: 0;
+}
+
 .profile-item {
   display: flex;
   align-items: center;

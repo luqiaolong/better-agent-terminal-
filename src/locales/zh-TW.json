@@ -169,7 +169,9 @@
     "host": "主機",
     "fetchProfiles": "取得設定檔",
     "fetchingProfiles": "取得中...",
-    "currentTarget": "目前目標"
+    "currentTarget": "目前目標",
+    "localSection": "本機",
+    "remoteSection": "遠端"
   },
 
   "workspace": {
