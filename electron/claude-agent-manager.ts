@@ -1666,6 +1666,12 @@ export class ClaudeAgentManager {
     session.model = model
     session.metadata.model = model
 
+    // Sync contextWindow / maxOutputTokens to match the new model so the UI label
+    // ("(1M)" vs "(200k)") updates immediately, not on next query response.
+    const isOneMil = model.includes('[1m]')
+    session.metadata.contextWindow = isOneMil ? 1000000 : 200000
+    session.metadata.maxOutputTokens = model.includes('haiku') ? 8192 : 64000
+
     // Update autoCompactWindow from latest settings
     session.autoCompactWindow = autoCompactWindow
     logger.log(`[setModel] autoCompactWindow=${autoCompactWindow || 'none'}`)
@@ -1679,6 +1685,7 @@ export class ClaudeAgentManager {
 
     if (!session.queryInstance) {
       logger.log(`[setModel] stored model ${model} for session ${sessionId.slice(0, 8)} (no active query)`)
+      this.send('claude:status', sessionId, { ...session.metadata })
       return true
     }
 
@@ -1690,6 +1697,7 @@ export class ClaudeAgentManager {
       return true
     } catch (e) {
       logger.warn(`[setModel] SDK call failed (model stored for next query):`, e)
+      this.send('claude:status', sessionId, { ...session.metadata })
       return true
     }
   }
