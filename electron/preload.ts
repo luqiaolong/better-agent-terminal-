@@ -293,6 +293,18 @@ const electronAPI = {
     readdir: (dirPath: string) => ipcRenderer.invoke('fs:readdir', dirPath) as Promise<{ name: string; path: string; isDirectory: boolean }[]>,
     readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath) as Promise<{ content?: string; error?: string; size?: number }>,
     search: (dirPath: string, query: string) => ipcRenderer.invoke('fs:search', dirPath, query) as Promise<{ name: string; path: string; isDirectory: boolean }[]>,
+    home: () => ipcRenderer.invoke('fs:home') as Promise<string>,
+    quickLocations: () =>
+      ipcRenderer.invoke('fs:quick-locations') as Promise<
+        { name: string; path: string; kind: 'home' | 'drive' | 'volume' | 'root' }[]
+      >,
+    listDirs: (dirPath: string, includeHidden: boolean) =>
+      ipcRenderer.invoke('fs:list-dirs', dirPath, includeHidden) as Promise<
+        | { current: string; parent: string | null; entries: { name: string; path: string }[] }
+        | { error: string }
+      >,
+    mkdir: (parentPath: string, name: string) =>
+      ipcRenderer.invoke('fs:mkdir', parentPath, name) as Promise<{ path: string } | { error: string }>,
     watch: (dirPath: string) => ipcRenderer.invoke('fs:watch', dirPath) as Promise<boolean>,
     unwatch: (dirPath: string) => ipcRenderer.invoke('fs:unwatch', dirPath) as Promise<boolean>,
     onChanged: (callback: (dirPath: string) => void) => {

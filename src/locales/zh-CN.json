@@ -169,6 +169,21 @@
     "localSection": "本地",
     "remoteSection": "远程"
   },
+  "folderPicker": {
+    "title": "选择文件夹",
+    "pathPlaceholder": "路径...",
+    "go": "前往",
+    "goUp": "上一层",
+    "showHidden": "显示隐藏",
+    "newFolder": "新建文件夹",
+    "newFolderNamePlaceholder": "文件夹名称...",
+    "loading": "加载中...",
+    "empty": "（没有子文件夹）",
+    "useCurrentHint": "点击勾选、双击进入",
+    "useCurrent": "使用当前文件夹",
+    "addSelected": "添加所选 ({{count}})",
+    "selectedCount": "已选 {{count}} 项"
+  },
   "workspace": {
     "terminal": "终端",
     "files": "文件",

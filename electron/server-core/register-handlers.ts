@@ -579,6 +579,75 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
       return { content }
     } catch { return { error: 'Failed to read file' } }
   })
+  registerHandler('fs:home', () => os.homedir())
+
+  registerHandler('fs:quick-locations', async () => {
+    const home = os.homedir()
+    const items: { name: string; path: string; kind: 'home' | 'drive' | 'volume' | 'root' }[] = [
+      { name: 'Home', path: home, kind: 'home' },
+    ]
+    if (process.platform === 'win32') {
+      for (const letter of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+        const root = `${letter}:\\`
+        try {
+          await fs.access(root)
+          items.push({ name: `${letter}:`, path: root, kind: 'drive' })
+        } catch { /* drive not present */ }
+      }
+    } else {
+      items.push({ name: '/', path: '/', kind: 'root' })
+      if (process.platform === 'darwin') {
+        try {
+          const mounts = await fs.readdir('/Volumes', { withFileTypes: true })
+          for (const m of mounts) {
+            if (m.isDirectory() || m.isSymbolicLink()) {
+              items.push({ name: m.name, path: `/Volumes/${m.name}`, kind: 'volume' })
+            }
+          }
+        } catch { /* no /Volumes */ }
+      }
+    }
+    return items
+  })
+
+  registerHandler('fs:list-dirs', async (_ctx, dirPath: string, includeHidden: boolean) => {
+    try {
+      const abs = path.resolve(dirPath)
+      if (isSensitivePath(abs)) return { error: 'Access denied (sensitive path)' }
+      const entries = await fs.readdir(abs, { withFileTypes: true })
+      const filtered = entries
+        .filter(e => e.isDirectory())
+        .filter(e => includeHidden || !e.name.startsWith('.'))
+        .filter(e => !isSensitivePath(path.join(abs, e.name)))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(e => ({ name: e.name, path: path.join(abs, e.name) }))
+      const parent = path.dirname(abs)
+      return {
+        current: abs,
+        parent: parent === abs ? null : parent,
+        entries: filtered,
+      }
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  registerHandler('fs:mkdir', async (_ctx, parentPath: string, name: string) => {
+    try {
+      const trimmed = (name ?? '').trim()
+      if (!trimmed || trimmed.includes('/') || trimmed.includes('\\') || trimmed === '.' || trimmed === '..') {
+        return { error: 'Invalid folder name' }
+      }
+      const abs = path.resolve(parentPath)
+      if (isSensitivePath(abs)) return { error: 'Access denied (sensitive path)' }
+      const target = path.join(abs, trimmed)
+      await fs.mkdir(target, { recursive: false })
+      return { path: target }
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
   registerHandler('fs:search', async (_ctx, dirPath: string, query: string) => {
     const IGNORED = new Set(['.git', 'node_modules', '.next', 'dist', 'dist-electron', '.cache', '__pycache__', '.DS_Store', 'release'])
     const results: { name: string; path: string; isDirectory: boolean }[] = []

@@ -174,6 +174,22 @@
     "remoteSection": "遠端"
   },
 
+  "folderPicker": {
+    "title": "選擇資料夾",
+    "pathPlaceholder": "路徑...",
+    "go": "前往",
+    "goUp": "上一層",
+    "showHidden": "顯示隱藏",
+    "newFolder": "新增資料夾",
+    "newFolderNamePlaceholder": "資料夾名稱...",
+    "loading": "載入中...",
+    "empty": "（沒有子資料夾）",
+    "useCurrentHint": "點擊勾選、雙擊進入",
+    "useCurrent": "使用目前資料夾",
+    "addSelected": "加入所選 ({{count}})",
+    "selectedCount": "已選 {{count}} 項"
+  },
+
   "workspace": {
     "terminal": "終端",
     "files": "檔案",

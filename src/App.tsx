@@ -13,6 +13,7 @@ import { MarkdownPreviewPanel } from './components/MarkdownPreviewPanel'
 import { WorkspaceEnvDialog } from './components/WorkspaceEnvDialog'
 import { ResizeHandle } from './components/ResizeHandle'
 import { ProfilePanel } from './components/ProfilePanel'
+import { FolderPicker } from './components/FolderPicker'
 import type { AppState, EnvVariable, TerminalInstance } from './types'
 
 // Panel settings interface
@@ -33,6 +34,20 @@ const MAX_SIDEBAR_WIDTH = 400
 const DEFAULT_SNIPPET_WIDTH = 280
 const MIN_SNIPPET_WIDTH = 180
 const MAX_SNIPPET_WIDTH = 500
+
+// Compute parent of a path, supporting both POSIX and Windows separators.
+// Returns the input unchanged if at filesystem root.
+function parentPath(p: string): string {
+  if (!p) return p
+  const trimmed = p.replace(/[/\\]+$/, '')
+  const idx = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  if (idx < 0) return trimmed
+  // Windows drive root e.g. "C:\foo" → "C:\"
+  if (idx === 2 && trimmed[1] === ':') return trimmed.slice(0, 3)
+  // POSIX root e.g. "/foo" → "/"
+  if (idx === 0) return '/'
+  return trimmed.slice(0, idx)
+}
 
 function loadPanelSettings(): PanelSettings {
   try {
@@ -67,6 +82,8 @@ export default function App() {
   const [state, setState] = useState<AppState>(workspaceStore.getState())
   const [showSettings, setShowSettings] = useState(false)
   const [showProfiles, setShowProfiles] = useState(false)
+  const [folderPickerInitialPath, setFolderPickerInitialPath] = useState<string | undefined>(undefined)
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false)
   const [activeProfileName, setActiveProfileName] = useState<string>('Default')
   const [isRemoteConnected, setIsRemoteConnected] = useState(false)
   const [appNotification, setAppNotification] = useState<string | null>(null)
@@ -445,15 +462,20 @@ export default function App() {
     return () => clearInterval(interval)
   }, [])
 
-  const handleAddWorkspace = useCallback(async () => {
-    const folderPaths = await window.electronAPI.dialog.selectFolder()
-    if (folderPaths && folderPaths.length > 0) {
-      for (const folderPath of folderPaths) {
-        const name = folderPath.split(/[/\\]/).pop() || 'Workspace'
-        workspaceStore.addWorkspace(name, folderPath)
-      }
-      workspaceStore.save()
+  const handleAddWorkspace = useCallback(() => {
+    const { workspaces, activeWorkspaceId } = workspaceStore.getState()
+    const active = workspaces.find(w => w.id === activeWorkspaceId)
+    setFolderPickerInitialPath(active ? parentPath(active.folderPath) : undefined)
+    setFolderPickerOpen(true)
+  }, [])
+
+  const handleFolderPickerSelect = useCallback((paths: string[]) => {
+    for (const folderPath of paths) {
+      const name = folderPath.split(/[/\\]/).filter(Boolean).pop() || 'Workspace'
+      workspaceStore.addWorkspace(name, folderPath)
     }
+    workspaceStore.save()
+    setFolderPickerOpen(false)
   }, [])
 
 
@@ -723,6 +745,14 @@ export default function App() {
       })()}
       {showSettings && (
         <SettingsPanel onClose={() => setShowSettings(false)} />
+      )}
+      {folderPickerOpen && (
+        <FolderPicker
+          initialPath={folderPickerInitialPath}
+          multiSelect
+          onSelect={handleFolderPickerSelect}
+          onClose={() => setFolderPickerOpen(false)}
+        />
       )}
       {showProfiles && (
         <ProfilePanel

@@ -41,6 +41,7 @@ export const PROXIED_CHANNELS = new Set([
   'git:branch', 'git:log', 'git:diff', 'git:diff-files', 'git:status', 'git:get-github-url', 'git:getRoot',
   // FS
   'fs:readdir', 'fs:readFile', 'fs:search', 'fs:watch', 'fs:unwatch',
+  'fs:home', 'fs:list-dirs', 'fs:mkdir', 'fs:quick-locations',
   // Snippet
   'snippet:getAll', 'snippet:getById', 'snippet:create', 'snippet:update',
   'snippet:delete', 'snippet:toggleFavorite', 'snippet:search',
