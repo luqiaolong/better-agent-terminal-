@@ -14,7 +14,10 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['@lydell/node-pty', 'ws', 'bufferutil', 'utf-8-validate']
+              // selfsigned + transitive @peculiar/* depend on tslib, whose CJS
+              // shape rolldown (vite 8) bundles incorrectly — externalize so it
+              // resolves from node_modules at runtime.
+              external: ['@lydell/node-pty', 'ws', 'bufferutil', 'utf-8-validate', 'selfsigned']
             }
           }
         }
@@ -40,7 +43,7 @@ export default defineConfig({
             rollupOptions: {
               // electron must stay external — the CLI runs in plain Node and
               // never imports it (only type-only references survive compile).
-              external: ['electron', '@lydell/node-pty', 'ws', 'bufferutil', 'utf-8-validate']
+              external: ['electron', '@lydell/node-pty', 'ws', 'bufferutil', 'utf-8-validate', 'selfsigned']
             }
           }
         }
@@ -57,10 +60,11 @@ export default defineConfig({
     rollupOptions: {
       external: ['@lydell/node-pty'],
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom'],
-          'xterm': ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-web-links', '@xterm/addon-unicode11'],
-          'hljs': ['highlight.js'],
+        // vite 8 ships rolldown, whose manualChunks accepts a function only
+        manualChunks: (id) => {
+          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) return 'react-vendor'
+          if (id.includes('node_modules/@xterm/')) return 'xterm'
+          if (id.includes('node_modules/highlight.js/')) return 'hljs'
         }
       }
     }
