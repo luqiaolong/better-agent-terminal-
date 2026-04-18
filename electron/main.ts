@@ -1,8 +1,11 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu, powerMonitor, clipboard, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, powerMonitor, clipboard, nativeImage, safeStorage, Notification } from 'electron'
 import path from 'path'
 import * as fs from 'fs/promises'
 import * as fsSync from 'fs'
 import { execFileSync } from 'child_process'
+import { setDataDir } from './server-core/data-dir'
+import { setSafeStorage } from './server-core/safe-storage'
+import { setNotifier } from './server-core/notifier'
 import { WindowRegistry } from './window-registry'
 
 // Fix PATH for GUI-launched apps on macOS.
@@ -108,6 +111,24 @@ if (runtimeId) {
 } else {
   console.log(`[runtime] default instance, userData=${app.getPath('userData')}`)
 }
+
+// Wire server-core providers — must run before any consumer (handlers, managers)
+// reads getDataDir() / getSafeStorage() / getNotifier(). Headless CLI provides
+// its own implementations.
+setDataDir(app.getPath('userData'))
+setSafeStorage({
+  isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+  encryptString: (s) => safeStorage.encryptString(s),
+  decryptString: (b) => safeStorage.decryptString(b),
+})
+setNotifier({
+  isSupported: () => Notification.isSupported(),
+  show: ({ title, body, silent, onClick }) => {
+    const n = new Notification({ title, body, silent })
+    if (onClick) n.on('click', onClick)
+    n.show()
+  },
+})
 
 // Set AppUserModelId for Windows taskbar pinning (must be before app.whenReady)
 if (process.platform === 'win32') {

@@ -1,8 +1,8 @@
-import { app } from 'electron'
 import path from 'path'
 import * as fs from 'fs/promises'
 import * as fsSync from 'fs'
 import { logger } from './logger'
+import { getDataDir } from './server-core/data-dir'
 
 export interface WindowEntry {
   id: string
@@ -17,11 +17,11 @@ export interface WindowEntry {
 }
 
 function getRegistryPath(): string {
-  return path.join(app.getPath('userData'), 'windows.json')
+  return path.join(getDataDir(), 'windows.json')
 }
 
 function getWorkspacesPath(): string {
-  return path.join(app.getPath('userData'), 'workspaces.json')
+  return path.join(getDataDir(), 'workspaces.json')
 }
 
 function generateId(): string {
@@ -118,7 +118,7 @@ export class WindowRegistry {
     // Read active profile ID to link the migrated window entry
     let activeProfileId: string | undefined
     try {
-      const profileIndexPath = path.join(app.getPath('userData'), 'profiles', 'index.json')
+      const profileIndexPath = path.join(getDataDir(), 'profiles', 'index.json')
       const profileIndex = JSON.parse(await fs.readFile(profileIndexPath, 'utf-8'))
       // Support both old (activeProfileId) and new (activeProfileIds) formats
       activeProfileId = profileIndex.activeProfileIds?.[0] || profileIndex.activeProfileId || 'default'
@@ -158,7 +158,7 @@ export class WindowRegistry {
 
       let activeProfileId: string | undefined
       try {
-        const profileIndexPath = path.join(app.getPath('userData'), 'profiles', 'index.json')
+        const profileIndexPath = path.join(getDataDir(), 'profiles', 'index.json')
         const profileIndex = JSON.parse(await fs.readFile(profileIndexPath, 'utf-8'))
         activeProfileId = profileIndex.activeProfileIds?.[0] || profileIndex.activeProfileId || 'default'
       } catch {

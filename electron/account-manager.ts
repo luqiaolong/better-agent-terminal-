@@ -1,10 +1,11 @@
-import { app, safeStorage } from 'electron'
 import * as fs from 'fs/promises'
 import * as fsSync from 'fs'
 import * as path from 'path'
 import { execFile, execFileSync } from 'child_process'
 import { logger } from './logger'
 import * as os from 'os'
+import { getDataDir } from './server-core/data-dir'
+import { getSafeStorage } from './server-core/safe-storage'
 
 export interface ClaudeAccount {
   id: string
@@ -90,7 +91,7 @@ function writeCliCredentials(credentialJson: string): boolean {
 // --- Encrypted credential backup (safeStorage) ---
 
 function getEncryptedCredsPath(): string {
-  return path.join(app.getPath('userData'), ENCRYPTED_CREDS_FILE)
+  return path.join(getDataDir(), ENCRYPTED_CREDS_FILE)
 }
 
 function loadEncryptedCreds(): EncryptedCredentialFile {
@@ -106,6 +107,7 @@ function saveEncryptedCreds(creds: EncryptedCredentialFile): void {
 }
 
 function encryptCredential(plaintext: string): string | null {
+  const safeStorage = getSafeStorage()
   if (!safeStorage.isEncryptionAvailable()) {
     logger.error('[account-manager] safeStorage encryption not available')
     return null
@@ -114,6 +116,7 @@ function encryptCredential(plaintext: string): string | null {
 }
 
 function decryptCredential(encrypted: string): string | null {
+  const safeStorage = getSafeStorage()
   if (!safeStorage.isEncryptionAvailable()) {
     logger.error('[account-manager] safeStorage decryption not available')
     return null
@@ -133,7 +136,7 @@ class AccountManager {
   private loaded = false
 
   private getStorePath(): string {
-    return path.join(app.getPath('userData'), STORE_FILE)
+    return path.join(getDataDir(), STORE_FILE)
   }
 
   async load(): Promise<void> {

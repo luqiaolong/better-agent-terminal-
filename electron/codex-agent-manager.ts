@@ -1,4 +1,4 @@
-import { BrowserWindow, app } from 'electron'
+import type { BrowserWindow } from 'electron'
 import { execSync } from 'child_process'
 import * as pathModule from 'path'
 import type { ClaudeMessage, ClaudeToolCall, ClaudeSessionState } from '../src/types/claude-agent'

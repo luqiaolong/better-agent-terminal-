@@ -1,4 +1,4 @@
-import { BrowserWindow, app } from 'electron'
+import type { BrowserWindow } from 'electron'
 import { spawn, ChildProcess } from 'child_process'
 import * as path from 'path'
 import * as fs from 'fs'
@@ -6,10 +6,16 @@ import * as crypto from 'crypto'
 import type { CreatePtyOptions } from '../src/types'
 import { broadcastHub } from './remote/broadcast-hub'
 import { logger } from './logger'
+import { getDataDir } from './server-core/data-dir'
 
-// Per-terminal shell history directory
-const historyDir = path.join(app.getPath('userData'), 'terminal-history')
-const zshWrapperDir = path.join(historyDir, '.zsh-wrapper')
+// Per-terminal shell history directory — resolved lazily so getDataDir() runs
+// after the app initializes its data directory.
+function getHistoryDir(): string {
+  return path.join(getDataDir(), 'terminal-history')
+}
+function getZshWrapperDir(): string {
+  return path.join(getHistoryDir(), '.zsh-wrapper')
+}
 
 // Create zsh wrapper rc files that source user's originals then override HISTFILE.
 // Uses env vars $_BAT_ZDOTDIR (original ZDOTDIR) and $_BAT_HISTFILE (target history file).
@@ -17,20 +23,21 @@ let zshWrapperReady = false
 function ensureZshWrapper() {
   if (zshWrapperReady) return
   try {
-    fs.mkdirSync(zshWrapperDir, { recursive: true })
+    const wrapperDir = getZshWrapperDir()
+    fs.mkdirSync(wrapperDir, { recursive: true })
     const src = (file: string) => `[ -f "\${_BAT_ZDOTDIR:-$HOME}/${file}" ] && source "\${_BAT_ZDOTDIR:-$HOME}/${file}"\n`
-    fs.writeFileSync(path.join(zshWrapperDir, '.zshenv'), src('.zshenv'))
-    fs.writeFileSync(path.join(zshWrapperDir, '.zprofile'), src('.zprofile'))
-    fs.writeFileSync(path.join(zshWrapperDir, '.zshrc'), [
+    fs.writeFileSync(path.join(wrapperDir, '.zshenv'), src('.zshenv'))
+    fs.writeFileSync(path.join(wrapperDir, '.zprofile'), src('.zprofile'))
+    fs.writeFileSync(path.join(wrapperDir, '.zshrc'), [
       src('.zshrc').trimEnd(),
       'export HISTFILE="$_BAT_HISTFILE"',
       'setopt INC_APPEND_HISTORY',
       'ZDOTDIR="${_BAT_ZDOTDIR:-$HOME}"',
       ''
     ].join('\n'))
-    fs.writeFileSync(path.join(zshWrapperDir, '.zlogin'), src('.zlogin'))
+    fs.writeFileSync(path.join(wrapperDir, '.zlogin'), src('.zlogin'))
     zshWrapperReady = true
-    logger.log('[pty] zsh wrapper files created at', zshWrapperDir)
+    logger.log('[pty] zsh wrapper files created at', wrapperDir)
   } catch (e) {
     logger.warn('[pty] Failed to create zsh wrapper:', e)
   }
@@ -163,14 +170,15 @@ export class PtyManager {
     let histEnv: Record<string, string> = {}
     if (perTerminalHistory) {
       try {
-        fs.mkdirSync(historyDir, { recursive: true })
+        const histDir = getHistoryDir()
+        fs.mkdirSync(histDir, { recursive: true })
         const key = historyKey || crypto.createHash('md5').update(id).digest('hex').slice(0, 12)
-        const histFile = path.join(historyDir, `${key}_history`)
+        const histFile = path.join(histDir, `${key}_history`)
 
         if (shell.includes('zsh')) {
           ensureZshWrapper()
           histEnv = {
-            ZDOTDIR: zshWrapperDir,
+            ZDOTDIR: getZshWrapperDir(),
             _BAT_ZDOTDIR: process.env.ZDOTDIR || process.env.HOME || '',
             _BAT_HISTFILE: histFile,
             HISTFILE: histFile,
