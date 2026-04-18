@@ -145,17 +145,29 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
     return result
   })
 
-  // Get bundled Claude CLI path for claude-cli preset
+  // Get bundled Claude CLI path for claude-cli preset.
+  // Since claude-code v2.1.113, the package ships a native binary at
+  // bin/claude[.exe] (placed by postinstall from a per-platform optional
+  // dependency) instead of the old cli.js entrypoint.
   registerHandler('claude:get-cli-path', () => {
-    try {
-      let resolved = require.resolve('@anthropic-ai/claude-code/cli.js')
-      if (resolved.includes('app.asar') && !resolved.includes('app.asar.unpacked')) {
-        resolved = resolved.replace('app.asar', 'app.asar.unpacked')
-      }
-      return resolved
-    } catch {
-      return ''
+    const exe = process.platform === 'win32' ? 'claude.exe' : 'claude'
+    const archKey = process.platform === 'linux'
+      ? [`linux-${process.arch}-musl`, `linux-${process.arch}`]
+      : [`${process.platform}-${process.arch}`]
+    const candidates = [
+      `@anthropic-ai/claude-code/bin/${exe}`,
+      ...archKey.map(k => `@anthropic-ai/claude-code-${k}/${exe}`),
+    ]
+    for (const spec of candidates) {
+      try {
+        let resolved = require.resolve(spec)
+        if (resolved.includes('app.asar') && !resolved.includes('app.asar.unpacked')) {
+          resolved = resolved.replace('app.asar', 'app.asar.unpacked')
+        }
+        return resolved
+      } catch { /* try next */ }
     }
+    return ''
   })
 
   // Session manager dispatcher: routes to Claude or Codex manager based on agentPreset

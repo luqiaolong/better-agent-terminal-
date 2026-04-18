@@ -79,28 +79,34 @@ function dataUrlToContentBlock(dataUrl: string): { type: 'image'; source: { type
   }
 }
 
-// Resolve the Claude Code CLI path at module level
+// Resolve the Claude Code CLI binary path. Since claude-code v2.1.113 the
+// package ships a native binary at bin/claude[.exe] (placed by postinstall
+// from a per-platform optionalDependency) instead of the old bundled cli.js.
 // In packaged Electron apps, asarUnpack puts files under app.asar.unpacked
-// but require.resolve returns the app.asar path — we need to fix that.
+// but require.resolve returns the app.asar path — we rewrite to .unpacked.
 function resolveClaudeCodePath(): string {
-  let resolved = ''
-  try {
-    const req = createRequire(import.meta.url ?? __filename)
-    resolved = req.resolve('@anthropic-ai/claude-code/cli.js')
-  } catch {
-    // Fallback: try require.resolve directly (works in CommonJS context)
-    try {
-      resolved = require.resolve('@anthropic-ai/claude-code/cli.js')
-    } catch {
-      return ''
+  const exe = process.platform === 'win32' ? 'claude.exe' : 'claude'
+  const archKey = process.platform === 'linux'
+    ? [`linux-${process.arch}-musl`, `linux-${process.arch}`]
+    : [`${process.platform}-${process.arch}`]
+  const candidates = [
+    `@anthropic-ai/claude-code/bin/${exe}`,
+    ...archKey.map(k => `@anthropic-ai/claude-code-${k}/${exe}`),
+  ]
+  const req = (() => {
+    try { return createRequire(import.meta.url ?? __filename) }
+    catch { return null }
+  })()
+  for (const spec of candidates) {
+    let resolved = ''
+    try { resolved = req ? req.resolve(spec) : require.resolve(spec) }
+    catch { continue }
+    if (resolved.includes('app.asar') && !resolved.includes('app.asar.unpacked')) {
+      resolved = resolved.replace('app.asar', 'app.asar.unpacked')
     }
+    return resolved
   }
-  // In packaged apps, the file is in app.asar.unpacked but resolve returns app.asar
-  // child_process.spawn cannot access files inside app.asar, so point to the unpacked copy
-  if (resolved.includes('app.asar') && !resolved.includes('app.asar.unpacked')) {
-    resolved = resolved.replace('app.asar', 'app.asar.unpacked')
-  }
-  return resolved
+  return ''
 }
 
 export interface SessionSummary {

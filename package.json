@@ -128,15 +128,10 @@
         "NSDownloadsFolderUsageDescription": "BetterAgentTerminal needs access to your Downloads folder to open terminals and manage files in your projects."
       },
       "files": [
-        "!node_modules/@anthropic-ai/**/vendor/ripgrep/x64-linux/**",
-        "!node_modules/@anthropic-ai/**/vendor/ripgrep/arm64-linux/**",
-        "!node_modules/@anthropic-ai/**/vendor/ripgrep/x64-win32/**",
-        "!node_modules/@anthropic-ai/**/vendor/ripgrep/arm64-win32/**",
-        "!node_modules/@anthropic-ai/**/vendor/audio-capture/x64-linux/**",
-        "!node_modules/@anthropic-ai/**/vendor/audio-capture/arm64-linux/**",
-        "!node_modules/@anthropic-ai/**/vendor/audio-capture/x64-win32/**",
-        "!node_modules/@anthropic-ai/**/vendor/audio-capture/arm64-win32/**",
-        "!node_modules/@anthropic-ai/**/vendor/seccomp/**"
+        "!node_modules/@anthropic-ai/claude-code-win32-*/**",
+        "!node_modules/@anthropic-ai/claude-code-linux-*/**",
+        "!node_modules/@anthropic-ai/claude-agent-sdk-win32-*/**",
+        "!node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**"
       ]
     },
     "linux": {
@@ -159,7 +154,9 @@
       "assets/icon-512.png"
     ],
     "asarUnpack": [
-      "node_modules/@anthropic-ai/*/cli.js",
+      "node_modules/@anthropic-ai/claude-code/bin/**",
+      "node_modules/@anthropic-ai/claude-code-*/**",
+      "node_modules/@anthropic-ai/claude-agent-sdk-*/**",
       "node_modules/@anthropic-ai/*/vendor/**/*",
       "node_modules/@anthropic-ai/**/*.wasm",
       "node_modules/@img/**/*"
