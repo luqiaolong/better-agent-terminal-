@@ -593,6 +593,18 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
   })
   registerHandler('fs:home', () => os.homedir())
 
+  registerHandler('image:read-as-data-url', async (_ctx, filePath: string) => {
+    const abs = path.resolve(filePath)
+    if (isSensitivePath(abs)) throw new Error('Access denied (sensitive path)')
+    const ext = path.extname(abs).toLowerCase()
+    const mimeMap: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }
+    const mime = mimeMap[ext] || 'image/png'
+    const stat = await fs.stat(abs)
+    if (stat.size > 10 * 1024 * 1024) throw new Error(`Image too large (${Math.round(stat.size / 1024)}KB)`)
+    const data = await fs.readFile(abs)
+    return `data:${mime};base64,${data.toString('base64')}`
+  })
+
   registerHandler('fs:quick-locations', async () => {
     const home = os.homedir()
     const items: { name: string; path: string; kind: 'home' | 'drive' | 'volume' | 'root' }[] = [

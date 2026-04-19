@@ -919,23 +919,6 @@ function registerLocalHandlers() {
     return true
   })
 
-  ipcMain.handle('image:read-as-data-url', async (_event, filePath: string) => {
-    try {
-      const abs = path.resolve(filePath)
-      if (isSensitivePath(abs)) throw new Error('Access denied (sensitive path)')
-      const ext = path.extname(abs).toLowerCase()
-      const mimeMap: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }
-      const mime = mimeMap[ext] || 'image/png'
-      const stat = await fs.stat(abs)
-      if (stat.size > 10 * 1024 * 1024) throw new Error(`Image too large (${Math.round(stat.size / 1024)}KB)`)
-      const data = await fs.readFile(abs)
-      return `data:${mime};base64,${data.toString('base64')}`
-    } catch (err) {
-      logger.warn('[image:read-as-data-url] failed:', err instanceof Error ? err.message : String(err))
-      throw err instanceof Error ? err : new Error(String(err))
-    }
-  })
-
   // Remote server handlers (always local)
   ipcMain.handle('remote:start-server', async (_event, options?: { port?: number; token?: string; bindInterface?: 'localhost' | 'tailscale' | 'all' }) => {
     try { return await remoteServer.start(options ?? {}) }

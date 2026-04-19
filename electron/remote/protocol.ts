@@ -42,6 +42,7 @@ export const PROXIED_CHANNELS = new Set([
   // FS
   'fs:readdir', 'fs:readFile', 'fs:search', 'fs:watch', 'fs:unwatch',
   'fs:home', 'fs:list-dirs', 'fs:mkdir', 'fs:quick-locations',
+  'image:read-as-data-url',
   // Snippet
   'snippet:getAll', 'snippet:getById', 'snippet:create', 'snippet:update',
   'snippet:delete', 'snippet:toggleFavorite', 'snippet:search',
