@@ -364,14 +364,16 @@ export function Sidebar({
           }
           e.preventDefault()
           const files = Array.from(e.dataTransfer.files)
+          let added = 0
           for (const file of files) {
-            const filePath = (file as any).path as string
+            const filePath = window.electronAPI.shell.getPathForFile(file)
             if (filePath) {
-              const name = filePath.split(/[/\\]/).pop() || 'Workspace'
+              const name = filePath.split(/[/\\]/).filter(Boolean).pop() || 'Workspace'
               workspaceStore.addWorkspace(name, filePath)
+              added++
             }
           }
-          if (files.length > 0) workspaceStore.save()
+          if (added > 0) workspaceStore.save()
         }}
       >
         {filteredWorkspaces.map(workspace => (

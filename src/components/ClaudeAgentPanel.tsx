@@ -2092,11 +2092,12 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     e.preventDefault()
     setIsDragOver(false)
     for (const file of e.dataTransfer.files) {
-      if (!file.path) continue
+      const filePath = window.electronAPI.shell.getPathForFile(file)
+      if (!filePath) continue
       if (file.type.startsWith('image/')) {
-        await addImageByPath(file.path)
+        await addImageByPath(filePath)
       } else {
-        addFileByPath(file.path)
+        addFileByPath(filePath)
       }
     }
   }, [addImageByPath, addFileByPath])
@@ -2912,7 +2913,13 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           })}
         </div>
       )}
-      <div className="claude-messages claude-timeline" ref={messagesContainerRef} onScroll={handleMessagesScroll}>
+      <div
+        className="claude-messages claude-timeline"
+        ref={messagesContainerRef}
+        onScroll={handleMessagesScroll}
+        // Prevent Chromium's middle-click auto-scroll cursor from latching on.
+        onMouseDown={(e) => { if (e.button === 1) e.preventDefault() }}
+      >
         {(hasMoreArchived || isLoadingMore) && (
           <div className="claude-load-more">
             <button

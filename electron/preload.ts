@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { CreatePtyOptions } from '../src/types'
 
 const electronAPI = {
@@ -384,6 +384,11 @@ const electronAPI = {
     append: (panelId: string, lines: string) => ipcRenderer.invoke('worker-buffer:append', panelId, lines),
     readAll: (panelId: string) => ipcRenderer.invoke('worker-buffer:readAll', panelId) as Promise<string>,
     clear: (panelId: string) => ipcRenderer.invoke('worker-buffer:clear', panelId),
+  },
+  shell: {
+    // Electron 32+ removed File.path; use webUtils.getPathForFile() to resolve
+    // a dropped/picked File's absolute path. Returns '' if the file has no path.
+    getPathForFile: (file: File) => webUtils.getPathForFile(file),
   },
 }
 

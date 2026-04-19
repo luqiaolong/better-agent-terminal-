@@ -33,6 +33,7 @@ export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClos
   const [newFolderName, setNewFolderName] = useState('')
   const [createError, setCreateError] = useState<string | null>(null)
   const [quickLocations, setQuickLocations] = useState<QuickLocation[]>([])
+  const [quickError, setQuickError] = useState<string | null>(null)
   const newFolderInputRef = useRef<HTMLInputElement>(null)
 
   const loadDir = useCallback(async (dirPath: string) => {
@@ -65,9 +66,15 @@ export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClos
       try {
         const qls = await window.electronAPI.fs.quickLocations()
         setQuickLocations(qls)
+        if (!qls || qls.length === 0) {
+          setQuickError('quickLocations returned empty')
+          window.electronAPI?.debug?.log?.('[FolderPicker] quickLocations returned empty array')
+        }
       } catch (err) {
-        window.electronAPI?.debug?.log?.('[FolderPicker] quickLocations failed:', err)
+        const msg = err instanceof Error ? err.message : String(err)
+        window.electronAPI?.debug?.log?.('[FolderPicker] quickLocations failed:', msg)
         setQuickLocations([])
+        setQuickError(msg)
       }
       loadDir(start)
     }
@@ -158,6 +165,11 @@ export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClos
         <div className="settings-body" style={{ padding: 0, display: 'flex', minHeight: 420 }}>
           {/* Sidebar: quick locations */}
           <div className="folder-picker-sidebar">
+            {quickError && (
+              <div style={{ padding: '6px 10px', fontSize: 11, color: '#e5534b', wordBreak: 'break-word' }}>
+                {quickError}
+              </div>
+            )}
             {quickLocations.map(ql => (
               <button
                 key={`${ql.kind}:${ql.path}`}
