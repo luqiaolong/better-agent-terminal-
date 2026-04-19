@@ -38,8 +38,17 @@ function renderChatMarkdown(text: string): string {
     }
   )
   const rawHtml = marked.parse(processed) as string
-  // Remove whitespace between block-level HTML tags to prevent anonymous line boxes
-  const cleanHtml = rawHtml.replace(/>\s+</g, '><')
+  // Remove whitespace between block-level HTML tags to prevent anonymous line boxes.
+  // Mask <pre> and <code> first so the collapse doesn't eat code-block whitespace
+  // (hljs wraps every token in a <span>, so naive `>\s+<` strips every space and
+  // newline between siblings) or kill spaces between adjacent inline <code>s.
+  const masked: string[] = []
+  const placeheld = rawHtml.replace(/<(pre|code)\b[\s\S]*?<\/\1>/gi, m => {
+    masked.push(m)
+    return `\x00MD${masked.length - 1}\x00`
+  })
+  const collapsed = placeheld.replace(/>\s+</g, '><')
+  const cleanHtml = collapsed.replace(/\x00MD(\d+)\x00/g, (_, i) => masked[Number(i)])
   const result = DOMPurify.sanitize(cleanHtml, {
     ADD_TAGS: ['input'],
     ADD_ATTR: ['checked', 'disabled', 'type', 'data-external-link'],
