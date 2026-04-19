@@ -487,7 +487,7 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
                         setEditRemoteProfiles([])
                         e.target.value = ''
                       }}
-                      style={{ width: '100%', fontFamily: 'monospace', fontSize: 11 }}
+                      style={{ flex: '1 1 100%', fontFamily: 'monospace', fontSize: 11 }}
                     />
                     <input
                       type="text"
@@ -519,7 +519,7 @@ export function ProfilePanel({ onClose, onSwitchNewWindow, onProfileRenamed }: P
                       placeholder={t('profiles.fingerprintPlaceholder', 'Cert fingerprint (SHA-256)')}
                       value={editRemoteFingerprint}
                       onChange={e => { setEditRemoteFingerprint(e.target.value); setEditRemoteProfiles([]) }}
-                      style={{ width: '100%', fontFamily: 'monospace', fontSize: 11 }}
+                      style={{ flex: '1 1 100%', fontFamily: 'monospace', fontSize: 11 }}
                     />
                     <div style={{ display: 'flex', gap: 6, width: '100%', alignItems: 'center' }}>
                       <button

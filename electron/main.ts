@@ -170,6 +170,10 @@ let updateCheckResult: UpdateCheckResult | null = null
 const profileManager = new ProfileManager()
 const remoteServer = new RemoteServer()
 let remoteClient: RemoteClient | null = null
+// profileId currently bound to the active remoteClient. Used to filter
+// remote-event broadcasts so only windows on this remote profile receive
+// them — local-profile windows must not see foreign session traffic.
+let remoteClientProfileId: string | null = null
 const detachedWindows = new Map<string, BrowserWindow>() // workspaceId → BrowserWindow
 let isAppQuitting = false // Distinguishes Cmd+Q (preserve) from Cmd+W (remove window)
 
@@ -201,6 +205,22 @@ function getAllWindows(): BrowserWindow[] {
   }
   for (const win of detachedWindows.values()) {
     if (!win.isDestroyed()) wins.push(win)
+  }
+  return wins
+}
+
+/** Sync filter: windows whose registry entry's profileId matches `profileId`.
+ *  Used to scope remote event broadcasts to the correct profile's windows. */
+function getWindowsForProfile(profileId: string | null): BrowserWindow[] {
+  if (!profileId) return []
+  const entries = windowRegistry.getCachedEntries()
+  const matchIds = new Set(entries.filter(e => e.profileId === profileId).map(e => e.id))
+  const wins: BrowserWindow[] = []
+  for (const [id, win] of windowMap) {
+    if (matchIds.has(id) && !win.isDestroyed()) wins.push(win)
+  }
+  for (const [id, win] of detachedWindows) {
+    if (matchIds.has(id) && !win.isDestroyed()) wins.push(win)
   }
   return wins
 }
@@ -467,6 +487,7 @@ function cleanupAllProcesses() {
   try { ptyManager?.dispose() } catch { /* ignore */ }
   try { snippetDb.close() } catch { /* ignore */ }
   remoteClient = null
+  remoteClientProfileId = null
   claudeManager = null
   codexManager = null
   sessionManagerMap.clear()
@@ -503,7 +524,7 @@ async function loadProfileSnapshot(profileId: string): Promise<ProfileSnapshot |
   if (profileEntry?.type === 'remote' && profileEntry.remoteHost && profileEntry.remoteToken && profileEntry.remoteFingerprint) {
     return await withRemoteClientLock(async () => {
       try {
-        const client = new RemoteClient(getAllWindows)
+        const client = new RemoteClient(() => getWindowsForProfile(profileId))
         const ok = await client.connect({
           host: profileEntry.remoteHost!,
           port: profileEntry.remotePort || 9876,
@@ -517,6 +538,7 @@ async function loadProfileSnapshot(profileId: string): Promise<ProfileSnapshot |
         // Replace any previous connection cleanly.
         try { remoteClient?.disconnect() } catch { /* ignore */ }
         remoteClient = client
+        remoteClientProfileId = profileId
         const targetProfileId = profileEntry.remoteProfileId || 'default'
         const snapshot = await client.invoke('profile:load-snapshot', [targetProfileId]) as ProfileSnapshot | null
         logger.log(`[profile] remote profile ${profileId} → got ${snapshot?.windows?.length ?? 0} window(s) from remote (target: ${targetProfileId})`)
@@ -780,12 +802,28 @@ const ALWAYS_LOCAL_CHANNELS = new Set([
 function bindProxiedHandlersToIpc() {
   for (const channel of PROXIED_CHANNELS) {
     ipcMain.handle(channel, async (event, ...args: unknown[]) => {
-      // If remote client is connected, route to remote server — unless this
-      // channel is pinned to local execution.
-      if (remoteClient?.isConnected && !ALWAYS_LOCAL_CHANNELS.has(channel)) {
+      const windowId = getWindowIdByWebContents(event.sender)
+
+      // ALWAYS_LOCAL channels never proxy.
+      if (ALWAYS_LOCAL_CHANNELS.has(channel)) {
+        return invokeHandler(channel, args, windowId)
+      }
+
+      // Route per sender window's profile type. A remote profile window
+      // proxies to the remote server; a local profile window stays local
+      // even if another window has an active remote connection.
+      let senderIsRemote = false
+      if (windowId) {
+        const entry = await windowRegistry.getEntry(windowId)
+        if (entry?.profileId) {
+          const profile = await profileManager.getProfile(entry.profileId)
+          senderIsRemote = profile?.type === 'remote'
+        }
+      }
+
+      if (senderIsRemote && remoteClient?.isConnected) {
         return remoteClient.invoke(channel, args)
       }
-      const windowId = getWindowIdByWebContents(event.sender)
       return invokeHandler(channel, args, windowId)
     })
   }
@@ -947,18 +985,24 @@ function registerLocalHandlers() {
   })
 
   // Remote client handlers
-  ipcMain.handle('remote:connect', async (_event, host: string, port: number, token: string, fingerprint: string, label?: string) => {
+  ipcMain.handle('remote:connect', async (event, host: string, port: number, token: string, fingerprint: string, label?: string) => {
     return withRemoteClientLock(async () => {
       try {
         if (!fingerprint) return { error: 'fingerprint is required' }
+        // Derive the bound profileId from the sender window so remote-event
+        // broadcasts only reach this profile's windows.
+        const senderWindowId = getWindowIdByWebContents(event.sender)
+        const senderEntry = senderWindowId ? await windowRegistry.getEntry(senderWindowId) : null
+        const boundProfileId = senderEntry?.profileId ?? null
         // Drop any previous connection before creating a new one.
         try { remoteClient?.disconnect() } catch { /* ignore */ }
-        const client = new RemoteClient(getAllWindows)
+        const client = new RemoteClient(() => getWindowsForProfile(remoteClientProfileId))
         const ok = await client.connect({ host, port, token, fingerprint, label })
         if (!ok) {
           return { error: 'Connection failed (auth rejected, unreachable, or fingerprint mismatch)' }
         }
         remoteClient = client
+        remoteClientProfileId = boundProfileId
         return { connected: true }
       } catch (err: unknown) {
         return { error: err instanceof Error ? err.message : String(err) }
@@ -969,6 +1013,7 @@ function registerLocalHandlers() {
     return withRemoteClientLock(async () => {
       try { remoteClient?.disconnect() } catch { /* ignore */ }
       remoteClient = null
+      remoteClientProfileId = null
       return true
     })
   })
@@ -978,7 +1023,7 @@ function registerLocalHandlers() {
   }))
   ipcMain.handle('remote:test-connection', async (_event, host: string, port: number, token: string, fingerprint: string) => {
     if (!fingerprint) return { ok: false, error: 'fingerprint is required' }
-    const testClient = new RemoteClient(getAllWindows)
+    const testClient = new RemoteClient(() => [])
     try {
       const ok = await testClient.connect({ host, port, token, fingerprint })
       testClient.disconnect()
@@ -990,7 +1035,7 @@ function registerLocalHandlers() {
   })
   ipcMain.handle('remote:list-profiles', async (_event, host: string, port: number, token: string, fingerprint: string) => {
     if (!fingerprint) return { error: 'fingerprint is required' }
-    const tempClient = new RemoteClient(getAllWindows)
+    const tempClient = new RemoteClient(() => [])
     try {
       const ok = await tempClient.connect({ host, port, token, fingerprint })
       if (!ok) return { error: 'Connection failed' }

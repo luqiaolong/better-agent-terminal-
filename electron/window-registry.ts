@@ -47,6 +47,12 @@ export class WindowRegistry {
     return entries.find(e => e.id === windowId) || null
   }
 
+  /** Sync access to the last-loaded entries. Returns [] if not yet loaded.
+   *  Use only for hot-path lookups (e.g. event broadcast) where async I/O isn't viable. */
+  getCachedEntries(): WindowEntry[] {
+    return this.cachedEntries ?? []
+  }
+
   async saveEntry(entry: WindowEntry): Promise<void> {
     const entries = await this.readAll()
     const idx = entries.findIndex(e => e.id === entry.id)
