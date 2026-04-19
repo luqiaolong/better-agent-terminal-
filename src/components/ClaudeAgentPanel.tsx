@@ -977,6 +977,20 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   }, [showModelList])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch account info and slash commands once session metadata arrives
+  // Refresh account info when SettingsPanel switches account in this window.
+  // Event is window-local (CustomEvent on window), so a remote window only
+  // sees switches from its own SettingsPanel — getAccountInfo is proxied per
+  // window's profile, so remote windows refetch from remote, local from local.
+  useEffect(() => {
+    const handler = () => {
+      window.electronAPI.claude.getAccountInfo(sessionId).then(info => {
+        if (info) setAccountInfo(info)
+      }).catch(() => {})
+    }
+    window.addEventListener('claude-account-switched', handler)
+    return () => window.removeEventListener('claude-account-switched', handler)
+  }, [sessionId])
+
   useEffect(() => {
     if (sessionMeta?.sdkSessionId && availableModels.length === 0) {
       window.electronAPI.claude.getSupportedModels(sessionId).then((models: ModelInfo[]) => {
