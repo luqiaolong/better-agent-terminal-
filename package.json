@@ -115,7 +115,7 @@
           "target": "dmg",
           "arch": [
             "arm64",
-            "universal"
+            "x64"
           ]
         }
       ],
