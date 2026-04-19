@@ -303,6 +303,11 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   const pendingPromptSentRef = useRef(false)
   const messageCountRef = useRef(0)
   const currentTurnMsgIdRef = useRef<string | null>(null)
+  // /auto-continue: when enabled, after each turn ends auto-send `prompt`
+  // up to `max` times. `used` resets when the user manually sends.
+  const autoContinueRef = useRef<{ enabled: boolean; max: number; used: number; prompt: string }>({
+    enabled: false, max: 3, used: 0, prompt: '繼續',
+  })
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const streamingThinkingRef = useRef<HTMLPreElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -653,6 +658,23 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         workspaceStore.refreshUsageNow()
         // Show result text only for slash commands that don't produce assistant messages
         const rd = resultData as { result?: string; subtype?: string } | undefined
+        // Auto-continue: only on successful turns, until max reached
+        const ac = autoContinueRef.current
+        if (ac.enabled && ac.used < ac.max && (!rd?.subtype || rd.subtype === 'success')) {
+          ac.used++
+          const acPrompt = ac.prompt
+          const userMsgId = `user-ac-${Date.now()}`
+          currentTurnMsgIdRef.current = userMsgId
+          setMessages(prev => [...prev, {
+            id: userMsgId, sessionId, role: 'user' as const,
+            content: `${acPrompt}  [auto ${ac.used}/${ac.max}]`,
+            timestamp: Date.now(),
+          }])
+          setIsStreaming(true)
+          setTimeout(() => {
+            window.electronAPI.claude.sendMessage(sessionId, acPrompt)
+          }, 150)
+        }
         if (rd?.result && rd.subtype === 'success') {
           setMessages(prev => {
             // Skip if any assistant message contains the result text (already shown via onMessage)
@@ -1274,6 +1296,48 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     inputHistoryIndexRef.current = -1
     inputDraftRef.current = ''
 
+    // Intercept /auto-continue and /ac — toggle auto-continue mode.
+    // Syntax:
+    //   /auto-continue                   enable, default max=3, prompt="繼續"
+    //   /auto-continue 5                 enable, max=5, prompt="繼續"
+    //   /auto-continue 5 請繼續未完成的    enable, max=5, custom prompt
+    //   /auto-continue 請繼續              enable, max=3, custom prompt
+    //   /auto-continue off | stop         disable
+    if (trimmed === '/auto-continue' || trimmed === '/ac' ||
+        trimmed.startsWith('/auto-continue ') || trimmed.startsWith('/ac ')) {
+      clearInput()
+      const cmd = trimmed.startsWith('/auto-continue') ? '/auto-continue' : '/ac'
+      const rest = trimmed.slice(cmd.length).trim()
+      let content: string
+      if (rest === 'off' || rest === 'stop') {
+        autoContinueRef.current = { ...autoContinueRef.current, enabled: false, used: 0 }
+        content = 'Auto-continue disabled.'
+      } else {
+        let max = 3
+        let prompt = '繼續'
+        const m = rest.match(/^(\d+)(?:\s+([\s\S]+))?$/)
+        if (m) {
+          max = parseInt(m[1], 10)
+          if (m[2]) prompt = m[2].trim()
+        } else if (rest) {
+          prompt = rest
+        }
+        autoContinueRef.current = { enabled: true, max, used: 0, prompt }
+        content = `Auto-continue enabled (max ${max}). Prompt: "${prompt}"`
+      }
+      setMessages(prev => [...prev, {
+        id: `sys-ac-${Date.now()}`, sessionId, role: 'system' as const,
+        content, timestamp: Date.now(),
+      }])
+      return
+    }
+
+    // User manually sent a message — reset auto-continue counter so the
+    // budget refreshes for the new request chain.
+    if (autoContinueRef.current.enabled) {
+      autoContinueRef.current.used = 0
+    }
+
     // Intercept /resume command (only when not streaming)
     if (!isStreaming && trimmed === '/resume') {
       clearInput()
@@ -1300,6 +1364,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     // Intercept /abort command — force stop current operation
     if (trimmed === '/abort') {
       clearInput()
+      // User explicitly stopping — also halt any pending auto-continue.
+      autoContinueRef.current = { ...autoContinueRef.current, enabled: false, used: 0 }
       window.electronAPI.claude.abortSession(sessionId)
       setIsStreaming(false)
       setIsInterrupted(false)

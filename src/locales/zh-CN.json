@@ -366,7 +366,7 @@
     "switchToV1": "降级至 V1",
     "v1v2Help": "V1 与 V2 差异：\n\n【V1 - Query 模式】\n• 每次消息启动新 CLI 进程，从 JSONL 重建对话\n• Cache 效率约 25%（大量 token 浪费）\n• 支持：effort、plugins、systemPrompt\n• 稳定，功能完整\n\n【V2 - Session 模式】\n• 持久化 session，消息间不重启进程\n• Cache 效率约 84%（显著节省 token）\n• 尚不支持：effort、plugins、systemPrompt\n• 实验性，可能有限制\n\nV2 适合在意成本或长对话的场景。",
     "forkSession": "分支：从当前对话创建新标签页",
-    "forkButton": "用当前进度分支",
+    "forkButton": "Fork",
     "attachImages": "附加图片（最多 5 张）",
     "stop": "停止",
     "stopEsc": "停止（Esc）",
