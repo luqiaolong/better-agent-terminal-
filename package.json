@@ -113,7 +113,6 @@
       "target": [
         {
           "target": "dmg",
-          "artifactName": "${productName}-${version}-${arch}.dmg",
           "arch": [
             "arm64",
             "x64"
@@ -145,6 +144,9 @@
         "!node_modules/@anthropic-ai/claude-agent-sdk-win32-*/**",
         "!node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**"
       ]
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.dmg"
     },
     "linux": {
       "target": "AppImage",
