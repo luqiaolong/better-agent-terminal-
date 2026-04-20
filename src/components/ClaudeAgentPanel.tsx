@@ -22,8 +22,29 @@ import DOMPurify from 'dompurify'
 const markdownCache = new Map<string, string>()
 const MARKDOWN_CACHE_MAX = 500
 
-function renderChatMarkdown(text: string): string {
-  const cached = markdownCache.get(text)
+// Convert an absolute filesystem path to a file:// URL, handling Windows drive letters
+// and spaces/non-ASCII via encodeURI (preserves path separators).
+function absPathToFileUrl(absPath: string): string {
+  const normalized = absPath.replace(/\\/g, '/')
+  const withLeading = /^[A-Za-z]:\//.test(normalized) ? '/' + normalized : normalized
+  return 'file://' + encodeURI(withLeading)
+}
+
+// Resolve a relative path against cwd, handling ./ and ../ segments.
+function resolveRelativePath(cwd: string, rel: string): string {
+  const cwdParts = cwd.replace(/\\/g, '/').replace(/\/+$/, '').split('/')
+  const relParts = rel.replace(/\\/g, '/').split('/')
+  for (const part of relParts) {
+    if (part === '' || part === '.') continue
+    if (part === '..') { if (cwdParts.length > 1) cwdParts.pop(); continue }
+    cwdParts.push(part)
+  }
+  return cwdParts.join('/')
+}
+
+function renderChatMarkdown(text: string, cwd: string): string {
+  const cacheKey = cwd + '\0' + text
+  const cached = markdownCache.get(cacheKey)
   if (cached !== undefined) return cached
   // Pre-process: convert bare file:// URLs to markdown links so marked renders them as <a>
   // marked only auto-links http/https by default
@@ -38,7 +59,20 @@ function renderChatMarkdown(text: string): string {
       return `[${fileUrl}](${fileUrl})`
     }
   )
-  const rawHtml = marked.parse(processed) as string
+  const parsedHtml = marked.parse(processed) as string
+  // Rewrite relative/absolute filesystem hrefs to file:// URLs so DOMPurify's
+  // ALLOWED_URI_REGEXP lets them through and shell.openExternal can open them.
+  const rawHtml = cwd
+    ? parsedHtml.replace(
+        /<a\s+([^>]*?)href="([^"#][^"]*)"/gi,
+        (match, attrs, href) => {
+          if (/^(?:https?|mailto|tel|file):/i.test(href)) return match
+          const isAbs = href.startsWith('/') || /^[A-Za-z]:[\\/]/.test(href)
+          const absPath = isAbs ? href : resolveRelativePath(cwd, href)
+          return `<a ${attrs}href="${absPathToFileUrl(absPath)}"`
+        }
+      )
+    : parsedHtml
   // Remove whitespace between block-level HTML tags to prevent anonymous line boxes.
   // Mask <pre> and <code> first so the collapse doesn't eat code-block whitespace
   // (hljs wraps every token in a <span>, so naive `>\s+<` strips every space and
@@ -59,8 +93,24 @@ function renderChatMarkdown(text: string): string {
     const oldestKey = markdownCache.keys().next().value
     if (oldestKey !== undefined) markdownCache.delete(oldestKey)
   }
-  markdownCache.set(text, result)
+  markdownCache.set(cacheKey, result)
   return result
+}
+
+// Open a link from rendered chat markdown. For .md file:// URLs, route to the
+// in-app preview modal (via preview-markdown event) to match PathLinker behavior.
+function openChatMarkdownLink(href: string): void {
+  if (href.startsWith('file://') && /\.md(?:[?#]|$)/i.test(href)) {
+    try {
+      let filePath = decodeURIComponent(new URL(href).pathname)
+      if (/^\/[A-Za-z]:\//.test(filePath)) filePath = filePath.slice(1)
+      window.dispatchEvent(new CustomEvent('preview-markdown', { detail: { path: filePath } }))
+      return
+    } catch {
+      // fall through to openExternal
+    }
+  }
+  window.electronAPI.shell.openExternal(href)
 }
 
 interface SessionMeta {
@@ -2943,13 +2993,13 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           {msg.content && (
             <div
               className="claude-markdown"
-              dangerouslySetInnerHTML={{ __html: renderChatMarkdown(msg.content) }}
+              dangerouslySetInnerHTML={{ __html: renderChatMarkdown(msg.content, cwd) }}
               onClick={(e) => {
                 const target = e.target as HTMLElement
                 const link = target.closest('a') as HTMLAnchorElement | null
                 if (link?.href) {
                   e.preventDefault()
-                  window.electronAPI.shell.openExternal(link.href)
+                  openChatMarkdownLink(link.href)
                 }
               }}
             />
@@ -3690,10 +3740,10 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
             {contentModal.markdown ? (
               <div
                 className="claude-plan-modal-body claude-plan-modal-markdown claude-markdown"
-                dangerouslySetInnerHTML={{ __html: renderChatMarkdown(contentModal.content) }}
+                dangerouslySetInnerHTML={{ __html: renderChatMarkdown(contentModal.content, cwd) }}
                 onClick={(e) => {
                   const link = (e.target as HTMLElement).closest('a') as HTMLAnchorElement | null
-                  if (link?.href) { e.preventDefault(); window.electronAPI.shell.openExternal(link.href) }
+                  if (link?.href) { e.preventDefault(); openChatMarkdownLink(link.href) }
                 }}
               />
             ) : (
