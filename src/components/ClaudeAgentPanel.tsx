@@ -10,108 +10,7 @@ import { settingsStore } from '../stores/settings-store'
 import { workspaceStore } from '../stores/workspace-store'
 import type { AgentPresetId } from '../types/agent-presets'
 import { LinkedText, FilePreviewModal } from './PathLinker'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
-
-// Markdown rendering for completed assistant messages
-// Note: marked.use() modifies the global marked instance (shared with FileTree).
-// Both use the same settings (gfm, breaks, highlight.js, link interception),
-// so sharing is intentional and avoids configuration drift.
-// Cache keyed by content string: streaming triggers full-list re-renders, so
-// without caching every stable message gets re-parsed on each chunk.
-const markdownCache = new Map<string, string>()
-const MARKDOWN_CACHE_MAX = 500
-
-// Convert an absolute filesystem path to a file:// URL, handling Windows drive letters
-// and spaces/non-ASCII via encodeURI (preserves path separators).
-function absPathToFileUrl(absPath: string): string {
-  const normalized = absPath.replace(/\\/g, '/')
-  const withLeading = /^[A-Za-z]:\//.test(normalized) ? '/' + normalized : normalized
-  return 'file://' + encodeURI(withLeading)
-}
-
-// Resolve a relative path against cwd, handling ./ and ../ segments.
-function resolveRelativePath(cwd: string, rel: string): string {
-  const cwdParts = cwd.replace(/\\/g, '/').replace(/\/+$/, '').split('/')
-  const relParts = rel.replace(/\\/g, '/').split('/')
-  for (const part of relParts) {
-    if (part === '' || part === '.') continue
-    if (part === '..') { if (cwdParts.length > 1) cwdParts.pop(); continue }
-    cwdParts.push(part)
-  }
-  return cwdParts.join('/')
-}
-
-function renderChatMarkdown(text: string, cwd: string): string {
-  const cacheKey = cwd + '\0' + text
-  const cached = markdownCache.get(cacheKey)
-  if (cached !== undefined) return cached
-  // Pre-process: convert bare file:// URLs to markdown links so marked renders them as <a>
-  // marked only auto-links http/https by default
-  // Skip URLs inside code blocks/inline code and existing markdown links
-  const processed = text.replace(
-    /(`{1,3}[\s\S]*?`{1,3})|(file:\/\/\/[^\s<>)\]`'"]+)/g,
-    (match, codeBlock, fileUrl, offset, str) => {
-      if (codeBlock) return match  // preserve code blocks as-is
-      if (!fileUrl) return match
-      const before = str.slice(Math.max(0, offset - 2), offset)
-      if (before === '](' || before.endsWith('(')) return match
-      return `[${fileUrl}](${fileUrl})`
-    }
-  )
-  const parsedHtml = marked.parse(processed) as string
-  // Rewrite relative/absolute filesystem hrefs to file:// URLs so DOMPurify's
-  // ALLOWED_URI_REGEXP lets them through and shell.openExternal can open them.
-  const rawHtml = cwd
-    ? parsedHtml.replace(
-        /<a\s+([^>]*?)href="([^"#][^"]*)"/gi,
-        (match, attrs, href) => {
-          if (/^(?:https?|mailto|tel|file):/i.test(href)) return match
-          const isAbs = href.startsWith('/') || /^[A-Za-z]:[\\/]/.test(href)
-          const absPath = isAbs ? href : resolveRelativePath(cwd, href)
-          return `<a ${attrs}href="${absPathToFileUrl(absPath)}"`
-        }
-      )
-    : parsedHtml
-  // Remove whitespace between block-level HTML tags to prevent anonymous line boxes.
-  // Mask <pre> and <code> first so the collapse doesn't eat code-block whitespace
-  // (hljs wraps every token in a <span>, so naive `>\s+<` strips every space and
-  // newline between siblings) or kill spaces between adjacent inline <code>s.
-  const masked: string[] = []
-  const placeheld = rawHtml.replace(/<(pre|code)\b[\s\S]*?<\/\1>/gi, m => {
-    masked.push(m)
-    return `\x00MD${masked.length - 1}\x00`
-  })
-  const collapsed = placeheld.replace(/>\s+</g, '><')
-  const cleanHtml = collapsed.replace(/\x00MD(\d+)\x00/g, (_, i) => masked[Number(i)])
-  const result = DOMPurify.sanitize(cleanHtml, {
-    ADD_TAGS: ['input'],
-    ADD_ATTR: ['checked', 'disabled', 'type', 'data-external-link'],
-    ALLOWED_URI_REGEXP: /^(?:https?|mailto|tel|file):/i,
-  })
-  if (markdownCache.size >= MARKDOWN_CACHE_MAX) {
-    const oldestKey = markdownCache.keys().next().value
-    if (oldestKey !== undefined) markdownCache.delete(oldestKey)
-  }
-  markdownCache.set(cacheKey, result)
-  return result
-}
-
-// Open a link from rendered chat markdown. For .md file:// URLs, route to the
-// in-app preview modal (via preview-markdown event) to match PathLinker behavior.
-function openChatMarkdownLink(href: string): void {
-  if (href.startsWith('file://') && /\.md(?:[?#]|$)/i.test(href)) {
-    try {
-      let filePath = decodeURIComponent(new URL(href).pathname)
-      if (/^\/[A-Za-z]:\//.test(filePath)) filePath = filePath.slice(1)
-      window.dispatchEvent(new CustomEvent('preview-markdown', { detail: { path: filePath } }))
-      return
-    } catch {
-      // fall through to openExternal
-    }
-  }
-  window.electronAPI.shell.openExternal(href)
-}
+import { renderChatMarkdown, openChatMarkdownLink } from '../utils/chat-markdown'
 
 interface SessionMeta {
   model?: string
@@ -421,6 +320,15 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     window.addEventListener('click', close, true)
     return () => window.removeEventListener('click', close, true)
   }, [contextMenu])
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { path } = (e as CustomEvent).detail as { path: string }
+      setFilePickerPreview(path)
+    }
+    window.addEventListener('preview-file', handler)
+    return () => window.removeEventListener('preview-file', handler)
+  }, [])
 
   // Only auto-scroll if user hasn't scrolled up
   useEffect(() => {

@@ -978,13 +978,21 @@ function registerLocalHandlers() {
 
   ipcMain.handle('shell:open-external', async (_event, url: string) => {
     if (url.startsWith('file:///')) {
-      const filePath = decodeURIComponent(new URL(url).pathname)
+      let filePath = decodeURIComponent(new URL(url).pathname)
+      // On Windows, URL.pathname gives "/C:/foo" — strip the leading slash before
+      // the drive letter so fs/shell APIs accept it.
+      if (process.platform === 'win32' && /^\/[A-Za-z]:\//.test(filePath)) filePath = filePath.slice(1)
       const { existsSync } = await import('fs')
       if (!existsSync(filePath)) {
         const { dialog } = await import('electron')
         dialog.showMessageBox({ type: 'warning', title: 'File not found', message: `File does not exist:\n${filePath}` })
         return
       }
+      // shell.openExternal treats file:// as a URL and relies on protocol handlers,
+      // which silently fails for many file types. openPath uses the OS "open" verb.
+      const err = await shell.openPath(filePath)
+      if (err) logger.error(`[shell:open-external] openPath failed for ${filePath}: ${err}`)
+      return
     }
     await shell.openExternal(url)
   })
