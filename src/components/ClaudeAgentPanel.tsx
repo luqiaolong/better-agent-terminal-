@@ -838,7 +838,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         setAskOtherText({})
         setSessionMeta(null)
         setHasSdkSession(false)
-        setWorktreeInfo(null)
+        // Do not clear worktreeInfo — resetSession preserves the worktree
+        // and startSession re-emits claude:worktree-info before this event fires.
         setActivePlanFile(null)
         dismissedPlanFileRef.current = null
         workspaceStore.setTerminalSdkSessionId(sessionId, undefined)
