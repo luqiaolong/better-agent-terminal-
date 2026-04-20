@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { workspaceStore } from '../stores/workspace-store'
 import { settingsStore } from '../stores/settings-store'
+import type { AgentPresetId } from '../types/agent-presets'
 import '@xterm/xterm/css/xterm.css'
 
 const dlog = (...args: unknown[]) => window.electronAPI?.debug?.log(...args)
@@ -13,6 +14,7 @@ interface TerminalPanelProps {
   terminalId: string
   isActive?: boolean
   terminalType?: 'terminal' | 'code-agent'
+  agentPreset?: AgentPresetId
 }
 
 interface ContextMenu {
@@ -22,7 +24,7 @@ interface ContextMenu {
 }
 
 let renderCount = 0
-export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive = true, terminalType }: TerminalPanelProps) {
+export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive = true, terminalType, agentPreset }: TerminalPanelProps) {
   renderCount++
   if (renderCount <= 50 || renderCount % 50 === 0) {
     dlog(`[render] TerminalPanel render #${renderCount} terminal=${terminalId} active=${isActive}`)
@@ -35,6 +37,7 @@ export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive 
   const hasBeenFocusedRef = useRef(false)
   const isActiveRef = useRef(isActive)
   const doResizeRef = useRef<(() => void) | null>(null)
+  const supportsImagePaste = agentPreset === 'codex-cli'
 
   // Keep isActiveRef in sync with isActive prop
   useEffect(() => {
@@ -95,6 +98,39 @@ export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive 
     }
   }
 
+  const handlePasteImage = async () => {
+    const filePath = await window.electronAPI.clipboard.saveImage()
+    if (!filePath) return false
+    const written = await window.electronAPI.clipboard.writeImage(filePath)
+    if (!written) return false
+    window.electronAPI.pty.write(terminalId, '\x1bv')
+    return true
+  }
+
+  const handlePasteFromClipboard = async ({ textOnly = false }: { textOnly?: boolean } = {}) => {
+    if (!textOnly && supportsImagePaste) {
+      try {
+        const items = await navigator.clipboard.read()
+        const hasImage = items.some(item => item.types.some(type => type.startsWith('image/')))
+        if (hasImage) {
+          const pastedImage = await handlePasteImage()
+          if (pastedImage) return
+        }
+      } catch {
+        // Fallback to text paste when clipboard.read() is unavailable.
+      }
+    }
+
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text) {
+        await handlePasteText(text)
+      }
+    } catch (err) {
+      console.error('Failed to read clipboard:', err)
+    }
+  }
+
   // Handle context menu actions
   const handleCopy = () => {
     if (terminalRef.current) {
@@ -107,14 +143,7 @@ export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive 
   }
 
   const handlePaste = async () => {
-    try {
-      const text = await navigator.clipboard.readText()
-      if (text) {
-        handlePasteText(text)
-      }
-    } catch (err) {
-      console.error('Failed to read clipboard:', err)
-    }
+    await handlePasteFromClipboard()
     setContextMenu(null)
   }
 
@@ -371,45 +400,13 @@ export const TerminalPanel = memo(function TerminalPanel({ terminalId, isActive 
       }
       // Ctrl+Shift+V for paste
       if (event.ctrlKey && event.shiftKey && event.key === 'V') {
-        navigator.clipboard.readText().then((text) => {
-          handlePasteText(text)
-        })
+        handlePasteFromClipboard({ textOnly: true })
         return false
       }
-      // Ctrl+V for paste (standard shortcut)
-      if (event.ctrlKey && !event.shiftKey && event.key === 'v') {
+      // Ctrl/Cmd+V for paste
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'v') {
         event.preventDefault()
-        // On Windows, check if clipboard contains an image and send Alt+V
-        const isWindows = navigator.platform.toLowerCase().includes('win')
-        if (isWindows) {
-          navigator.clipboard.read().then(async (items) => {
-            let hasImage = false
-            for (const item of items) {
-              if (item.types.some(type => type.startsWith('image/'))) {
-                hasImage = true
-                break
-              }
-            }
-            if (hasImage) {
-              // Send Alt+V (ESC + v) to terminal for image paste handling
-              window.electronAPI.pty.write(terminalId, '\x1bv')
-            } else {
-              // Normal text paste
-              const text = await navigator.clipboard.readText()
-              handlePasteText(text)
-            }
-          }).catch(() => {
-            // Fallback to text paste if clipboard.read() fails
-            navigator.clipboard.readText().then((text) => {
-              handlePasteText(text)
-            })
-          })
-        } else {
-          // On macOS/Linux, just paste text directly
-          navigator.clipboard.readText().then((text) => {
-            handlePasteText(text)
-          })
-        }
+        handlePasteFromClipboard()
         return false
       }
       // Ctrl+C for copy when there's a selection

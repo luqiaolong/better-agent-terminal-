@@ -123,6 +123,7 @@ export const TerminalThumbnail = memo(function TerminalThumbnail({ terminal, isA
   const isAgent = terminal.agentPreset && terminal.agentPreset !== 'none'
   const agentConfig = isAgent ? getAgentPreset(terminal.agentPreset!) : null
   const isWorktreeTerminal = !isAgent && !!terminal.worktreePath
+  const displayTitle = terminal.alias || terminal.title
 
   useEffect(() => {
     setupGlobalListener()
@@ -147,13 +148,14 @@ export const TerminalThumbnail = memo(function TerminalThumbnail({ terminal, isA
     <div
       className={`thumbnail ${isActive ? 'active' : ''} ${isAgent ? 'agent-terminal' : ''}`}
       onClick={onClick}
+      title={terminal.title}
       style={agentConfig ? { '--agent-color': agentConfig.color } as React.CSSProperties : undefined}
     >
       <div className="thumbnail-header">
         <div className={`thumbnail-title ${isAgent ? 'agent-terminal' : ''}`}>
           {isAgent && <span>{agentConfig?.icon}</span>}
           {isWorktreeTerminal && <span>🌳</span>}
-          <span>{terminal.title}</span>
+          <span>{displayTitle}</span>
         </div>
         <ActivityIndicator terminalId={terminal.id} size="small" />
       </div>

@@ -228,7 +228,7 @@
     "terminals": "终端",
     "addTerminalOrAgent": "新增终端或 Agent",
     "terminalLabel": "终端",
-    "worktreeTerminalLabel": "Worktree 终端",
+    "worktreeTerminalLabel": "Terminal (worktree)",
     "expandThumbnails": "展开缩略图",
     "collapsePanel": "收起面板"
   },

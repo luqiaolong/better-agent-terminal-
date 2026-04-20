@@ -371,7 +371,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
 
     workspaceStore.updateTerminalCwd(terminal.id, wtResult.worktreePath)
     workspaceStore.setTerminalWorktreeInfo(terminal.id, wtResult.worktreePath, wtResult.branchName)
-    workspaceStore.renameTerminal(terminal.id, `Worktree: ${wtResult.branchName || 'terminal'}`)
+    workspaceStore.setTerminalGeneratedTitle(terminal.id, 'Terminal (worktree)')
 
     window.electronAPI.pty.create({
       id: terminal.id,

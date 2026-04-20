@@ -44,8 +44,8 @@ export interface TerminalInstance {
   workspaceId: string;
   type: 'terminal';              // 統一為 terminal
   agentPreset?: AgentPresetId;   // 可選的 Agent 預設
-  title: string;
-  alias?: string;
+  title: string;                 // 系統/官方名稱
+  alias?: string;                // 使用者手動命名，UI 顯示優先使用
   pid?: number;
   cwd: string;
   scrollbackBuffer: string[];

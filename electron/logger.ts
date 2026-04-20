@@ -44,8 +44,12 @@ function init(userDataPath: string) {
   initialized = true
   if (!DEBUG_ENABLED) return
 
-  logFilePath = path.join(userDataPath, 'debug.log')
-  const prevPath = path.join(userDataPath, 'debug.prev.log')
+  const runtimeId = process.env.BAT_RUNTIME || process.argv.find(a => a.startsWith('--runtime='))?.split('=')[1]
+  const logBaseName = runtimeId ? `debug.${runtimeId}.log` : 'debug.log'
+  const prevBaseName = runtimeId ? `debug.${runtimeId}.prev.log` : 'debug.prev.log'
+
+  logFilePath = path.join(userDataPath, logBaseName)
+  const prevPath = path.join(userDataPath, prevBaseName)
 
   // Rotate: current → prev (sync is fine here, only runs once at startup)
   try {

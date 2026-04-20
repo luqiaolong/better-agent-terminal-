@@ -240,7 +240,7 @@
     "terminals": "Terminals",
     "addTerminalOrAgent": "Add Terminal or Agent",
     "terminalLabel": "Terminal",
-    "worktreeTerminalLabel": "Worktree Terminal",
+    "worktreeTerminalLabel": "Terminal (worktree)",
     "expandThumbnails": "Expand Thumbnails",
     "collapsePanel": "Collapse Panel"
   },

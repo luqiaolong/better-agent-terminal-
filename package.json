@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "cross-env BAT_DEBUG=1 vite",
     "dev-runtime": "cross-env BAT_DEBUG=1 BAT_RUNTIME=1 vite",
-    "verify-runtime": "npm run compile && cross-env BAT_RUNTIME=verify electron .",
+    "verify-runtime": "npm run compile && cross-env BAT_DEBUG=1 BAT_RUNTIME=verify electron .",
     "compile": "vite build",
     "start": "electron .",
     "start:server": "node bin/bat-server.js",
@@ -112,13 +112,7 @@
     },
     "mac": {
       "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        }
+        "dmg"
       ],
       "icon": "assets/icon-512.png",
       "category": "public.app-category.developer-tools",

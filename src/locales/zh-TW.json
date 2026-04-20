@@ -240,7 +240,7 @@
     "terminals": "終端",
     "addTerminalOrAgent": "新增終端或 Agent",
     "terminalLabel": "終端",
-    "worktreeTerminalLabel": "Worktree 終端",
+    "worktreeTerminalLabel": "Terminal (worktree)",
     "expandThumbnails": "展開縮圖",
     "collapsePanel": "收合面板"
   },

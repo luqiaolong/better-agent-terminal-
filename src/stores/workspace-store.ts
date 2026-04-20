@@ -279,7 +279,7 @@ class WorkspaceStore {
     this.state = {
       ...this.state,
       terminals: this.state.terminals.map(t =>
-        t.id === id ? { ...t, agentPreset: newPreset, title: t.alias || newTitle } : t
+        t.id === id ? { ...t, agentPreset: newPreset, title: newTitle } : t
       )
     }
     this.notify()
@@ -287,6 +287,17 @@ class WorkspaceStore {
   }
 
   renameTerminal(id: string, title: string): void {
+    this.state = {
+      ...this.state,
+      terminals: this.state.terminals.map(t =>
+        t.id === id ? { ...t, alias: title } : t
+      )
+    }
+
+    this.notify()
+  }
+
+  setTerminalGeneratedTitle(id: string, title: string): void {
     this.state = {
       ...this.state,
       terminals: this.state.terminals.map(t =>

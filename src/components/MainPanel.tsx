@@ -28,9 +28,10 @@ export const MainPanel = memo(function MainPanel({ terminal, isActive, onClose, 
   const isCodexAgent = terminal.agentPreset === 'codex-agent'
   const isClaudeCode = isSdkManaged
   const agentConfig = isAgent ? getAgentPreset(terminal.agentPreset!) : null
+  const displayTitle = terminal.alias || terminal.title
   const { t } = useTranslation()
   const [isEditing, setIsEditing] = useState(false)
-  const [editValue, setEditValue] = useState(terminal.title)
+  const [editValue, setEditValue] = useState(displayTitle)
   const [showPromptBox, setShowPromptBox] = useState(false)
   const [showUserMsg, setShowUserMsg] = useState(true)
   const [showAssistantMsg, setShowAssistantMsg] = useState(true)
@@ -38,7 +39,7 @@ export const MainPanel = memo(function MainPanel({ terminal, isActive, onClose, 
   const [showThinkingMsg, setShowThinkingMsg] = useState(true)
 
   const handleDoubleClick = () => {
-    setEditValue(terminal.title)
+    setEditValue(displayTitle)
     setIsEditing(true)
   }
 
@@ -64,7 +65,7 @@ export const MainPanel = memo(function MainPanel({ terminal, isActive, onClose, 
           className={`main-panel-title ${isAgent ? 'agent-terminal' : ''}`}
           style={agentConfig ? { '--agent-color': agentConfig.color } as React.CSSProperties : undefined}
           onDoubleClick={handleDoubleClick}
-          title={t('terminal.doubleClickToRename')}
+          title={terminal.alias ? terminal.title : t('terminal.doubleClickToRename')}
         >
           {isAgent && <span>{agentConfig?.icon}</span>}
           {isEditing ? (
@@ -78,7 +79,7 @@ export const MainPanel = memo(function MainPanel({ terminal, isActive, onClose, 
               autoFocus
             />
           ) : (
-            <span>{terminal.title}</span>
+            <span>{displayTitle}</span>
           )}
         </div>
         {isClaudeCode && !isWorker && (
@@ -187,7 +188,7 @@ export const MainPanel = memo(function MainPanel({ terminal, isActive, onClose, 
             )}
           </Suspense>
         ) : (
-          <TerminalPanel terminalId={terminal.id} isActive={isActive} />
+          <TerminalPanel terminalId={terminal.id} isActive={isActive} agentPreset={terminal.agentPreset} />
         )}
       </div>
       {!isClaudeCode && showPromptBox && (
