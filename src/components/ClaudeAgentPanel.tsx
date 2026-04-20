@@ -3717,7 +3717,14 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
               <button className="claude-plan-modal-close" onClick={() => setContentModal(null)}>&times;</button>
             </div>
             {contentModal.markdown ? (
-              <div className="claude-plan-modal-body claude-plan-modal-markdown claude-markdown" dangerouslySetInnerHTML={{ __html: renderChatMarkdown(contentModal.content) }} />
+              <div
+                className="claude-plan-modal-body claude-plan-modal-markdown claude-markdown"
+                dangerouslySetInnerHTML={{ __html: renderChatMarkdown(contentModal.content) }}
+                onClick={(e) => {
+                  const link = (e.target as HTMLElement).closest('a') as HTMLAnchorElement | null
+                  if (link?.href) { e.preventDefault(); window.electronAPI.shell.openExternal(link.href) }
+                }}
+              />
             ) : (
               <pre className="claude-plan-modal-body">{contentModal.content}</pre>
             )}
