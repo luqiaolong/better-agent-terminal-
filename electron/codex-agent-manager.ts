@@ -149,6 +149,21 @@ const CODEX_MODELS: Array<{ value: string; displayName: string; description: str
 
 const sdkThreadIds = new Map<string, string>()
 
+// Save a data URL (data:image/png;base64,...) to a temp file, returns absolute path or null.
+async function dataUrlToTempFile(dataUrl: string): Promise<string | null> {
+  const match = dataUrl.match(/^data:image\/([a-z+]+);base64,(.+)$/i)
+  if (!match) return null
+  const ext = match[1].toLowerCase() === 'jpeg' ? 'jpg' : match[1].toLowerCase()
+  const base64 = match[2]
+  if (base64.length > 20 * 1024 * 1024) return null
+  const buf = Buffer.from(base64, 'base64')
+  const dir = pathModule.join(os.tmpdir(), 'bat-codex-images')
+  await fs.mkdir(dir, { recursive: true })
+  const filePath = pathModule.join(dir, `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`)
+  await fs.writeFile(filePath, buf)
+  return filePath
+}
+
 function getCodexSessionsRoot(): string {
   return pathModule.join(os.homedir(), '.codex', 'sessions')
 }
@@ -561,7 +576,7 @@ export class CodexAgentManager {
     }
   }
 
-  async sendMessage(sessionId: string, prompt: string, _images?: string[]): Promise<boolean> {
+  async sendMessage(sessionId: string, prompt: string, images?: string[]): Promise<boolean> {
     const session = this.sessions.get(sessionId)
     if (!session || !session.thread) return false
 
@@ -580,7 +595,7 @@ export class CodexAgentManager {
         session.messageQueue = []
         this.send('claude:error', sessionId, 'Previous turn stalled; recovered.')
       } else {
-        session.messageQueue.push({ prompt })
+        session.messageQueue.push({ prompt, images })
         return true
       }
     }
@@ -591,14 +606,28 @@ export class CodexAgentManager {
     session.lastEventAt = Date.now()
     const ctrl = session.abortController
 
-    // Add user message to UI
+    // Add user message to UI (with note when images are attached, so remote viewers see context)
+    const displayContent = prompt + (images?.length ? `\n[${images.length} image${images.length > 1 ? 's' : ''} attached]` : '')
     this.addMessage(sessionId, {
       id: `user-${Date.now()}`,
       sessionId,
       role: 'user',
-      content: prompt,
+      content: displayContent,
       timestamp: Date.now(),
     })
+
+    // Materialise any data-URL images to temp files — the Codex SDK only accepts local image paths.
+    const tempImagePaths: string[] = []
+    if (images && images.length > 0) {
+      for (const dataUrl of images) {
+        try {
+          const p = await dataUrlToTempFile(dataUrl)
+          if (p) tempImagePaths.push(p)
+        } catch (err) {
+          logger.warn(`${stag} Failed to save pasted image to temp:`, err)
+        }
+      }
+    }
 
     const turnStart = Date.now()
     let currentAssistantText = ''
@@ -619,8 +648,17 @@ export class CodexAgentManager {
     }
 
     try {
-      const thread = session.thread as { runStreamed: (prompt: string, opts?: { signal?: AbortSignal }) => Promise<{ events: AsyncIterable<Record<string, unknown>> }> }
-      const { events } = await thread.runStreamed(prompt, { signal: ctrl.signal })
+      type CodexUserInput = { type: 'text'; text: string } | { type: 'local_image'; path: string }
+      type CodexInput = string | CodexUserInput[]
+      const thread = session.thread as { runStreamed: (input: CodexInput, opts?: { signal?: AbortSignal }) => Promise<{ events: AsyncIterable<Record<string, unknown>> }> }
+      let input: CodexInput = prompt
+      if (tempImagePaths.length > 0) {
+        input = [
+          ...tempImagePaths.map((path): CodexUserInput => ({ type: 'local_image', path })),
+          ...(prompt ? [{ type: 'text' as const, text: prompt }] : []),
+        ]
+      }
+      const { events } = await thread.runStreamed(input, { signal: ctrl.signal })
 
       resetIdleTimer()
 
@@ -819,6 +857,11 @@ export class CodexAgentManager {
       }
     } finally {
       if (idleTimer) clearTimeout(idleTimer)
+
+      // Remove any temp image files we created for this turn; Codex has already read them.
+      for (const p of tempImagePaths) {
+        fs.unlink(p).catch(() => {})
+      }
 
       // If a newer sendMessage has superseded this one, don't touch session state.
       if (session.abortController === ctrl) {
