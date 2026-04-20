@@ -19,7 +19,9 @@ const CODEX_AGENT_PARAM_DEFINITIONS: AgentParamDefinition[] = [
     key: 'sandboxMode',
     label: 'Codex sandbox mode',
     type: 'select',
-    defaultValue: 'workspace-write',
+    defaultValue: typeof window !== 'undefined' && window.electronAPI?.debug?.isDebugMode
+      ? 'danger-full-access'
+      : 'workspace-write',
     options: [
       { value: 'read-only', label: 'sandbox: read-only' },
       { value: 'workspace-write', label: 'sandbox: workspace-write' },
@@ -30,7 +32,9 @@ const CODEX_AGENT_PARAM_DEFINITIONS: AgentParamDefinition[] = [
     key: 'approvalPolicy',
     label: 'Codex approval policy',
     type: 'select',
-    defaultValue: 'on-request',
+    defaultValue: typeof window !== 'undefined' && window.electronAPI?.debug?.isDebugMode
+      ? 'never'
+      : 'on-request',
     options: [
       { value: 'untrusted', label: 'approval: untrusted' },
       { value: 'on-request', label: 'approval: on-request' },

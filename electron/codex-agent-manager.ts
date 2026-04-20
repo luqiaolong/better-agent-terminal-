@@ -1,5 +1,7 @@
 import type { BrowserWindow } from 'electron'
 import { execSync } from 'child_process'
+import { promises as fs } from 'fs'
+import os from 'os'
 import * as pathModule from 'path'
 import type { ClaudeMessage, ClaudeToolCall, ClaudeSessionState } from '../src/types/claude-agent'
 import { logger } from './logger'
@@ -84,6 +86,76 @@ const CODEX_MODELS: Array<{ value: string; displayName: string; description: str
 
 const sdkThreadIds = new Map<string, string>()
 
+function getCodexSessionsRoot(): string {
+  return pathModule.join(os.homedir(), '.codex', 'sessions')
+}
+
+async function findSessionLogForThread(threadId: string): Promise<string | null> {
+  const root = getCodexSessionsRoot()
+  const yearDirs = await fs.readdir(root, { withFileTypes: true }).catch(() => [])
+  for (const yearDir of yearDirs.filter(entry => entry.isDirectory()).sort((a, b) => b.name.localeCompare(a.name))) {
+    const yearPath = pathModule.join(root, yearDir.name)
+    const monthDirs = await fs.readdir(yearPath, { withFileTypes: true }).catch(() => [])
+    for (const monthDir of monthDirs.filter(entry => entry.isDirectory()).sort((a, b) => b.name.localeCompare(a.name))) {
+      const monthPath = pathModule.join(yearPath, monthDir.name)
+      const dayDirs = await fs.readdir(monthPath, { withFileTypes: true }).catch(() => [])
+      for (const dayDir of dayDirs.filter(entry => entry.isDirectory()).sort((a, b) => b.name.localeCompare(a.name))) {
+        const dayPath = pathModule.join(monthPath, dayDir.name)
+        const files = await fs.readdir(dayPath, { withFileTypes: true }).catch(() => [])
+        const match = files.find(entry => entry.isFile() && entry.name.includes(threadId) && entry.name.endsWith('.jsonl'))
+        if (match) return pathModule.join(dayPath, match.name)
+      }
+    }
+  }
+  return null
+}
+
+async function readModelFromSessionLog(threadId: string): Promise<string | undefined> {
+  const sessionLogPath = await findSessionLogForThread(threadId)
+  if (!sessionLogPath) return undefined
+
+  const content = await fs.readFile(sessionLogPath, 'utf8').catch(() => '')
+  if (!content) return undefined
+
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue
+    try {
+      const entry = JSON.parse(line) as {
+        type?: string
+        payload?: {
+          model?: string
+          collaboration_mode?: { settings?: { model?: string } }
+        }
+      }
+      if (entry.type === 'turn_context') {
+        const model = entry.payload?.model || entry.payload?.collaboration_mode?.settings?.model
+        if (model) return model
+      }
+    } catch {
+      // Ignore malformed log lines and keep scanning.
+    }
+  }
+
+  return undefined
+}
+
+function stringifyCodexError(error: unknown, fallback = 'Unknown error'): string {
+  if (!error) return fallback
+  if (typeof error === 'string') return error
+  if (error instanceof Error) return error.message || fallback
+  if (typeof error === 'object') {
+    const record = error as Record<string, unknown>
+    const nested = record.message ?? record.error ?? record.cause
+    if (typeof nested === 'string' && nested.trim()) return nested
+    try {
+      return JSON.stringify(error)
+    } catch {
+      return String(error)
+    }
+  }
+  return String(error)
+}
+
 export class CodexAgentManager {
   private sessions: Map<string, CodexSessionInstance> = new Map()
   private getWindows: () => BrowserWindow[]
@@ -102,6 +174,20 @@ export class CodexAgentManager {
   }
 
   private static readonly MSG_BUFFER_CAP = 300
+
+  private async syncModelFromSessionLog(sessionId: string) {
+    const session = this.sessions.get(sessionId)
+    const threadId = session?.threadId
+    if (!session || !threadId) return
+
+    const model = await readModelFromSessionLog(threadId).catch(() => undefined)
+    if (!model || session.metadata.model === model) return
+
+    logger.log(`[codex:${sessionId.slice(0, 8)}] Resolved session model from log: ${model}`)
+    session.model = model
+    session.metadata.model = model
+    this.send('claude:status', sessionId, { ...session.metadata })
+  }
 
   private addMessage(sessionId: string, msg: ClaudeMessage) {
     const session = this.sessions.get(sessionId)
@@ -202,7 +288,7 @@ export class CodexAgentManager {
 
     // Send init message
     this.addMessage(sessionId, {
-      id: `sys-init-${Date.now()}`,
+      id: `sys-init-${sessionId}`,
       sessionId,
       role: 'system',
       content: `Codex session started (sandbox: ${sandboxMode}, approval: ${approvalPolicy})`,
@@ -298,7 +384,7 @@ export class CodexAgentManager {
 
         switch (type) {
           case 'thread.started': {
-            const threadId = event.threadId as string | undefined
+            const threadId = (event.thread_id as string | undefined) || (event.threadId as string | undefined)
             if (threadId && !session.threadId) {
               session.threadId = threadId
               session.metadata.sdkSessionId = threadId
@@ -310,6 +396,7 @@ export class CodexAgentManager {
 
           case 'turn.started':
             session.metadata.numTurns++
+            await this.syncModelFromSessionLog(sessionId)
             break
 
           case 'item.started': {
@@ -432,7 +519,7 @@ export class CodexAgentManager {
                 result: 'Search completed',
               })
             } else if (itemType === 'error') {
-              const errMsg = (item?.message as string) || (item?.error as string) || 'Unknown error'
+              const errMsg = stringifyCodexError(item?.message ?? item?.error)
               this.send('claude:error', sessionId, errMsg)
             }
             break
@@ -446,6 +533,7 @@ export class CodexAgentManager {
               session.metadata.cacheReadTokens += usage.cached_input_tokens || 0
               session.metadata.lastQueryCalls = 1
             }
+            await this.syncModelFromSessionLog(sessionId)
             session.metadata.durationMs = Date.now() - (session.startTime || turnStart)
             this.send('claude:status', sessionId, { ...session.metadata })
 
@@ -459,14 +547,14 @@ export class CodexAgentManager {
           }
 
           case 'turn.failed': {
-            const errMsg = (event.error as string) || 'Turn failed'
+            const errMsg = stringifyCodexError(event.error, 'Turn failed')
             logger.error(`${stag} Turn failed: ${errMsg}`)
             this.send('claude:error', sessionId, errMsg)
             break
           }
 
           case 'error': {
-            const errMsg = (event.error as string) || 'Unknown error'
+            const errMsg = stringifyCodexError(event.error)
             logger.error(`${stag} Error: ${errMsg}`)
             this.send('claude:error', sessionId, errMsg)
             break
@@ -476,7 +564,7 @@ export class CodexAgentManager {
     } catch (err) {
       if (!session.abortController.signal.aborted) {
         logger.error(`${stag} Query error:`, err)
-        this.send('claude:error', sessionId, `Codex error: ${err instanceof Error ? err.message : String(err)}`)
+        this.send('claude:error', sessionId, `Codex error: ${stringifyCodexError(err)}`)
       }
     } finally {
       session.isRunning = false
@@ -541,6 +629,7 @@ export class CodexAgentManager {
         session.threadId = threadId
         session.metadata.sdkSessionId = threadId
         sdkThreadIds.set(sessionId, threadId)
+        await this.syncModelFromSessionLog(sessionId)
       }
     } catch (err) {
       logger.error(`[codex:${sessionId.slice(0, 8)}] Reset failed:`, err)
