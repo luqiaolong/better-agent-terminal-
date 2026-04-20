@@ -1,5 +1,6 @@
 import type { AgentPresetId } from './agent-presets'
-import type { AgentParamValue } from './index'
+import { CODEX_EFFORT_LEVELS, type AgentParamValue } from './index'
+import { settingsStore } from '../stores/settings-store'
 
 export interface AgentParamOption {
   value: AgentParamValue
@@ -14,37 +15,44 @@ export interface AgentParamDefinition {
   options?: AgentParamOption[]
 }
 
-const CODEX_AGENT_PARAM_DEFINITIONS: AgentParamDefinition[] = [
-  {
-    key: 'sandboxMode',
-    label: 'Codex sandbox mode',
-    type: 'select',
-    defaultValue: typeof window !== 'undefined' && window.electronAPI?.debug?.isDebugMode
-      ? 'danger-full-access'
-      : 'workspace-write',
-    options: [
-      { value: 'read-only', label: 'sandbox: read-only' },
-      { value: 'workspace-write', label: 'sandbox: workspace-write' },
-      { value: 'danger-full-access', label: 'sandbox: danger-full-access' },
-    ],
-  },
-  {
-    key: 'approvalPolicy',
-    label: 'Codex approval policy',
-    type: 'select',
-    defaultValue: typeof window !== 'undefined' && window.electronAPI?.debug?.isDebugMode
-      ? 'never'
-      : 'on-request',
-    options: [
-      { value: 'untrusted', label: 'approval: untrusted' },
-      { value: 'on-request', label: 'approval: on-request' },
-      { value: 'never', label: 'approval: never' },
-    ],
-  },
-]
+function getCodexAgentParamDefinitions(): AgentParamDefinition[] {
+  const dangerousMode = settingsStore.getSettings().codexCliDangerousMode !== false
+
+  return [
+    {
+      key: 'sandboxMode',
+      label: 'Codex sandbox mode',
+      type: 'select',
+      defaultValue: dangerousMode ? 'danger-full-access' : 'workspace-write',
+      options: [
+        { value: 'read-only', label: 'sandbox: read-only' },
+        { value: 'workspace-write', label: 'sandbox: workspace-write' },
+        { value: 'danger-full-access', label: 'sandbox: danger-full-access' },
+      ],
+    },
+    {
+      key: 'approvalPolicy',
+      label: 'Codex approval policy',
+      type: 'select',
+      defaultValue: dangerousMode ? 'never' : 'on-request',
+      options: [
+        { value: 'untrusted', label: 'approval: untrusted' },
+        { value: 'on-request', label: 'approval: on-request' },
+        { value: 'never', label: 'approval: never' },
+      ],
+    },
+    {
+      key: 'effortLevel',
+      label: 'Codex reasoning effort',
+      type: 'select',
+      defaultValue: 'high',
+      options: CODEX_EFFORT_LEVELS.map(level => ({ value: level, label: `effort: ${level}` })),
+    },
+  ]
+}
 
 function getAgentParamDefinitions(agentPreset?: AgentPresetId | null): AgentParamDefinition[] {
-  if (agentPreset === 'codex-agent') return CODEX_AGENT_PARAM_DEFINITIONS
+  if (agentPreset === 'codex-agent') return getCodexAgentParamDefinitions()
   return []
 }
 

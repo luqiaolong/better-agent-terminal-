@@ -577,7 +577,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
     // Resume with the same sdkSessionId but new API version
     const sdkSessionId = terminal.sdkSessionId
     if (sdkSessionId) {
-      await window.electronAPI.claude.resumeSession(id, sdkSessionId, terminal.cwd, terminal.model, newApiVersion)
+      await window.electronAPI.claude.resumeSession(id, sdkSessionId, terminal.cwd, terminal.model, newApiVersion, undefined, undefined, undefined, newPreset)
     } else {
       await window.electronAPI.claude.startSession(id, { cwd: terminal.cwd, apiVersion: newApiVersion })
     }
@@ -715,6 +715,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         detectedProcfiles={detectedProcfiles}
         agentPresets={getVisiblePresets().filter(p => p.id !== 'none' && (!p.needsGitRepo || isGitRepo))}
         onReorder={handleReorderTerminals}
+        onCloseTerminal={handleCloseTerminal}
         showAddButton={true}
         height={thumbnailSettings.height}
         collapsed={thumbnailSettings.collapsed}

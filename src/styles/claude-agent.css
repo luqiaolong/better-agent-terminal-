@@ -54,11 +54,39 @@
 /* Active Tasks indicator bar */
 .claude-active-tasks {
   flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
   background: linear-gradient(180deg, rgba(224, 153, 86, 0.06) 0%, var(--bg-primary) 100%);
   border-bottom: 1px solid var(--border-color);
   padding: 4px 8px 4px 40px;
   z-index: 5;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: auto;
+  scrollbar-color: rgba(224, 153, 86, 0.65) rgba(255, 255, 255, 0.06);
 }
+
+.claude-active-tasks::-webkit-scrollbar {
+  height: 10px;
+}
+
+.claude-active-tasks::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+}
+
+.claude-active-tasks::-webkit-scrollbar-thumb {
+  background: rgba(224, 153, 86, 0.55);
+  border-radius: 999px;
+  border: 2px solid rgba(0, 0, 0, 0);
+  background-clip: padding-box;
+}
+
+.claude-active-tasks::-webkit-scrollbar-thumb:hover {
+  background: rgba(224, 153, 86, 0.82);
+}
+
 .claude-active-task-item {
   display: flex;
   align-items: center;
@@ -67,6 +95,8 @@
   cursor: pointer;
   border-radius: 4px;
   transition: background 0.12s;
+  flex: 0 0 auto;
+  min-width: max-content;
 }
 .claude-active-task-item:hover {
   background: var(--bg-hover);

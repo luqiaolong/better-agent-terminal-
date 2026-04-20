@@ -3,8 +3,8 @@ import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { ClaudeMessage, ClaudeToolCall } from '../types/claude-agent'
 import { isToolCall } from '../types/claude-agent'
-import type { EffortLevel } from '../types'
-import { EFFORT_LEVELS } from '../types'
+import type { CodexEffortLevel, EffortLevel } from '../types'
+import { CODEX_EFFORT_LEVELS, EFFORT_LEVELS } from '../types'
 import { normalizeAgentParams } from '../types/agent-profiles'
 import { settingsStore } from '../stores/settings-store'
 import { workspaceStore } from '../stores/workspace-store'
@@ -211,7 +211,11 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
       : 'on-request'
   })
   const [effortLevel, setEffortLevel] = useState<string>(() => {
-    return settingsStore.getSettings().defaultEffort || 'high'
+    const saved = normalizedAgentParams?.effortLevel
+    if (typeof saved === 'string' && CODEX_EFFORT_LEVELS.includes(saved as CodexEffortLevel)) return saved
+    const globalDefault = settingsStore.getSettings().defaultEffort
+    if (typeof globalDefault === 'string' && CODEX_EFFORT_LEVELS.includes(globalDefault as CodexEffortLevel)) return globalDefault
+    return 'high'
   })
   const [claudeUsage, setClaudeUsage] = useState(workspaceStore.claudeUsage)
   const [usageAccount, setUsageAccount] = useState(workspaceStore.usageAccount)
@@ -343,7 +347,14 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
   const [userScrolledUp, setUserScrolledUp] = useState(false)
   const isNearBottomRef = useRef(true)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
-  const middlePanRef = useRef<{ startX: number; startScrollLeft: number } | null>(null)
+  const middlePanRef = useRef<{
+    startX: number
+    startY: number
+    startScrollLeft: number
+    startScrollTop: number
+    el: HTMLDivElement
+  } | null>(null)
+  const activeTasksRef = useRef<HTMLDivElement>(null)
   const [aboveViewportUserMsgIds, setAboveViewportUserMsgIds] = useState<Set<string>>(new Set())
   const [claudeFontSize, setClaudeFontSize] = useState(settingsStore.getSettings().fontSize)
   const userMsgRefsMap = useRef<Map<string, HTMLDivElement>>(new Map())
@@ -363,6 +374,14 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
     isNearBottomRef.current = true
   }, [])
 
+  const scrollToBottomAfterRender = useCallback(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scrollToBottom()
+      })
+    })
+  }, [scrollToBottom])
+
   // Handle user scroll events on messages container
   const handleMessagesScroll = useCallback(() => {
     const nearBottom = checkIfNearBottom()
@@ -376,6 +395,30 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
     window.addEventListener('click', close, true)
     return () => window.removeEventListener('click', close, true)
   }, [contextMenu])
+
+  const handleMiddlePanStart = useCallback((e: React.MouseEvent<HTMLDivElement>, el: HTMLDivElement | null) => {
+    if (e.button !== 1 || !el) return
+    e.preventDefault()
+    middlePanRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startScrollLeft: el.scrollLeft,
+      startScrollTop: el.scrollTop,
+      el,
+    }
+  }, [])
+
+  const handleMiddlePanMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!middlePanRef.current) return
+    const { el, startX, startY, startScrollLeft, startScrollTop } = middlePanRef.current
+    el.scrollLeft = startScrollLeft - (e.clientX - startX)
+    el.scrollTop = startScrollTop - (e.clientY - startY)
+  }, [])
+
+  const handleMiddlePanEnd = useCallback((e?: React.MouseEvent<HTMLDivElement>) => {
+    if (e && e.button !== 1) return
+    middlePanRef.current = null
+  }, [])
 
   // Only auto-scroll if user hasn't scrolled up
   useEffect(() => {
@@ -935,11 +978,13 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
             content: prompt,
             timestamp: Date.now(),
           }])
+          scrollToBottomAfterRender()
           setIsStreaming(true)
           window.electronAPI.claude.sendMessage(sessionId, prompt, images)
         } else {
           dlog2(`${tag} onHistory setting messages (history only, no pending prompt)`)
           setMessages(historyItems)
+          scrollToBottomAfterRender()
         }
       }),
 
@@ -997,19 +1042,21 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
       if (effectiveModel) setCurrentModel(effectiveModel)
 
       // Use global default effort
-      const effectiveEffort = globalSettings.defaultEffort || 'high'
+      const effectiveEffort = isCodexSession
+        ? effortLevel
+        : (globalSettings.defaultEffort || 'high')
       if (!isCodexSession) setEffortLevel(effectiveEffort)
 
       if (savedSdkSessionId) {
         dlog(`${stag} AUTO-RESUME sdkSessionId=${savedSdkSessionId.slice(0, 8)}`)
         historyLoadedRef.current = true
         window.electronAPI.claude.resumeSession(sessionId, savedSdkSessionId, cwd, savedModel, apiVersion,
-          useWorktree ? true : undefined, terminal?.worktreePath, terminal?.worktreeBranch)
+          useWorktree ? true : undefined, terminal?.worktreePath, terminal?.worktreeBranch, terminal?.agentPreset)
       } else {
         dlog(`${stag} FRESH startSession`)
         window.electronAPI.claude.startSession(sessionId, {
           cwd, permissionMode, model: effectiveModel,
-          ...(!isCodexSession ? { effort: effectiveEffort as EffortLevel } : {}),
+          effort: effectiveEffort as EffortLevel,
           apiVersion,
           agentPreset: terminal?.agentPreset,
           ...(isCodexSession ? { codexSandboxMode, codexApprovalPolicy } : {}),
@@ -1234,7 +1281,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
     // Mark that history will be loaded — prevents sys-init from wiping messages
     historyLoadedRef.current = true
     const apiVersion = isV2Session ? 'v2' as const : 'v1' as const
-    await window.electronAPI.claude.resumeSession(sessionId, sdkSessionId, cwd, undefined, apiVersion)
+    await window.electronAPI.claude.resumeSession(sessionId, sdkSessionId, cwd, undefined, apiVersion, undefined, undefined, undefined, terminal?.agentPreset)
     workspaceStore.setTerminalSdkSessionId(sessionId, sdkSessionId)
   }, [sessionId, cwd, isV2Session])
 
@@ -1932,8 +1979,11 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
   const handleEffortChange = useCallback(async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const next = e.target.value
     setEffortLevel(next)
+    if (isCodexSession) {
+      workspaceStore.updateTerminalAgentParams(sessionId, { effortLevel: next })
+    }
     await window.electronAPI.claude.setEffort(sessionId, next)
-  }, [sessionId])
+  }, [sessionId, isCodexSession])
 
   const handleCodexSandboxModeChange = useCallback(async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const next = e.target.value as 'read-only' | 'workspace-write' | 'danger-full-access'
@@ -3040,7 +3090,18 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
         </div>
       )}
       {activeTasks.length > 0 && (
-        <div className="claude-active-tasks">
+        <div
+          className="claude-active-tasks"
+          ref={activeTasksRef}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            setContextMenu({ x: e.clientX, y: e.clientY })
+          }}
+          onMouseDown={(e) => handleMiddlePanStart(e, activeTasksRef.current)}
+          onMouseMove={handleMiddlePanMove}
+          onMouseUp={handleMiddlePanEnd}
+          onMouseLeave={() => handleMiddlePanEnd()}
+        >
           {activeTasks.map(task => {
             const label = task.input.description
               ? String(task.input.description).slice(0, 60)
@@ -3078,20 +3139,10 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
           e.preventDefault()
           setContextMenu({ x: e.clientX, y: e.clientY })
         }}
-        onMouseDown={(e) => {
-          if (e.button === 1) {
-            e.preventDefault()
-            const el = messagesContainerRef.current
-            if (el) middlePanRef.current = { startX: e.clientX, startScrollLeft: el.scrollLeft }
-          }
-        }}
-        onMouseMove={(e) => {
-          if (!middlePanRef.current) return
-          const el = messagesContainerRef.current
-          if (el) el.scrollLeft = middlePanRef.current.startScrollLeft - (e.clientX - middlePanRef.current.startX)
-        }}
-        onMouseUp={(e) => { if (e.button === 1) middlePanRef.current = null }}
-        onMouseLeave={() => { middlePanRef.current = null }}
+        onMouseDown={(e) => handleMiddlePanStart(e, messagesContainerRef.current)}
+        onMouseMove={handleMiddlePanMove}
+        onMouseUp={handleMiddlePanEnd}
+        onMouseLeave={() => handleMiddlePanEnd()}
       >
         {(hasMoreArchived || isLoadingMore) && (
           <div className="claude-load-more">
@@ -3665,14 +3716,14 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
                 {'</>'} {currentModel}{sessionMeta && sessionMeta.contextWindow > 0 ? ` (${sessionMeta.contextWindow >= 1000000 ? `${Math.round(sessionMeta.contextWindow / 1000000)}M` : `${Math.round(sessionMeta.contextWindow / 1000)}k`})` : ''}
               </span>
             )}
-            {!isCodexSession && !isV2Session && (
+            {(isCodexSession || !isV2Session) && (
               <select
                 className="claude-effort-select"
                 value={effortLevel}
                 onChange={handleEffortChange}
                 title={t('claude.effortLevel')}
               >
-                {EFFORT_LEVELS.map(level => (
+                {(isCodexSession ? CODEX_EFFORT_LEVELS : EFFORT_LEVELS).map(level => (
                   <option key={level} value={level}>{level}</option>
                 ))}
               </select>

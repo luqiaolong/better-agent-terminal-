@@ -28,6 +28,9 @@ export interface Workspace {
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export type EffortLevel = typeof EFFORT_LEVELS[number]
 
+export const CODEX_EFFORT_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const
+export type CodexEffortLevel = typeof CODEX_EFFORT_LEVELS[number]
+
 export const WORKSPACE_COLORS = [
   { id: 'red', value: '#e74c3c', label: 'Red' },
   { id: 'orange', value: '#e67e22', label: 'Orange' },

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { TerminalInstance } from '../types'
@@ -16,6 +16,7 @@ interface ThumbnailBarProps {
   detectedProcfiles?: string[]
   agentPresets?: AgentPreset[]
   onReorder?: (orderedIds: string[]) => void
+  onCloseTerminal?: (id: string) => void
   showAddButton: boolean
   height?: number
   collapsed?: boolean
@@ -33,6 +34,7 @@ export function ThumbnailBar({
   detectedProcfiles = [],
   agentPresets = [],
   onReorder,
+  onCloseTerminal,
   showAddButton,
   height,
   collapsed = false,
@@ -47,11 +49,14 @@ export function ThumbnailBar({
   const [dropPosition, setDropPosition] = useState<'before' | 'after'>('before')
   const [showAddMenu, setShowAddMenu] = useState(false)
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({})
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; terminalId: string } | null>(null)
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null)
   const addMenuRef = useRef<HTMLDivElement>(null)
   const addMenuPopupRef = useRef<HTMLDivElement>(null)
   const addBtnRef = useRef<HTMLButtonElement>(null)
   const thumbnailListRef = useRef<HTMLDivElement>(null)
   const middlePanRef = useRef<{ startX: number; startScrollLeft: number } | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
 
   // Close menu on outside click
   useEffect(() => {
@@ -68,6 +73,51 @@ export function ThumbnailBar({
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [showAddMenu])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [contextMenu])
+
+  useLayoutEffect(() => {
+    if (!contextMenu || !contextMenuRef.current) {
+      setContextMenuPos(null)
+      return
+    }
+    const rect = contextMenuRef.current.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    let { x, y } = contextMenu
+    if (x + rect.width > vw) x = Math.max(4, vw - rect.width - 4)
+    if (y + rect.height > vh) y = Math.max(4, vh - rect.height - 4)
+    setContextMenuPos({ x, y })
+  }, [contextMenu])
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!middlePanRef.current) return
+      const el = thumbnailListRef.current
+      if (!el) return
+      el.scrollLeft = middlePanRef.current.startScrollLeft - (e.clientX - middlePanRef.current.startX)
+    }
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 1) middlePanRef.current = null
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [])
 
   const handleDragStart = useCallback((e: React.DragEvent, id: string) => {
     setDraggedId(id)
@@ -134,6 +184,12 @@ export function ThumbnailBar({
     setDraggedId(null)
     setDropTargetId(null)
   }, [draggedId, dropPosition, terminals, onReorder])
+
+  const handleThumbnailContextMenu = useCallback((e: React.MouseEvent, terminalId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({ x: e.clientX, y: e.clientY, terminalId })
+  }, [])
 
   // Collapsed state - show icon bar
   if (collapsed) {
@@ -252,6 +308,14 @@ export function ThumbnailBar({
       <div
         className="thumbnail-list"
         ref={thumbnailListRef}
+        onWheel={(e) => {
+          const el = thumbnailListRef.current
+          if (!el || el.scrollWidth <= el.clientWidth) return
+          const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+          if (delta === 0) return
+          e.preventDefault()
+          el.scrollLeft += delta
+        }}
         onMouseDown={(e) => {
           if (e.button === 1) {
             e.preventDefault()
@@ -261,11 +325,9 @@ export function ThumbnailBar({
         }}
         onMouseMove={(e) => {
           if (!middlePanRef.current) return
-          const el = thumbnailListRef.current
-          if (el) el.scrollLeft = middlePanRef.current.startScrollLeft - (e.clientX - middlePanRef.current.startX)
+          e.preventDefault()
         }}
         onMouseUp={(e) => { if (e.button === 1) middlePanRef.current = null }}
-        onMouseLeave={() => { middlePanRef.current = null }}
       >
         {terminals.map(terminal => (
           <div
@@ -281,6 +343,7 @@ export function ThumbnailBar({
                 ? ` drop-${dropPosition}`
                 : ''
             }${draggedId === terminal.id ? ' dragging' : ''}`}
+            onContextMenu={(e) => handleThumbnailContextMenu(e, terminal.id)}
           >
             <TerminalThumbnail
               terminal={terminal}
@@ -290,6 +353,27 @@ export function ThumbnailBar({
           </div>
         ))}
       </div>
+      {contextMenu && onCloseTerminal && createPortal(
+        <div
+          ref={contextMenuRef}
+          className="workspace-context-menu"
+          style={contextMenuPos
+            ? { left: contextMenuPos.x, top: contextMenuPos.y }
+            : { left: contextMenu.x, top: contextMenu.y, visibility: 'hidden' as const }
+          }
+        >
+          <div
+            className="context-menu-item danger"
+            onClick={() => {
+              onCloseTerminal(contextMenu.terminalId)
+              setContextMenu(null)
+            }}
+          >
+            {t('terminal.closeTerminal')}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }

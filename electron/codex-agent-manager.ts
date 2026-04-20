@@ -4,6 +4,7 @@ import { promises as fs } from 'fs'
 import os from 'os'
 import * as pathModule from 'path'
 import type { ClaudeMessage, ClaudeToolCall, ClaudeSessionState } from '../src/types/claude-agent'
+import type { CodexEffortLevel } from '../src/types'
 import { logger } from './logger'
 import { broadcastHub } from './remote/broadcast-hub'
 
@@ -45,12 +46,18 @@ interface CodexSessionInstance {
   sandboxMode: CodexSandboxMode
   approvalPolicy: CodexApprovalPolicy
   model?: string
+  effort: CodexEffortLevel
   messageQueue: QueuedMessage[]
   currentPrompt?: string
   isResting?: boolean
   isRunning?: boolean
   startTime?: number
+  lastEventAt?: number
 }
+
+type HistoryItem = ClaudeMessage | ClaudeToolCall
+
+const CODEX_EFFORT_LEVELS: readonly CodexEffortLevel[] = ['minimal', 'low', 'medium', 'high', 'xhigh']
 
 // Lazy SDK import
 let CodexClass: unknown = null
@@ -156,6 +163,18 @@ function stringifyCodexError(error: unknown, fallback = 'Unknown error'): string
   return String(error)
 }
 
+function parseTimestamp(value: unknown): number {
+  if (typeof value !== 'string') return Date.now()
+  const ts = Date.parse(value)
+  return Number.isNaN(ts) ? Date.now() : ts
+}
+
+function normalizeCodexEffort(value: unknown): CodexEffortLevel {
+  return typeof value === 'string' && CODEX_EFFORT_LEVELS.includes(value as CodexEffortLevel)
+    ? value as CodexEffortLevel
+    : 'high'
+}
+
 export class CodexAgentManager {
   private sessions: Map<string, CodexSessionInstance> = new Map()
   private getWindows: () => BrowserWindow[]
@@ -224,6 +243,122 @@ export class CodexAgentManager {
     this.send('claude:tool-result', sessionId, { id: toolId, ...updates })
   }
 
+  private replaceHistory(sessionId: string, items: HistoryItem[]) {
+    const session = this.sessions.get(sessionId)
+    if (session) {
+      session.state.messages = items.slice(-CodexAgentManager.MSG_BUFFER_CAP)
+    }
+    this.send('claude:history', sessionId, items)
+  }
+
+  private async loadSessionHistory(sessionId: string, threadId: string): Promise<void> {
+    const sessionLogPath = await findSessionLogForThread(threadId)
+    if (!sessionLogPath) {
+      logger.log(`[codex:${sessionId.slice(0, 8)}] No session log found for thread ${threadId.slice(0, 8)}`)
+      this.replaceHistory(sessionId, [])
+      return
+    }
+
+    const content = await fs.readFile(sessionLogPath, 'utf8').catch(() => '')
+    if (!content) {
+      this.replaceHistory(sessionId, [])
+      return
+    }
+
+    const items: HistoryItem[] = []
+
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue
+
+      try {
+        const entry = JSON.parse(line) as {
+          timestamp?: string
+          type?: string
+          payload?: Record<string, unknown>
+        }
+        if (entry.type !== 'event_msg' || !entry.payload) continue
+
+        const ts = parseTimestamp(entry.timestamp)
+        const eventType = entry.payload.type
+        if (typeof eventType !== 'string') continue
+
+        if (eventType === 'user_message') {
+          const message = entry.payload.message
+          if (typeof message === 'string' && message.trim()) {
+            items.push({
+              id: `hist-user-${items.length}`,
+              sessionId,
+              role: 'user',
+              content: message,
+              timestamp: ts,
+            })
+          }
+          continue
+        }
+
+        if (eventType === 'agent_message') {
+          const message = entry.payload.message
+          if (typeof message === 'string' && message.trim()) {
+            items.push({
+              id: `hist-assistant-${items.length}`,
+              sessionId,
+              role: 'assistant',
+              content: message,
+              timestamp: ts,
+            })
+          }
+          continue
+        }
+
+        if (eventType === 'exec_command_end') {
+          const cmd = Array.isArray(entry.payload.command)
+            ? entry.payload.command.map(part => String(part)).join(' ')
+            : ''
+          const aggregatedOutput = typeof entry.payload.aggregated_output === 'string'
+            ? entry.payload.aggregated_output
+            : ''
+          const stderr = typeof entry.payload.stderr === 'string' ? entry.payload.stderr : ''
+          const stdout = typeof entry.payload.stdout === 'string' ? entry.payload.stdout : ''
+          const result = aggregatedOutput || stdout || stderr
+          items.push({
+            id: String(entry.payload.call_id || `hist-bash-${items.length}`),
+            sessionId,
+            toolName: 'Bash',
+            input: { command: cmd },
+            status: entry.payload.exit_code === 0 ? 'completed' : 'error',
+            ...(result ? { result: result.slice(0, 4000) } : {}),
+            timestamp: ts,
+          })
+          continue
+        }
+
+        if (eventType === 'patch_apply_end') {
+          const changes = entry.payload.changes
+          const changedFiles = changes && typeof changes === 'object'
+            ? Object.keys(changes as Record<string, unknown>)
+            : []
+          const stdout = typeof entry.payload.stdout === 'string' ? entry.payload.stdout : ''
+          const stderr = typeof entry.payload.stderr === 'string' ? entry.payload.stderr : ''
+          const summary = stdout || stderr || (changedFiles.length > 0 ? changedFiles.join('\n') : 'Patch applied')
+          items.push({
+            id: String(entry.payload.call_id || `hist-edit-${items.length}`),
+            sessionId,
+            toolName: 'Edit',
+            input: { files: changedFiles },
+            status: entry.payload.success === false ? 'error' : 'completed',
+            result: summary.slice(0, 4000),
+            timestamp: ts,
+          })
+        }
+      } catch {
+        // Ignore malformed log lines and keep scanning.
+      }
+    }
+
+    logger.log(`[codex:${sessionId.slice(0, 8)}] Loaded ${items.length} history items from ${pathModule.basename(sessionLogPath)}`)
+    this.replaceHistory(sessionId, items)
+  }
+
   private makeMetadata(): SessionMetadata {
     return {
       totalCost: 0,
@@ -280,6 +415,7 @@ export class CodexAgentManager {
       sandboxMode,
       approvalPolicy,
       model: options.model,
+      effort: normalizeCodexEffort(options.effort),
       messageQueue: [],
       startTime: Date.now(),
     }
@@ -307,6 +443,7 @@ export class CodexAgentManager {
         workingDirectory: options.cwd,
         sandboxMode,
         approvalPolicy,
+        modelReasoningEffort: session.effort,
       }
       if (options.model) threadOpts.model = options.model
 
@@ -314,7 +451,7 @@ export class CodexAgentManager {
       let thread: unknown
       if (savedThreadId) {
         logger.log(`${stag} Resuming thread ${savedThreadId.slice(0, 8)}`)
-        thread = (codex as Record<string, (id: string) => unknown>).resumeThread(savedThreadId)
+        thread = (codex as Record<string, (id: string, opts?: Record<string, unknown>) => unknown>).resumeThread(savedThreadId, threadOpts)
       } else {
         thread = (codex as Record<string, (opts: Record<string, unknown>) => unknown>).startThread(threadOpts)
       }
@@ -348,15 +485,31 @@ export class CodexAgentManager {
     const session = this.sessions.get(sessionId)
     if (!session || !session.thread) return false
 
+    const stag = `[codex:${sessionId.slice(0, 8)}]`
+
     if (session.isRunning) {
-      session.messageQueue.push({ prompt })
-      return true
+      const sinceLast = session.lastEventAt ? Date.now() - session.lastEventAt : 0
+      const stuck = session.lastEventAt && sinceLast > 30_000
+      if (stuck) {
+        logger.warn(`${stag} No events for ${Math.round(sinceLast / 1000)}s; forcing recovery to accept new message`)
+        session.abortController.abort()
+        session.abortController = new AbortController()
+        session.isRunning = false
+        session.state.isStreaming = false
+        session.currentPrompt = undefined
+        session.messageQueue = []
+        this.send('claude:error', sessionId, 'Previous turn stalled; recovered.')
+      } else {
+        session.messageQueue.push({ prompt })
+        return true
+      }
     }
 
-    const stag = `[codex:${sessionId.slice(0, 8)}]`
     session.isRunning = true
     session.currentPrompt = prompt
     session.state.isStreaming = true
+    session.lastEventAt = Date.now()
+    const ctrl = session.abortController
 
     // Add user message to UI
     this.addMessage(sessionId, {
@@ -371,13 +524,30 @@ export class CodexAgentManager {
     let currentAssistantText = ''
     let currentThinkingText = ''
     let currentItemId = ''
+    let sawTurnCompleted = false
+    let idleTimedOut = false
+    let idleTimer: ReturnType<typeof setTimeout> | undefined
+    const IDLE_TIMEOUT_MS = 120_000
+
+    const resetIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => {
+        idleTimedOut = true
+        logger.warn(`${stag} No events for ${IDLE_TIMEOUT_MS / 1000}s; aborting stalled turn`)
+        ctrl.abort()
+      }, IDLE_TIMEOUT_MS)
+    }
 
     try {
-      const thread = session.thread as Record<string, (prompt: string) => Promise<{ events: AsyncIterable<Record<string, unknown>> }>>
-      const { events } = await thread.runStreamed(prompt)
+      const thread = session.thread as { runStreamed: (prompt: string, opts?: { signal?: AbortSignal }) => Promise<{ events: AsyncIterable<Record<string, unknown>> }> }
+      const { events } = await thread.runStreamed(prompt, { signal: ctrl.signal })
+
+      resetIdleTimer()
 
       for await (const event of events) {
-        if (session.abortController.signal.aborted) break
+        if (ctrl.signal.aborted || session.abortController !== ctrl) break
+        session.lastEventAt = Date.now()
+        resetIdleTimer()
 
         const type = event.type as string
         logger.log(`${stag} event: ${type}`)
@@ -526,6 +696,7 @@ export class CodexAgentManager {
           }
 
           case 'turn.completed': {
+            sawTurnCompleted = true
             const usage = event.usage as { input_tokens?: number; cached_input_tokens?: number; output_tokens?: number } | undefined
             if (usage) {
               session.metadata.inputTokens += usage.input_tokens || 0
@@ -562,19 +733,33 @@ export class CodexAgentManager {
         }
       }
     } catch (err) {
-      if (!session.abortController.signal.aborted) {
+      if (!ctrl.signal.aborted) {
         logger.error(`${stag} Query error:`, err)
         this.send('claude:error', sessionId, `Codex error: ${stringifyCodexError(err)}`)
       }
     } finally {
-      session.isRunning = false
-      session.state.isStreaming = false
-      session.currentPrompt = undefined
+      if (idleTimer) clearTimeout(idleTimer)
 
-      // Process queued messages
-      const next = session.messageQueue.shift()
-      if (next) {
-        await this.sendMessage(sessionId, next.prompt, next.images)
+      // If a newer sendMessage has superseded this one, don't touch session state.
+      if (session.abortController === ctrl) {
+        if (!sawTurnCompleted) {
+          if (idleTimedOut) {
+            this.send('claude:error', sessionId, `Codex: no response from model after ${IDLE_TIMEOUT_MS / 1000}s. Please try again.`)
+          } else if (!ctrl.signal.aborted) {
+            logger.warn(`${stag} Turn ended without turn.completed; clearing UI state`)
+            this.send('claude:error', sessionId, 'Codex turn ended unexpectedly.')
+          }
+          // else: user hit stop — no error needed
+        }
+        session.isRunning = false
+        session.state.isStreaming = false
+        session.currentPrompt = undefined
+
+        // Process queued messages
+        const next = session.messageQueue.shift()
+        if (next) {
+          await this.sendMessage(sessionId, next.prompt, next.images)
+        }
       }
     }
 
@@ -621,6 +806,7 @@ export class CodexAgentManager {
         workingDirectory: session.cwd,
         sandboxMode: session.sandboxMode,
         approvalPolicy: session.approvalPolicy,
+        modelReasoningEffort: session.effort,
       }
       if (session.model) threadOpts.model = session.model
       session.thread = codex.startThread(threadOpts)
@@ -663,7 +849,14 @@ export class CodexAgentManager {
 
   async resumeSession(sessionId: string, threadId: string, cwd: string, model?: string): Promise<boolean> {
     sdkThreadIds.set(sessionId, threadId)
-    return this.startSession(sessionId, { cwd, model })
+    const result = await this.startSession(sessionId, { cwd, model })
+    if (result) {
+      await this.loadSessionHistory(sessionId, threadId).catch(err => {
+        logger.error(`[codex:${sessionId.slice(0, 8)}] Failed to load session history:`, err)
+        this.replaceHistory(sessionId, [])
+      })
+    }
+    return result
   }
 
   getSessionState(sessionId: string): ClaudeSessionState | null {
@@ -723,7 +916,19 @@ export class CodexAgentManager {
     return false
   }
 
-  setEffort(_sessionId: string, _effort: string): boolean {
+  setEffort(sessionId: string, effort: string): boolean {
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+    const next = normalizeCodexEffort(effort)
+    if (session.effort === next) return true
+    session.effort = next
+    this.addMessage(sessionId, {
+      id: `sys-effort-${Date.now()}`,
+      sessionId,
+      role: 'system',
+      content: `Codex reasoning effort updated to ${next}. This applies to the next /new or session restart.`,
+      timestamp: Date.now(),
+    })
     return true
   }
 
