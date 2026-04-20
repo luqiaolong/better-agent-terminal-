@@ -27,7 +27,7 @@ export interface ConnectOptions {
 
 const BACKOFF_BASE_MS = 3_000
 const BACKOFF_MAX_MS = 30_000
-const AUTH_TIMEOUT_MS = 10_000
+const AUTH_TIMEOUT_MS = 6_000
 const DEFAULT_INVOKE_TIMEOUT_MS = 30_000
 
 export class RemoteClient {

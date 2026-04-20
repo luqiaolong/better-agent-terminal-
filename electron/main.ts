@@ -531,22 +531,29 @@ async function withRemoteClientLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+type SnapshotLoadResult =
+  | { kind: 'ok'; snapshot: ProfileSnapshot | null }
+  | { kind: 'remote-unreachable'; host: string; port: number; label: string }
+
 // Helper: load snapshot for a profile, handling remote profiles by fetching from the remote server
-async function loadProfileSnapshot(profileId: string): Promise<ProfileSnapshot | null> {
+async function loadProfileSnapshotDetailed(profileId: string): Promise<SnapshotLoadResult> {
   const profileEntry = await profileManager.getProfile(profileId)
   if (profileEntry?.type === 'remote' && profileEntry.remoteHost && profileEntry.remoteToken && profileEntry.remoteFingerprint) {
+    const host = profileEntry.remoteHost
+    const port = profileEntry.remotePort || 9876
+    const label = profileEntry.name || profileId
     return await withRemoteClientLock(async () => {
       try {
         const client = new RemoteClient(() => getWindowsForProfile(profileId))
         const ok = await client.connect({
-          host: profileEntry.remoteHost!,
-          port: profileEntry.remotePort || 9876,
+          host,
+          port,
           token: profileEntry.remoteToken!,
           fingerprint: profileEntry.remoteFingerprint!
         })
         if (!ok) {
-          logger.error(`[profile] remote connect failed for profile ${profileId} (${profileEntry.remoteHost}:${profileEntry.remotePort})`)
-          return null
+          logger.error(`[profile] remote connect failed for profile ${profileId} (${host}:${port})`)
+          return { kind: 'remote-unreachable', host, port, label }
         }
         // Replace any previous connection cleanly.
         try { remoteClient?.disconnect() } catch { /* ignore */ }
@@ -555,18 +562,38 @@ async function loadProfileSnapshot(profileId: string): Promise<ProfileSnapshot |
         const targetProfileId = profileEntry.remoteProfileId || 'default'
         const snapshot = await client.invoke('profile:load-snapshot', [targetProfileId]) as ProfileSnapshot | null
         logger.log(`[profile] remote profile ${profileId} → got ${snapshot?.windows?.length ?? 0} window(s) from remote (target: ${targetProfileId})`)
-        return snapshot
+        return { kind: 'ok', snapshot }
       } catch (err) {
         logger.error(`[profile] remote profile ${profileId} snapshot fetch failed:`, err instanceof Error ? err.message : String(err))
-        return null
+        return { kind: 'remote-unreachable', host, port, label }
       }
     })
   }
   if (profileEntry?.type === 'remote' && !profileEntry.remoteFingerprint) {
     logger.warn(`[profile] remote profile ${profileId} is missing remoteFingerprint — refusing to connect (legacy plaintext setup, please re-pair)`)
-    return null
+    return { kind: 'remote-unreachable', host: profileEntry.remoteHost || '', port: profileEntry.remotePort || 9876, label: profileEntry.name || profileId }
   }
-  return await profileManager.loadSnapshot(profileId)
+  return { kind: 'ok', snapshot: await profileManager.loadSnapshot(profileId) }
+}
+
+function showRemoteUnreachableDialog(host: string, port: number, label: string): void {
+  dialog.showMessageBox({
+    type: 'warning',
+    title: 'Remote profile unreachable',
+    message: `Cannot connect to remote profile "${label}"`,
+    detail: `The remote server at ${host}:${port} is not running or did not respond within 6 seconds.`,
+    buttons: ['OK']
+  }).catch(() => { /* ignore */ })
+}
+
+async function pickFallbackProfileId(excludeProfileId: string): Promise<string | null> {
+  const { profiles } = await profileManager.list()
+  const local = profiles.filter(p => p.type !== 'remote' && p.id !== excludeProfileId)
+  if (local.length > 0) {
+    return (local.find(p => p.id === 'default') || local[0]).id
+  }
+  const other = profiles.find(p => p.id !== excludeProfileId)
+  return other?.id || null
 }
 
 app.whenReady().then(async () => {
@@ -612,22 +639,47 @@ app.whenReady().then(async () => {
   }
 
   // Helper: restore windows for a profile at startup
-  const restoreFromSnapshot = async (profileId: string): Promise<number> => {
-    const snapshot = await loadProfileSnapshot(profileId)
-    if (!snapshot) return 0
-    return applySnapshot(profileId, snapshot)
+  const restoreFromSnapshot = async (profileId: string): Promise<{ count: number; unreachable?: { host: string; port: number; label: string } }> => {
+    const result = await loadProfileSnapshotDetailed(profileId)
+    if (result.kind === 'remote-unreachable') {
+      return { count: 0, unreachable: { host: result.host, port: result.port, label: result.label } }
+    }
+    if (!result.snapshot) return { count: 0 }
+    return { count: await applySnapshot(profileId, result.snapshot) }
   }
+
+  // Track remote-unreachable failures so we can show a dialog once windows exist
+  const unreachableFailures: { host: string; port: number; label: string }[] = []
 
   if (launchProfileId) {
     // --profile= launch: restore that profile's windows
-    const count = await restoreFromSnapshot(launchProfileId)
-    if (count === 0) {
+    const { count, unreachable } = await restoreFromSnapshot(launchProfileId)
+    if (unreachable) unreachableFailures.push(unreachable)
+    if (count === 0 && !unreachable) {
       // No snapshot — create empty window
       const entry = await windowRegistry.createEntry({ profileId: launchProfileId })
       windowsToCreate.push({ id: entry.id })
     }
-    await profileManager.activateProfile(launchProfileId)
+    if (!unreachable) await profileManager.activateProfile(launchProfileId)
     logger.log(`[startup] profile launch ${launchProfileId} → ${windowsToCreate.length} window(s)`)
+
+    // Remote unreachable and no other windows — fall back to any available profile
+    if (unreachable && windowsToCreate.length === 0) {
+      const fallbackId = await pickFallbackProfileId(launchProfileId)
+      if (fallbackId) {
+        logger.log(`[startup] remote launch profile unreachable, falling back to ${fallbackId}`)
+        const { count: fbCount, unreachable: fbUnreachable } = await restoreFromSnapshot(fallbackId)
+        if (fbUnreachable) unreachableFailures.push(fbUnreachable)
+        await profileManager.activateProfile(fallbackId)
+        if (fbCount === 0) {
+          const entry = await windowRegistry.createEntry({ profileId: fallbackId })
+          windowsToCreate.push({ id: entry.id })
+        }
+      } else {
+        const entry = await windowRegistry.createEntry({ profileId: launchProfileId })
+        windowsToCreate.push({ id: entry.id })
+      }
+    }
   } else {
     // Normal launch: restore windows for all active profiles
     let activeProfileIds = await profileManager.getActiveProfileIds()
@@ -644,15 +696,31 @@ app.whenReady().then(async () => {
     }
 
     for (const pid of activeProfileIds) {
-      const count = await restoreFromSnapshot(pid)
-      logger.log(`[startup] restored ${count} window(s) from profile ${pid}`)
+      const { count, unreachable } = await restoreFromSnapshot(pid)
+      if (unreachable) unreachableFailures.push(unreachable)
+      logger.log(`[startup] restored ${count} window(s) from profile ${pid}${unreachable ? ' (remote unreachable)' : ''}`)
     }
 
-    // If still no windows (all snapshots empty), create one empty window
+    // If no windows (all snapshots empty or remote unreachable), create one empty window
     if (windowsToCreate.length === 0) {
-      const entry = await windowRegistry.createEntry({ profileId: activeProfileIds[0] })
-      windowsToCreate.push({ id: entry.id })
-      logger.log(`[startup] created empty window for profile ${activeProfileIds[0]}`)
+      // Prefer a local fallback when the only active profiles were remote-unreachable
+      let fallbackPid = activeProfileIds[0]
+      if (unreachableFailures.length > 0) {
+        const localFallback = await pickFallbackProfileId(fallbackPid)
+        if (localFallback) {
+          fallbackPid = localFallback
+          await profileManager.activateProfile(localFallback)
+          const { count } = await restoreFromSnapshot(localFallback)
+          if (count > 0) {
+            logger.log(`[startup] fell back to local profile ${localFallback} → ${count} window(s)`)
+          }
+        }
+      }
+      if (windowsToCreate.length === 0) {
+        const entry = await windowRegistry.createEntry({ profileId: fallbackPid })
+        windowsToCreate.push({ id: entry.id })
+        logger.log(`[startup] created empty window for profile ${fallbackPid}`)
+      }
     }
   }
 
@@ -685,6 +753,11 @@ app.whenReady().then(async () => {
     }
   }
 
+  // Show any remote-unreachable notifications after windows are created
+  for (const fail of unreachableFailures) {
+    showRemoteUnreachableDialog(fail.host, fail.port, fail.label)
+  }
+
   // Second instance launched — open a new window in existing process
   app.on('second-instance', async (_event, argv) => {
     // Check if launched with --profile=
@@ -705,7 +778,13 @@ app.whenReady().then(async () => {
         w.focus()
       } else {
         await profileManager.activateProfile(profileId2)
-        const snapshot = await loadProfileSnapshot(profileId2)
+        const result = await loadProfileSnapshotDetailed(profileId2)
+        if (result.kind === 'remote-unreachable') {
+          showRemoteUnreachableDialog(result.host, result.port, result.label)
+          await profileManager.deactivateProfile(profileId2).catch(() => { /* ignore */ })
+          return
+        }
+        const snapshot = result.snapshot
         if (snapshot && snapshot.windows.length > 0) {
           for (const winSnap of snapshot.windows) {
             const entry = await windowRegistry.createEntry({ profileId: profileId2 })
@@ -1121,7 +1200,13 @@ function registerLocalHandlers() {
     await profileManager.activateProfile(profileId)
 
     // Load profile snapshot (handles both local and remote profiles)
-    const snapshot = await loadProfileSnapshot(profileId)
+    const result = await loadProfileSnapshotDetailed(profileId)
+    if (result.kind === 'remote-unreachable') {
+      showRemoteUnreachableDialog(result.host, result.port, result.label)
+      await profileManager.deactivateProfile(profileId).catch(() => { /* ignore */ })
+      return { alreadyOpen: false, windowIds: [], error: 'remote-unreachable' }
+    }
+    const snapshot = result.snapshot
     if (snapshot && snapshot.windows.length > 0) {
       const windowIds: string[] = []
       for (const winSnap of snapshot.windows) {
