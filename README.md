@@ -163,8 +163,7 @@ Items can be reordered, colored, and toggled on/off via a drag-and-drop template
 ### Option 1: Homebrew (macOS)
 
 ```bash
-brew tap tonyq-org/tap
-brew install --cask better-agent-terminal
+brew install --cask tonyq-org/tap/better-agent-terminal
 ```
 
 ### Option 2: Chocolatey (Windows) *(coming soon)*
