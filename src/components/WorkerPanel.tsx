@@ -633,6 +633,7 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
             <button className="worker-btn" onClick={startAll} title="Start All">▶ All</button>
             <button className="worker-btn" onClick={stopAll} title="Stop All">■ All</button>
             <button className="worker-btn" onClick={restartAll} title="Restart All">⟳ All</button>
+            <button className="worker-btn" onClick={() => reloadProcfile()} title="Reload Procfile">⟲ Procfile</button>
           </div>
         </div>
       )}
