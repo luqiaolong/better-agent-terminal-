@@ -179,7 +179,7 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
 
   // Claude Agent SDK
   registerHandler('claude:start-session', (_ctx, sessionId: string, options: { cwd: string; prompt?: string; permissionMode?: string; model?: string; effort?: string; apiVersion?: 'v1' | 'v2'; useWorktree?: boolean; worktreePath?: string; worktreeBranch?: string; autoCompactWindow?: number; agentPreset?: string; codexSandboxMode?: string; codexApprovalPolicy?: string }) => {
-    if (options.agentPreset === 'codex-cli') {
+    if (options.agentPreset === 'codex-agent') {
       sessionManagerMap.set(sessionId, 'codex')
       return getCodexManager()?.startSession(sessionId, options)
     }

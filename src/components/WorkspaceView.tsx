@@ -230,7 +230,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         for (const terminal of terminals) {
           // Worker terminals manage their own PTYs internally via WorkerPanel
           if (terminal.procfilePath) continue
-          if (terminal.agentPreset === 'claude-code' || terminal.agentPreset === 'claude-code-v2' || terminal.agentPreset === 'claude-code-worktree' || terminal.agentPreset === 'codex-cli') continue
+          if (terminal.agentPreset === 'claude-code' || terminal.agentPreset === 'claude-code-v2' || terminal.agentPreset === 'claude-code-worktree' || terminal.agentPreset === 'codex-agent') continue
           // claude-cli presets use startClaudeCliPty for bundled CLI + env setup
           if (terminal.agentPreset === 'claude-cli' || terminal.agentPreset === 'claude-cli-worktree') {
             startClaudeCliPty(terminal.id, terminal.cwd || workspace.folderPath, terminal.agentPreset === 'claude-cli-worktree')
@@ -268,7 +268,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
           const agentTerminal = workspaceStore.addTerminal(workspace.id, defaultAgent as AgentPresetId)
           if (defaultAgent === 'claude-cli' || defaultAgent === 'claude-cli-worktree') {
             startClaudeCliPty(agentTerminal.id, workspace.folderPath, defaultAgent === 'claude-cli-worktree')
-          } else if (defaultAgent !== 'claude-code' && defaultAgent !== 'claude-code-v2' && defaultAgent !== 'claude-code-worktree' && defaultAgent !== 'codex-cli') {
+          } else if (defaultAgent !== 'claude-code' && defaultAgent !== 'claude-code-v2' && defaultAgent !== 'claude-code-worktree' && defaultAgent !== 'codex-agent') {
             window.electronAPI.pty.create({
               id: agentTerminal.id,
               cwd: workspace.folderPath,
@@ -468,7 +468,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
   const handleConfirmClose = useCallback((cleanWorktree = false) => {
     if (showCloseConfirm) {
       const terminal = terminals.find(t => t.id === showCloseConfirm)
-      if (terminal?.agentPreset === 'claude-code' || terminal?.agentPreset === 'claude-code-v2' || terminal?.agentPreset === 'claude-code-worktree' || terminal?.agentPreset === 'codex-cli') {
+      if (terminal?.agentPreset === 'claude-code' || terminal?.agentPreset === 'claude-code-v2' || terminal?.agentPreset === 'claude-code-worktree' || terminal?.agentPreset === 'codex-agent') {
         window.electronAPI.claude.stopSession(showCloseConfirm)
         if (cleanWorktree && terminal?.agentPreset === 'claude-code-worktree') {
           window.electronAPI.claude.cleanupWorktree(showCloseConfirm, true)

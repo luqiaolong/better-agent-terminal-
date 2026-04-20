@@ -60,7 +60,7 @@ async function getCodexClass(): Promise<unknown> {
       CodexClass = (sdk as Record<string, unknown>).Codex || (sdk as Record<string, unknown>).default
     } catch (err) {
       logger.error('[codex] Failed to import @openai/codex-sdk:', err)
-      throw new Error('Codex SDK not available. Install with: npm i -g @openai/codex')
+      throw new Error('Codex SDK not available. Install with: npm i -g @openai/codex-sdk')
     }
   }
   return CodexClass
