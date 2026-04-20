@@ -250,6 +250,30 @@ export class CodexAgentManager {
 
   private static readonly MSG_BUFFER_CAP = 300
 
+  private rebuildThread(session: CodexSessionInstance): void {
+    if (!session.codexInstance || !session.threadId) return
+    const threadOpts: Record<string, unknown> = {
+      workingDirectory: session.cwd,
+      sandboxMode: session.sandboxMode,
+      approvalPolicy: session.approvalPolicy,
+      modelReasoningEffort: session.effort,
+    }
+    if (session.model) threadOpts.model = session.model
+    const codex = session.codexInstance as Record<string, (id: string, opts: Record<string, unknown>) => unknown>
+    session.thread = codex.resumeThread(session.threadId, threadOpts)
+  }
+
+  private abortRunningTurn(session: CodexSessionInstance): boolean {
+    if (!session.isRunning) return false
+    session.abortController.abort()
+    session.abortController = new AbortController()
+    session.isRunning = false
+    session.state.isStreaming = false
+    session.currentPrompt = undefined
+    session.messageQueue = []
+    return true
+  }
+
   private async syncModelFromSessionLog(sessionId: string) {
     const session = this.sessions.get(sessionId)
     const threadId = session?.threadId
@@ -907,9 +931,13 @@ export class CodexAgentManager {
     return this.sessions.get(sessionId)?.isResting ?? false
   }
 
-  async resumeSession(sessionId: string, threadId: string, cwd: string, model?: string): Promise<boolean> {
+  async resumeSession(sessionId: string, threadId: string, cwd: string, model?: string, codexSandboxMode?: CodexSandboxMode, codexApprovalPolicy?: CodexApprovalPolicy): Promise<boolean> {
     sdkThreadIds.set(sessionId, threadId)
-    const result = await this.startSession(sessionId, { cwd, model })
+    const result = await this.startSession(sessionId, {
+      cwd, model,
+      ...(codexSandboxMode ? { codexSandboxMode } : {}),
+      ...(codexApprovalPolicy ? { codexApprovalPolicy } : {}),
+    })
     if (result) {
       await this.loadSessionHistory(sessionId, threadId).catch(err => {
         logger.error(`[codex:${sessionId.slice(0, 8)}] Failed to load session history:`, err)
@@ -936,8 +964,19 @@ export class CodexAgentManager {
     const session = this.sessions.get(sessionId)
     if (!session) return false
     if (session.model === model) return true
+    const aborted = this.abortRunningTurn(session)
     session.model = model
     session.metadata.model = model
+    this.rebuildThread(session)
+    this.addMessage(sessionId, {
+      id: `sys-model-${Date.now()}`,
+      sessionId,
+      role: 'system',
+      content: aborted
+        ? `Codex model updated to ${model}. Previous turn aborted.`
+        : `Codex model updated to ${model}.`,
+      timestamp: Date.now(),
+    })
     this.send('claude:status', sessionId, { ...session.metadata })
     return true
   }
@@ -946,12 +985,16 @@ export class CodexAgentManager {
     const session = this.sessions.get(sessionId)
     if (!session) return false
     if (session.sandboxMode === sandboxMode) return true
+    const aborted = this.abortRunningTurn(session)
     session.sandboxMode = sandboxMode
+    this.rebuildThread(session)
     this.addMessage(sessionId, {
       id: `sys-sandbox-${Date.now()}`,
       sessionId,
       role: 'system',
-      content: `Codex sandbox updated to ${sandboxMode}. This applies to the next /new or session restart.`,
+      content: aborted
+        ? `Codex sandbox updated to ${sandboxMode}. Previous turn aborted.`
+        : `Codex sandbox updated to ${sandboxMode}.`,
       timestamp: Date.now(),
     })
     return true
@@ -961,12 +1004,16 @@ export class CodexAgentManager {
     const session = this.sessions.get(sessionId)
     if (!session) return false
     if (session.approvalPolicy === approvalPolicy) return true
+    const aborted = this.abortRunningTurn(session)
     session.approvalPolicy = approvalPolicy
+    this.rebuildThread(session)
     this.addMessage(sessionId, {
       id: `sys-approval-${Date.now()}`,
       sessionId,
       role: 'system',
-      content: `Codex approval updated to ${approvalPolicy}. This applies to the next /new or session restart.`,
+      content: aborted
+        ? `Codex approval updated to ${approvalPolicy}. Previous turn aborted.`
+        : `Codex approval updated to ${approvalPolicy}.`,
       timestamp: Date.now(),
     })
     return true
@@ -981,12 +1028,16 @@ export class CodexAgentManager {
     if (!session) return false
     const next = normalizeCodexEffort(effort)
     if (session.effort === next) return true
+    const aborted = this.abortRunningTurn(session)
     session.effort = next
+    this.rebuildThread(session)
     this.addMessage(sessionId, {
       id: `sys-effort-${Date.now()}`,
       sessionId,
       role: 'system',
-      content: `Codex reasoning effort updated to ${next}. This applies to the next /new or session restart.`,
+      content: aborted
+        ? `Codex reasoning effort updated to ${next}. Previous turn aborted.`
+        : `Codex reasoning effort updated to ${next}.`,
       timestamp: Date.now(),
     })
     return true
