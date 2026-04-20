@@ -338,6 +338,12 @@ export class CodexAgentManager {
     this.send('claude:tool-result', sessionId, { id: toolId, ...updates })
   }
 
+  private hasToolCall(sessionId: string, toolId: string): boolean {
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+    return session.state.messages.some(m => 'toolName' in m && m.id === toolId)
+  }
+
   private replaceHistory(sessionId: string, items: HistoryItem[]) {
     const session = this.sessions.get(sessionId)
     if (session) {
@@ -781,8 +787,18 @@ export class CodexAgentManager {
               currentAssistantText = ''
               currentThinkingText = ''
             } else if (itemType === 'command_execution') {
-              const output = (item?.output as string) || (item?.result as string) || ''
+              const output = (item?.aggregated_output as string) || (item?.output as string) || (item?.result as string) || ''
               const status = (item?.status as string) === 'failed' ? 'error' : 'completed'
+              if (!this.hasToolCall(sessionId, itemId)) {
+                this.addToolCall(sessionId, {
+                  id: itemId,
+                  sessionId,
+                  toolName: 'Bash',
+                  input: { command: (item?.command as string) || '' },
+                  status: 'running',
+                  timestamp: Date.now(),
+                })
+              }
               this.updateToolCall(sessionId, itemId, {
                 status: status as 'completed' | 'error',
                 result: output,
@@ -790,21 +806,69 @@ export class CodexAgentManager {
             } else if (itemType === 'file_change') {
               const changes = item?.changes as Array<Record<string, unknown>> | undefined
               const diff = changes?.map(c => c.diff || `${c.kind}: ${c.path}`).join('\n') || 'File changed'
+              const filePath = (changes?.[0]?.path as string) || ''
+              if (!this.hasToolCall(sessionId, itemId)) {
+                this.addToolCall(sessionId, {
+                  id: itemId,
+                  sessionId,
+                  toolName: 'Edit',
+                  input: { file_path: filePath },
+                  status: 'running',
+                  timestamp: Date.now(),
+                })
+              }
               this.updateToolCall(sessionId, itemId, {
-                status: 'completed',
+                status: (item?.status as string) === 'failed' ? 'error' : 'completed',
                 result: diff as string,
               })
             } else if (itemType === 'mcp_tool_call') {
               const result = item?.result !== undefined ? JSON.stringify(item.result) : ''
               const status = (item?.status as string) === 'failed' ? 'error' : 'completed'
+              if (!this.hasToolCall(sessionId, itemId)) {
+                this.addToolCall(sessionId, {
+                  id: itemId,
+                  sessionId,
+                  toolName: (item?.tool as string) || 'MCP',
+                  input: (item?.arguments as Record<string, unknown>) || {},
+                  status: 'running',
+                  timestamp: Date.now(),
+                })
+              }
               this.updateToolCall(sessionId, itemId, {
                 status: status as 'completed' | 'error',
                 result,
               })
             } else if (itemType === 'web_search') {
+              if (!this.hasToolCall(sessionId, itemId)) {
+                this.addToolCall(sessionId, {
+                  id: itemId,
+                  sessionId,
+                  toolName: 'WebSearch',
+                  input: { query: (item?.query as string) || '' },
+                  status: 'running',
+                  timestamp: Date.now(),
+                })
+              }
               this.updateToolCall(sessionId, itemId, {
                 status: 'completed',
                 result: 'Search completed',
+              })
+            } else if (itemType === 'todo_list') {
+              const items = item?.items as Array<Record<string, unknown>> | undefined
+              const summary = items?.map(t => `${t.completed ? '[x]' : '[ ]'} ${t.text || t.description || ''}`).join('\n') || 'Todo list updated'
+              if (!this.hasToolCall(sessionId, itemId)) {
+                this.addToolCall(sessionId, {
+                  id: itemId,
+                  sessionId,
+                  toolName: 'TodoWrite',
+                  input: { todos: items || [] },
+                  status: 'running',
+                  timestamp: Date.now(),
+                })
+              }
+              this.updateToolCall(sessionId, itemId, {
+                status: 'completed',
+                result: summary,
               })
             } else if (itemType === 'error') {
               const errMsg = stringifyCodexError(item?.message ?? item?.error)
