@@ -122,6 +122,24 @@
   min-height: 120px;
 }
 
+.claude-messages::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.claude-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.claude-messages::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.claude-messages::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
 /* Timeline */
 .claude-timeline {
   display: block;
