@@ -674,7 +674,22 @@ export class CodexAgentManager {
         resetIdleTimer()
 
         const type = event.type as string
-        logger.log(`${stag} event: ${type}`)
+        if (logger.enabled && (type === 'item.started' || type === 'item.updated' || type === 'item.completed')) {
+          const item = (event as { item?: Record<string, unknown> }).item
+          const itemType = item?.type
+          const keys = item ? Object.keys(item).join(',') : ''
+          logger.log(`${stag} event: ${type} item.type=${itemType} keys=${keys}`)
+          if (type === 'item.completed') {
+            try {
+              const snapshot = JSON.stringify(item, (_k, v) => typeof v === 'string' && v.length > 500 ? `${v.slice(0, 500)}…(+${v.length - 500})` : v)
+              logger.log(`${stag} item.completed payload: ${snapshot?.slice(0, 2000)}`)
+            } catch {
+              logger.log(`${stag} item.completed payload: <unserializable>`)
+            }
+          }
+        } else {
+          logger.log(`${stag} event: ${type}`)
+        }
 
         switch (type) {
           case 'thread.started': {
@@ -725,11 +740,12 @@ export class CodexAgentManager {
                 timestamp: Date.now(),
               })
             } else if (itemType === 'mcp_tool_call') {
-              const toolName = (item?.tool as string) || 'MCP'
+              const server = (item?.server as string) || ''
+              const tool = (item?.tool as string) || 'MCP'
               this.addToolCall(sessionId, {
                 id: currentItemId,
                 sessionId,
-                toolName,
+                toolName: server ? `${server}/${tool}` : tool,
                 input: (item?.arguments as Record<string, unknown>) || {},
                 status: 'running',
                 timestamp: Date.now(),
@@ -789,6 +805,7 @@ export class CodexAgentManager {
             } else if (itemType === 'command_execution') {
               const output = (item?.aggregated_output as string) || (item?.output as string) || (item?.result as string) || ''
               const status = (item?.status as string) === 'failed' ? 'error' : 'completed'
+              const exitCode = typeof item?.exit_code === 'number' ? item.exit_code as number : undefined
               if (!this.hasToolCall(sessionId, itemId)) {
                 this.addToolCall(sessionId, {
                   id: itemId,
@@ -799,9 +816,12 @@ export class CodexAgentManager {
                   timestamp: Date.now(),
                 })
               }
+              const result = status === 'error' && exitCode !== undefined
+                ? `[exit ${exitCode}]\n${output}`
+                : output
               this.updateToolCall(sessionId, itemId, {
                 status: status as 'completed' | 'error',
-                result: output,
+                result,
               })
             } else if (itemType === 'file_change') {
               const changes = item?.changes as Array<Record<string, unknown>> | undefined
@@ -822,13 +842,19 @@ export class CodexAgentManager {
                 result: diff as string,
               })
             } else if (itemType === 'mcp_tool_call') {
-              const result = item?.result !== undefined ? JSON.stringify(item.result) : ''
               const status = (item?.status as string) === 'failed' ? 'error' : 'completed'
+              const server = (item?.server as string) || ''
+              const tool = (item?.tool as string) || 'MCP'
+              const displayName = server ? `${server}/${tool}` : tool
+              const errObj = item?.error as { message?: string } | undefined
+              const result = status === 'error'
+                ? (errObj?.message || JSON.stringify(item?.error ?? 'MCP call failed'))
+                : (item?.result !== undefined ? JSON.stringify(item.result) : '')
               if (!this.hasToolCall(sessionId, itemId)) {
                 this.addToolCall(sessionId, {
                   id: itemId,
                   sessionId,
-                  toolName: (item?.tool as string) || 'MCP',
+                  toolName: displayName,
                   input: (item?.arguments as Record<string, unknown>) || {},
                   status: 'running',
                   timestamp: Date.now(),
@@ -896,6 +922,12 @@ export class CodexAgentManager {
               totalTokens: session.metadata.inputTokens + session.metadata.outputTokens,
               result: currentAssistantText || undefined,
             })
+            this.send('claude:turn-end', sessionId, {
+              reason: 'completed',
+              totalCost: session.metadata.totalCost,
+              totalTokens: session.metadata.inputTokens + session.metadata.outputTokens,
+              result: currentAssistantText || undefined,
+            })
             break
           }
 
@@ -903,11 +935,13 @@ export class CodexAgentManager {
             const errMsg = stringifyCodexError(event.error, 'Turn failed')
             logger.error(`${stag} Turn failed: ${errMsg}`)
             this.send('claude:error', sessionId, errMsg)
+            this.send('claude:turn-end', sessionId, { reason: 'error', error: errMsg })
             break
           }
 
           case 'error': {
-            const errMsg = stringifyCodexError(event.error)
+            // ThreadErrorEvent shape is { type: 'error', message: string }; older/alt payloads may nest under .error.
+            const errMsg = stringifyCodexError((event as { message?: unknown }).message ?? event.error)
             logger.error(`${stag} Error: ${errMsg}`)
             this.send('claude:error', sessionId, errMsg)
             break
@@ -931,12 +965,17 @@ export class CodexAgentManager {
       if (session.abortController === ctrl) {
         if (!sawTurnCompleted) {
           if (idleTimedOut) {
-            this.send('claude:error', sessionId, `Codex: no response from model after ${IDLE_TIMEOUT_MS / 1000}s. Please try again.`)
+            const msg = `Codex: no response from model after ${IDLE_TIMEOUT_MS / 1000}s. Please try again.`
+            this.send('claude:error', sessionId, msg)
+            this.send('claude:turn-end', sessionId, { reason: 'error', error: msg })
           } else if (!ctrl.signal.aborted) {
             logger.warn(`${stag} Turn ended without turn.completed; clearing UI state`)
-            this.send('claude:error', sessionId, 'Codex turn ended unexpectedly.')
+            const msg = 'Codex turn ended unexpectedly.'
+            this.send('claude:error', sessionId, msg)
+            this.send('claude:turn-end', sessionId, { reason: 'error', error: msg })
+          } else {
+            this.send('claude:turn-end', sessionId, { reason: 'aborted' })
           }
-          // else: user hit stop — no error needed
         }
         session.isRunning = false
         session.state.isStreaming = false
@@ -973,6 +1012,7 @@ export class CodexAgentManager {
     session.messageQueue = []
     session.lastEventAt = undefined
     this.send('claude:result', sessionId, { subtype: 'aborted' })
+    this.send('claude:turn-end', sessionId, { reason: 'aborted' })
     return true
   }
 

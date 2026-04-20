@@ -727,19 +727,12 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
         if (isAgentStatusChange) { flushSync(doResultUpdate) } else { doResultUpdate() }
       }),
 
-      api.onResult((sid: string, resultData: unknown) => {
+      api.onTurnEnd((sid: string, payload) => {
         if (sid !== sessionId) return
-        setIsStreaming(false)
-        setIsInterrupted(false)
-        setStreamingText('')
-        setStreamingThinking('')
-        // Refresh usage after agent activity (usage likely changed)
-        workspaceStore.refreshUsageNow()
-        // Show result text only for slash commands that don't produce assistant messages
-        const rd = resultData as { result?: string; subtype?: string } | undefined
-        // Auto-continue: only on successful turns, until max reached
+        // Auto-continue: only when turn completed successfully, until max reached
+        if (payload.reason !== 'completed') return
         const ac = autoContinueRef.current
-        if (ac.enabled && ac.used < ac.max && (!rd?.subtype || rd.subtype === 'success')) {
+        if (ac.enabled && ac.used < ac.max) {
           ac.used++
           const acPrompt = ac.prompt
           const userMsgId = `user-ac-${Date.now()}`
@@ -754,6 +747,18 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
             window.electronAPI.claude.sendMessage(sessionId, acPrompt)
           }, 150)
         }
+      }),
+
+      api.onResult((sid: string, resultData: unknown) => {
+        if (sid !== sessionId) return
+        setIsStreaming(false)
+        setIsInterrupted(false)
+        setStreamingText('')
+        setStreamingThinking('')
+        // Refresh usage after agent activity (usage likely changed)
+        workspaceStore.refreshUsageNow()
+        // Show result text only for slash commands that don't produce assistant messages
+        const rd = resultData as { result?: string; subtype?: string } | undefined
         if (rd?.result && rd.subtype === 'success') {
           setMessages(prev => {
             // Skip if any assistant message contains the result text (already shown via onMessage)

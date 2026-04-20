@@ -1385,6 +1385,14 @@ export class ClaudeAgentManager {
         errors: resultMsg.errors,
       })
 
+      this.send('claude:turn-end', sessionId, {
+        reason: resultMsg.subtype === 'success' ? 'completed' : 'error',
+        totalCost: resultMsg.total_cost_usd,
+        totalTokens: session.state.totalTokens,
+        result: resultMsg.result,
+        error: resultMsg.subtype !== 'success' ? (typeof resultMsg.errors === 'string' ? resultMsg.errors : resultMsg.subtype) : undefined,
+      })
+
       this.sendCompletionNotification(session, resultMsg.result)
     }
   }
@@ -1658,6 +1666,7 @@ export class ClaudeAgentManager {
         session.v2Session = undefined
       }
       session.abortController.abort()
+      this.send('claude:turn-end', sessionId, { reason: 'aborted' })
       return true
     }
     return false

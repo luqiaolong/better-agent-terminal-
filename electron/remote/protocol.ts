@@ -56,7 +56,7 @@ export const PROXIED_CHANNELS = new Set([
 export const PROXIED_EVENTS = new Set([
   'pty:output', 'pty:exit',
   'claude:message', 'claude:tool-use', 'claude:tool-result',
-  'claude:stream', 'claude:result', 'claude:error',
+  'claude:stream', 'claude:result', 'claude:turn-end', 'claude:error',
   'claude:status', 'claude:permission-request', 'claude:permission-resolved', 'claude:ask-user', 'claude:ask-user-resolved',
   'claude:modeChange', 'claude:history', 'claude:prompt-suggestion', 'claude:session-reset', 'claude:worktree-info', 'claude:rate-limit',
   'fs:changed',
