@@ -65,6 +65,13 @@ function buildLaunchCommand(shell: string | undefined, command: string): string 
   return `exec bash -c '${escaped}'\r`
 }
 
+function getProcfileWorkingDirectory(procfilePath: string, fallbackCwd: string): string {
+  const normalized = procfilePath.replace(/\\/g, '/')
+  const lastSlash = normalized.lastIndexOf('/')
+  if (lastSlash <= 0) return fallbackCwd
+  return procfilePath.slice(0, lastSlash)
+}
+
 interface WorkerPanelProps {
   terminalId: string
   procfilePath: string
@@ -73,6 +80,7 @@ interface WorkerPanelProps {
 }
 
 export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath, cwd, isActive }: WorkerPanelProps) {
+  const processCwd = getProcfileWorkingDirectory(procfilePath, cwd)
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -234,7 +242,7 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
 
     await window.electronAPI.pty.create({
       id: proc.ptyId,
-      cwd,
+      cwd: processCwd,
       type: 'terminal',
       shell: shellRef.current,
     })
@@ -247,7 +255,7 @@ export const WorkerPanel = memo(function WorkerPanel({ terminalId, procfilePath,
         p.ptyId === proc.ptyId && p.status === 'starting' ? { ...p, status: 'running' as const } : p
       ))
     }, 300)
-  }, [cwd])
+  }, [processCwd])
 
   // Re-read Procfile and sync process list (add new, remove deleted, update commands)
   const reloadProcfile = useCallback(async () => {

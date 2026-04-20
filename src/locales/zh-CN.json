@@ -35,6 +35,8 @@
     "autoRunAgentCommandHint": "创建 Agent 终端时自动执行 Agent 命令（例如 `claude`）。",
     "allowBypassPermissions": "允许跳过权限确认",
     "allowBypassPermissionsHint": "启用后，在 Claude Agent 面板中切换至 bypassPermissions 模式时不会显示确认对话框。请谨慎使用。",
+    "codexCliDangerousMode": "以 dangerous mode 启动 Codex CLI",
+    "codexCliDangerousModeHint": "启用后，Codex CLI 的 PTY 窗口会以 `--sandbox danger-full-access` 启动。关闭后则使用 Codex 默认 sandbox 策略。",
     "collapseToolOutputs": "默认折叠所有工具输出",
     "collapseToolOutputsHint": "启用后，所有工具输出默认为折叠状态，点击可展开。只读工具（Read、Glob、Grep）不受此设置影响，始终折叠。",
     "cacheExpiryWarning": "Cache 过期成本警告",
@@ -226,12 +228,17 @@
     "terminals": "终端",
     "addTerminalOrAgent": "新增终端或 Agent",
     "terminalLabel": "终端",
+    "worktreeTerminalLabel": "Worktree 终端",
     "expandThumbnails": "展开缩略图",
     "collapsePanel": "收起面板"
   },
   "dialogs": {
     "closeCodeAgent": "关闭 Code Agent？",
-    "closeCodeAgentConfirm": "确定要关闭 Code Agent 终端吗？任何正在执行的程序将被终止。"
+    "closeCodeAgentConfirm": "确定要关闭 Code Agent 终端吗？任何正在执行的程序将被终止。",
+    "closeWorktreeSession": "关闭 Worktree 会话？",
+    "closeWorktreeSessionConfirm": "要关闭这个 worktree 会话吗？你也可以同时清理 worktree。",
+    "closeAndCleanWorktree": "关闭并清理 Worktree",
+    "closeKeepWorktree": "关闭（保留 Worktree）"
   },
   "snippets": {
     "title": "代码片段",
@@ -340,6 +347,7 @@
     "tellClaudeInstead": "告诉 Claude 该做什么",
     "escToCancel": "按 Esc 取消",
     "model1mHint": "1M context 通过 SDK 的 cache 效率较低。对成本敏感的工作，建议直接使用 Claude CLI。",
+    "codexModelChangeWarning": "切换模型会开始新的 Codex session，并清除当前对话。是否继续？",
     "v2ModelChangeWarning": "在 V2 中切换模型将会重建 session 并重新应用 context，可能会产生额外的 token 成本。是否继续？",
     "v1Model1mWarning": "在 Claude Agent (V1) 中使用 1M context 模型，cache 效率仅约 25%，可能导致大量无意义的 token 消耗。建议改用 CLI 或 Claude Agent V2 窗口以获得更好的 cache 效率。是否继续？",
     "v2ModelListHint": "在 V2 中切换模型将会重建 session 并重新读取 context，可能会消耗额外的 token，请谨慎使用。",

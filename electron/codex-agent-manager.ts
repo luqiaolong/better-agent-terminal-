@@ -60,7 +60,8 @@ async function getCodexClass(): Promise<unknown> {
       CodexClass = (sdk as Record<string, unknown>).Codex || (sdk as Record<string, unknown>).default
     } catch (err) {
       logger.error('[codex] Failed to import @openai/codex-sdk:', err)
-      throw new Error('Codex SDK not available. Install with: npm i -g @openai/codex-sdk')
+      const cause = err instanceof Error ? err.message : String(err)
+      throw new Error(`Codex SDK not available: ${cause}`)
     }
   }
   return CodexClass
@@ -171,7 +172,7 @@ export class CodexAgentManager {
 
     const codexPath = findCodexBinary()
     if (!codexPath) {
-      this.send('claude:error', sessionId, 'Codex CLI not found. Install with: npm i -g @openai/codex or brew install --cask codex')
+      this.send('claude:error', sessionId, 'Codex Agent not found. Install with: npm i -g @openai/codex or brew install --cask codex')
       return false
     }
 
@@ -592,9 +593,40 @@ export class CodexAgentManager {
   setModel(sessionId: string, model: string): boolean {
     const session = this.sessions.get(sessionId)
     if (!session) return false
+    if (session.model === model) return true
     session.model = model
     session.metadata.model = model
     this.send('claude:status', sessionId, { ...session.metadata })
+    return true
+  }
+
+  setSandboxMode(sessionId: string, sandboxMode: CodexSandboxMode): boolean {
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+    if (session.sandboxMode === sandboxMode) return true
+    session.sandboxMode = sandboxMode
+    this.addMessage(sessionId, {
+      id: `sys-sandbox-${Date.now()}`,
+      sessionId,
+      role: 'system',
+      content: `Codex sandbox updated to ${sandboxMode}. This applies to the next /new or session restart.`,
+      timestamp: Date.now(),
+    })
+    return true
+  }
+
+  setApprovalPolicy(sessionId: string, approvalPolicy: CodexApprovalPolicy): boolean {
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+    if (session.approvalPolicy === approvalPolicy) return true
+    session.approvalPolicy = approvalPolicy
+    this.addMessage(sessionId, {
+      id: `sys-approval-${Date.now()}`,
+      sessionId,
+      role: 'system',
+      content: `Codex approval updated to ${approvalPolicy}. This applies to the next /new or session restart.`,
+      timestamp: Date.now(),
+    })
     return true
   }
 

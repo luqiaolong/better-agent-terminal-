@@ -10,6 +10,7 @@ interface ThumbnailBarProps {
   focusedTerminalId: string | null
   onFocus: (id: string) => void
   onAddTerminal?: () => void
+  onAddWorktreeTerminal?: () => void
   onAddAgent?: (presetId: string) => void
   onAddWorker?: (procfilePath?: string) => void
   detectedProcfiles?: string[]
@@ -26,6 +27,7 @@ export function ThumbnailBar({
   focusedTerminalId,
   onFocus,
   onAddTerminal,
+  onAddWorktreeTerminal,
   onAddAgent,
   onAddWorker,
   detectedProcfiles = [],
@@ -190,6 +192,15 @@ export function ThumbnailBar({
                     <span className="thumbnail-add-menu-icon">⌘</span>
                     {t('terminal.terminalLabel')}
                   </div>
+                  {onAddWorktreeTerminal && (
+                    <div
+                      className="thumbnail-add-menu-item"
+                      onClick={() => { onAddWorktreeTerminal(); setShowAddMenu(false) }}
+                    >
+                      <span className="thumbnail-add-menu-icon" style={{ color: '#22c55e' }}>🌳</span>
+                      {t('terminal.worktreeTerminalLabel')}
+                    </div>
+                  )}
                   {agentPresets.map(preset => (
                     <div
                       key={preset.id}

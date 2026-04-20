@@ -17,7 +17,7 @@ export default defineConfig({
               // selfsigned + transitive @peculiar/* depend on tslib, whose CJS
               // shape rolldown (vite 8) bundles incorrectly — externalize so it
               // resolves from node_modules at runtime.
-              external: ['@lydell/node-pty', 'ws', 'bufferutil', 'utf-8-validate', 'selfsigned']
+              external: ['@lydell/node-pty', 'ws', 'bufferutil', 'utf-8-validate', 'selfsigned', '@openai/codex-sdk']
             }
           }
         }
@@ -43,7 +43,7 @@ export default defineConfig({
             rollupOptions: {
               // electron must stay external — the CLI runs in plain Node and
               // never imports it (only type-only references survive compile).
-              external: ['electron', '@lydell/node-pty', 'ws', 'bufferutil', 'utf-8-validate', 'selfsigned']
+              external: ['electron', '@lydell/node-pty', 'ws', 'bufferutil', 'utf-8-validate', 'selfsigned', '@openai/codex-sdk']
             }
           }
         }

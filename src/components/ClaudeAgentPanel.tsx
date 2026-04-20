@@ -5,6 +5,7 @@ import type { ClaudeMessage, ClaudeToolCall } from '../types/claude-agent'
 import { isToolCall } from '../types/claude-agent'
 import type { EffortLevel } from '../types'
 import { EFFORT_LEVELS } from '../types'
+import { normalizeAgentParams } from '../types/agent-profiles'
 import { settingsStore } from '../stores/settings-store'
 import { workspaceStore } from '../stores/workspace-store'
 import type { AgentPresetId } from '../types/agent-presets'
@@ -130,7 +131,7 @@ interface SessionSummary {
   summary?: string
 }
 
-interface ClaudeAgentPanelProps {
+export interface ClaudeAgentPanelProps {
   sessionId: string
   cwd: string
   isActive: boolean
@@ -140,6 +141,7 @@ interface ClaudeAgentPanelProps {
   showAssistantMsg?: boolean
   showToolMsg?: boolean
   showThinkingMsg?: boolean
+  targetAgent?: 'claude' | 'codex'
 }
 
 interface AttachedImage {
@@ -157,12 +159,14 @@ type MessageItem = ClaudeMessage | ClaudeToolCall
 // Track sessions that have been started to prevent duplicate calls across StrictMode remounts
 const startedSessions = new Set<string>()
 
-export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose, showUserMsg = true, showAssistantMsg = true, showToolMsg = true, showThinkingMsg = true }: Readonly<ClaudeAgentPanelProps>) {
+export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose, showUserMsg = true, showAssistantMsg = true, showToolMsg = true, showThinkingMsg = true, targetAgent }: Readonly<ClaudeAgentPanelProps>) {
   const { t } = useTranslation()
-  // Determine if this is a V2 session based on agentPreset
+  // Determine backend/session flavor from agentPreset
   const terminal = workspaceStore.getState().terminals.find(t => t.id === sessionId)
+  const isCodexSession = targetAgent === 'codex' || terminal?.agentPreset === 'codex-agent'
   const isV2Session = terminal?.agentPreset === 'claude-code-v2'
   const isWorktreeSession = terminal?.agentPreset === 'claude-code-worktree'
+  const normalizedAgentParams = normalizeAgentParams(terminal?.agentPreset, terminal?.agentParams)
   const [messages, setMessages] = useState<MessageItem[]>([])
   const inputValueRef = useRef('')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -193,6 +197,18 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   const [currentModel, setCurrentModel] = useState<string>(() => {
     const t = workspaceStore.getState().terminals.find(t => t.id === sessionId)
     return t?.model || settingsStore.getSettings().defaultModel || ''
+  })
+  const [codexSandboxMode, setCodexSandboxMode] = useState<'read-only' | 'workspace-write' | 'danger-full-access'>(() => {
+    const value = normalizedAgentParams?.sandboxMode
+    return value === 'read-only' || value === 'workspace-write' || value === 'danger-full-access'
+      ? value
+      : 'workspace-write'
+  })
+  const [codexApprovalPolicy, setCodexApprovalPolicy] = useState<'untrusted' | 'on-request' | 'never'>(() => {
+    const value = normalizedAgentParams?.approvalPolicy
+    return value === 'untrusted' || value === 'on-request' || value === 'never'
+      ? value
+      : 'on-request'
   })
   const [effortLevel, setEffortLevel] = useState<string>(() => {
     return settingsStore.getSettings().defaultEffort || 'high'
@@ -302,6 +318,17 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   const inputDraftRef = useRef('')
   const pendingPromptSentRef = useRef(false)
   const messageCountRef = useRef(0)
+
+  useEffect(() => {
+    const sandboxMode = normalizedAgentParams?.sandboxMode
+    if (sandboxMode === 'read-only' || sandboxMode === 'workspace-write' || sandboxMode === 'danger-full-access') {
+      setCodexSandboxMode(sandboxMode)
+    }
+    const approvalPolicy = normalizedAgentParams?.approvalPolicy
+    if (approvalPolicy === 'untrusted' || approvalPolicy === 'on-request' || approvalPolicy === 'never') {
+      setCodexApprovalPolicy(approvalPolicy)
+    }
+  }, [normalizedAgentParams?.approvalPolicy, normalizedAgentParams?.sandboxMode])
   const currentTurnMsgIdRef = useRef<string | null>(null)
   // /auto-continue: when enabled, after each turn ends auto-send `prompt`
   // up to `max` times. `used` resets when the user manually sends.
@@ -967,6 +994,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           cwd, permissionMode, model: effectiveModel,
           effort: effectiveEffort as EffortLevel, apiVersion,
           agentPreset: terminal?.agentPreset,
+          ...(isCodexSession ? { codexSandboxMode, codexApprovalPolicy } : {}),
           ...(useWorktree ? { useWorktree: true, worktreePath: terminal?.worktreePath, worktreeBranch: terminal?.worktreeBranch } : {}),
           ...(globalSettings.autoCompactWindow ? { autoCompactWindow: globalSettings.autoCompactWindow } : {}),
         })
@@ -975,7 +1003,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     return () => {
       // Don't remove from startedSessions on unmount — StrictMode will remount
     }
-  }, [sessionId, cwd])
+  }, [sessionId, cwd, isCodexSession, codexSandboxMode, codexApprovalPolicy])
 
   // Refresh session metadata when panel becomes active (fixes stale display after window switch)
   useEffect(() => {
@@ -1004,6 +1032,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   // sees switches from its own SettingsPanel — getAccountInfo is proxied per
   // window's profile, so remote windows refetch from remote, local from local.
   useEffect(() => {
+    if (isCodexSession) return
     const handler = () => {
       window.electronAPI.claude.getAccountInfo(sessionId).then(info => {
         if (info) setAccountInfo(info)
@@ -1011,7 +1040,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     }
     window.addEventListener('claude-account-switched', handler)
     return () => window.removeEventListener('claude-account-switched', handler)
-  }, [sessionId])
+  }, [sessionId, isCodexSession])
 
   useEffect(() => {
     if (sessionMeta?.sdkSessionId && availableModels.length === 0) {
@@ -1020,24 +1049,24 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           setAvailableModels(models)
         }
       }).catch(() => {})
-      window.electronAPI.claude.getAccountInfo(sessionId).then(info => {
-        if (info) setAccountInfo(info)
-      }).catch(() => {})
-      window.electronAPI.claude.getSupportedCommands(sessionId).then((cmds: SlashCommandInfo[]) => {
-        if (cmds && cmds.length > 0) {
-          setSlashCommands(cmds)
-          // Broadcast for SkillsPanel (in case it mounted before commands were fetched)
-          window.dispatchEvent(new CustomEvent('claude-skills-updated', { detail: { sessionId, commands: cmds } }))
-        }
-      }).catch(() => {})
-      window.electronAPI.claude.getSupportedAgents(sessionId).then((agentList) => {
-        if (agentList && agentList.length > 0) {
-          // Broadcast for AgentsPanel (in case it mounted before agents were fetched)
-          window.dispatchEvent(new CustomEvent('claude-agents-updated', { detail: { sessionId, agents: agentList } }))
-        }
-      }).catch(() => {})
+      if (!isCodexSession) {
+        window.electronAPI.claude.getAccountInfo(sessionId).then(info => {
+          if (info) setAccountInfo(info)
+        }).catch(() => {})
+        window.electronAPI.claude.getSupportedCommands(sessionId).then((cmds: SlashCommandInfo[]) => {
+          if (cmds && cmds.length > 0) {
+            setSlashCommands(cmds)
+            window.dispatchEvent(new CustomEvent('claude-skills-updated', { detail: { sessionId, commands: cmds } }))
+          }
+        }).catch(() => {})
+        window.electronAPI.claude.getSupportedAgents(sessionId).then((agentList) => {
+          if (agentList && agentList.length > 0) {
+            window.dispatchEvent(new CustomEvent('claude-agents-updated', { detail: { sessionId, agents: agentList } }))
+          }
+        }).catch(() => {})
+      }
     }
-  }, [sessionId, sessionMeta?.sdkSessionId, availableModels.length])
+  }, [sessionId, sessionMeta?.sdkSessionId, availableModels.length, isCodexSession])
 
   // Fetch git branch on mount and when cwd changes
   useEffect(() => {
@@ -1126,13 +1155,17 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   }, [isActive])
 
   const handleModelSelect = useCallback(async (modelValue: string) => {
+    if (isCodexSession && modelValue !== currentModel) {
+      const ok = await window.electronAPI.dialog.confirm(t('claude.codexModelChangeWarning'))
+      if (!ok) return
+    }
     // V2: warn that model change will recreate session and re-apply context
-    if (isV2Session && modelValue !== currentModel) {
+    if (!isCodexSession && isV2Session && modelValue !== currentModel) {
       const ok = await window.electronAPI.dialog.confirm(t('claude.v2ModelChangeWarning'))
       if (!ok) return
     }
     // V1: warn about 1M model cache inefficiency
-    if (!isV2Session && modelValue.includes('[1m]') && modelValue !== currentModel) {
+    if (!isCodexSession && !isV2Session && modelValue.includes('[1m]') && modelValue !== currentModel) {
       const ok = await window.electronAPI.dialog.confirm(t('claude.v1Model1mWarning'))
       if (!ok) return
     }
@@ -1141,7 +1174,21 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     setTimeout(() => textareaRef.current?.focus(), 0)
     await window.electronAPI.claude.setModel(sessionId, modelValue, settingsStore.getSettings().autoCompactWindow)
     workspaceStore.updateTerminalModel(sessionId, modelValue)
-  }, [sessionId, isV2Session, currentModel, t])
+    if (isCodexSession && modelValue !== currentModel) {
+      setMessages([])
+      setLoadedArchive([])
+      archivedCountRef.current = 0
+      loadedFromArchiveRef.current = 0
+      setHasMoreArchived(false)
+      setStreamingText('')
+      setStreamingThinking('')
+      setIsStreaming(false)
+      cacheHistoryRef.current = []
+      lastResultRef.current = null
+      setCacheCountdown(null)
+      await window.electronAPI.claude.resetSession(sessionId)
+    }
+  }, [sessionId, isCodexSession, isV2Session, currentModel, t])
 
   const handleResumeSelect = useCallback(async (sdkSessionId: string) => {
     console.log(`[Claude:${sessionId.slice(0, 8)}] handleResumeSelect sdkSessionId=${sdkSessionId.slice(0, 8)}`)
@@ -1404,7 +1451,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     }
 
     // Intercept /login command — open Claude auth login flow
-    if (trimmed === '/login') {
+    if (!isCodexSession && trimmed === '/login') {
       clearInput()
       setMessages(prev => [...prev, {
         id: `sys-login-${Date.now()}`, sessionId, role: 'system' as const,
@@ -1434,7 +1481,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     }
 
     // Intercept /logout command
-    if (trimmed === '/logout') {
+    if (!isCodexSession && trimmed === '/logout') {
       clearInput()
       const result = await window.electronAPI.claude.authLogout()
       setMessages(prev => [...prev, {
@@ -1446,7 +1493,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     }
 
     // Intercept /whoami command — show current auth status
-    if (trimmed === '/whoami') {
+    if (!isCodexSession && trimmed === '/whoami') {
       clearInput()
       const status = await window.electronAPI.claude.authStatus()
       setMessages(prev => [...prev, {
@@ -1460,7 +1507,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     }
 
     // Intercept /switch command — list accounts or switch to a specific one
-    if (trimmed === '/switch' || trimmed.startsWith('/switch ')) {
+    if (!isCodexSession && (trimmed === '/switch' || trimmed.startsWith('/switch '))) {
       const arg = trimmed.slice('/switch'.length).trim()
       clearInput()
       try {
@@ -1532,7 +1579,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     }
 
     // Intercept /snippet command — inject snippet context into Claude session
-    if (trimmed === '/snippet' || trimmed.startsWith('/snippet ')) {
+    if (!isCodexSession && (trimmed === '/snippet' || trimmed.startsWith('/snippet '))) {
       const query = trimmed.slice('/snippet'.length).trim()
       clearInput()
       try {
@@ -1702,22 +1749,28 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   const filteredSlashCommands = useMemo(() => {
     if (!showSlashMenu) return []
     const q = slashFilter.toLowerCase()
-    // Include our custom commands plus SDK commands
-    const builtIn: SlashCommandInfo[] = [
-      { name: 'new', description: 'Reset session (clear conversation)', argumentHint: '' },
-      { name: 'clear', description: 'Reset session (same as /new)', argumentHint: '' },
-      { name: 'snippet', description: 'Show snippets to Claude for management', argumentHint: '' },
-      { name: 'resume', description: 'Resume a previous session', argumentHint: '' },
-      { name: 'model', description: 'Select model', argumentHint: '' },
-      { name: 'login', description: 'Sign in to Claude (switch account)', argumentHint: '' },
-      { name: 'abort', description: 'Force stop current operation immediately', argumentHint: '' },
-      { name: 'logout', description: 'Sign out of Claude', argumentHint: '' },
-      { name: 'whoami', description: 'Show current account info', argumentHint: '' },
-      { name: 'switch', description: 'Switch between registered accounts', argumentHint: '<number|email>' },
-    ]
+    const builtIn: SlashCommandInfo[] = isCodexSession
+      ? [
+          { name: 'new', description: 'Reset session (clear conversation)', argumentHint: '' },
+          { name: 'clear', description: 'Reset session (same as /new)', argumentHint: '' },
+          { name: 'model', description: 'Select model', argumentHint: '' },
+          { name: 'abort', description: 'Force stop current operation immediately', argumentHint: '' },
+        ]
+      : [
+          { name: 'new', description: 'Reset session (clear conversation)', argumentHint: '' },
+          { name: 'clear', description: 'Reset session (same as /new)', argumentHint: '' },
+          { name: 'snippet', description: 'Show snippets to Claude for management', argumentHint: '' },
+          { name: 'resume', description: 'Resume a previous session', argumentHint: '' },
+          { name: 'model', description: 'Select model', argumentHint: '' },
+          { name: 'login', description: 'Sign in to Claude (switch account)', argumentHint: '' },
+          { name: 'abort', description: 'Force stop current operation immediately', argumentHint: '' },
+          { name: 'logout', description: 'Sign out of Claude', argumentHint: '' },
+          { name: 'whoami', description: 'Show current account info', argumentHint: '' },
+          { name: 'switch', description: 'Switch between registered accounts', argumentHint: '<number|email>' },
+        ]
     const all = [...builtIn, ...slashCommands]
     return q ? all.filter(c => c.name.toLowerCase().includes(q)) : all
-  }, [showSlashMenu, slashFilter, slashCommands])
+  }, [showSlashMenu, slashFilter, slashCommands, isCodexSession])
 
   // Auto-resize textarea to fit content
   const autoResizeTextarea = useCallback(() => {
@@ -1856,6 +1909,20 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     const next = e.target.value
     setEffortLevel(next)
     await window.electronAPI.claude.setEffort(sessionId, next)
+  }, [sessionId])
+
+  const handleCodexSandboxModeChange = useCallback(async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const next = e.target.value as 'read-only' | 'workspace-write' | 'danger-full-access'
+    setCodexSandboxMode(next)
+    workspaceStore.updateTerminalAgentParams(sessionId, { sandboxMode: next })
+    await window.electronAPI.claude.setCodexSandboxMode(sessionId, next)
+  }, [sessionId])
+
+  const handleCodexApprovalPolicyChange = useCallback(async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const next = e.target.value as 'untrusted' | 'on-request' | 'never'
+    setCodexApprovalPolicy(next)
+    workspaceStore.updateTerminalAgentParams(sessionId, { approvalPolicy: next })
+    await window.electronAPI.claude.setCodexApprovalPolicy(sessionId, next)
   }, [sessionId])
 
   const showDontAskAgain = (pendingPermission?.suggestions?.length ?? 0) > 0
@@ -3185,7 +3252,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
       )}
 
       {/* Resume Session List */}
-      {showResumeList && (
+      {!isCodexSession && showResumeList && (
         <div className="claude-resume-card">
           <div className="claude-permission-title">{t('claude.resumeSession')}</div>
           {resumeLoading ? (
@@ -3220,7 +3287,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
       {/* Model Selection List */}
       {showModelList && (
         <div className="claude-resume-card">
-          <div className="claude-permission-title">Select a model</div>
+          <div className="claude-permission-title">{isCodexSession ? 'Select a Codex model' : 'Select a model'}</div>
           {availableModels.length === 0 ? (
             <div className="claude-resume-empty">No models available</div>
           ) : (
@@ -3250,7 +3317,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                     )}
                     {sdkModels.length > 0 && (
                       <>
-                        <div className="claude-model-group-label">Claude Agent</div>
+                        <div className="claude-model-group-label">{isCodexSession ? 'Codex Agent' : 'Claude Agent'}</div>
                         {sdkModels.map(renderItem)}
                       </>
                     )}
@@ -3259,10 +3326,10 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
               })()}
             </div>
           )}
-          {isV2Session && (
+          {!isCodexSession && isV2Session && (
             <div className="claude-model-1m-hint">{t('claude.v2ModelListHint')}</div>
           )}
-          {!isV2Session && (
+          {!isCodexSession && !isV2Session && (
             <div className="claude-model-1m-hint">{t('claude.v1Model1mHint')}</div>
           )}
           <div className="claude-permission-hint">{t('claude.escToCancel')}</div>
@@ -3465,7 +3532,13 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           onInput={handleInputChange}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={isInterrupted ? 'Type to continue, Esc to stop...' : isStreaming ? 'Press Esc to pause, double-Esc to stop...' : 'Type a message... (Enter to send, Shift+Tab to switch mode)'}
+          placeholder={isInterrupted
+            ? 'Type to continue, Esc to stop...'
+            : isStreaming
+              ? 'Press Esc to pause, double-Esc to stop...'
+              : isCodexSession
+                ? 'Type a message to Codex...'
+                : 'Type a message... (Enter to send, Shift+Tab to switch mode)'}
           disabled={false}
           rows={1}
         />
@@ -3509,13 +3582,39 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         )}
         <div className="claude-input-footer">
           <div className="claude-input-controls">
-            <span
-              className={`claude-status-btn claude-mode-${permissionMode}`}
-              onClick={handlePermissionModeCycle}
-              title={`Permission: ${permissionMode} (click to cycle)`}
-            >
-              {permissionModeLabels[permissionMode] || permissionMode}
-            </span>
+            {isCodexSession && (
+              <>
+                <select
+                  className="claude-effort-select"
+                  value={codexSandboxMode}
+                  onChange={handleCodexSandboxModeChange}
+                  title="Codex sandbox mode"
+                >
+                  <option value="read-only">sandbox: read-only</option>
+                  <option value="workspace-write">sandbox: workspace-write</option>
+                  <option value="danger-full-access">sandbox: danger-full-access</option>
+                </select>
+                <select
+                  className="claude-effort-select"
+                  value={codexApprovalPolicy}
+                  onChange={handleCodexApprovalPolicyChange}
+                  title="Codex approval policy"
+                >
+                  <option value="untrusted">approval: untrusted</option>
+                  <option value="on-request">approval: on-request</option>
+                  <option value="never">approval: never</option>
+                </select>
+              </>
+            )}
+            {!isCodexSession && (
+              <span
+                className={`claude-status-btn claude-mode-${permissionMode}`}
+                onClick={handlePermissionModeCycle}
+                title={`Permission: ${permissionMode} (click to cycle)`}
+              >
+                {permissionModeLabels[permissionMode] || permissionMode}
+              </span>
+            )}
 
             {currentModel && (
               <span
@@ -3526,7 +3625,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                 {'</>'} {currentModel}{sessionMeta && sessionMeta.contextWindow > 0 ? ` (${sessionMeta.contextWindow >= 1000000 ? `${Math.round(sessionMeta.contextWindow / 1000000)}M` : `${Math.round(sessionMeta.contextWindow / 1000)}k`})` : ''}
               </span>
             )}
-            {!isV2Session && (
+            {!isCodexSession && !isV2Session && (
               <select
                 className="claude-effort-select"
                 value={effortLevel}
@@ -3538,7 +3637,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
                 ))}
               </select>
             )}
-            {accountInfo?.organization && (
+            {!isCodexSession && accountInfo?.organization && (
               <span className="claude-status-btn claude-account-info" title={`${accountInfo.email || ''} (${accountInfo.subscriptionType || 'unknown'})`}>
                 {accountInfo.organization}
               </span>
@@ -3546,7 +3645,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           </div>
 
           <div className="claude-input-actions">
-            {hasSdkSession && (
+            {hasSdkSession && !isCodexSession && (
               <button
                 className="claude-fork-btn"
                 onClick={handleForkSession}
@@ -4067,7 +4166,17 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         }
 
         const renderers: Record<string, () => React.ReactNode | null> = {
-          sessionId: () => (
+          sessionId: () => isCodexSession ? (
+            <span
+              key="sessionId"
+              className="claude-statusline-item"
+              title={sessionMeta?.sdkSessionId
+                ? `Codex Session: ${sessionMeta.sdkSessionId}\nPanel: ${sessionId}`
+                : `Panel: ${sessionId}`}
+            >
+              {sessionMeta?.sdkSessionId ? sessionMeta.sdkSessionId.slice(0, 8) : sessionId.slice(0, 8)}
+            </span>
+          ) : (
             <span key="sessionId" className="claude-statusline-item claude-statusline-clickable"
               onClick={async () => {
                 setResumeLoading(true); setShowResumeList(true)

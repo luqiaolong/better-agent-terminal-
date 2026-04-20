@@ -445,6 +445,18 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               <label>
                 <input
                   type="checkbox"
+                  checked={settings.codexCliDangerousMode !== false}
+                  onChange={e => settingsStore.setCodexCliDangerousMode(e.target.checked)}
+                />
+                {t('settings.codexCliDangerousMode')}
+              </label>
+              <p className="settings-hint">{t('settings.codexCliDangerousModeHint')}</p>
+            </div>
+
+            <div className="settings-group checkbox-group">
+              <label>
+                <input
+                  type="checkbox"
                   checked={settings.collapseToolOutputs === true}
                   onChange={e => settingsStore.setCollapseToolOutputs(e.target.checked)}
                 />

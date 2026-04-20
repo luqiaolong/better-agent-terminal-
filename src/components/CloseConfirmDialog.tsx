@@ -13,10 +13,10 @@ export function CloseConfirmDialog({ onConfirm, onCancel, isWorktree, onConfirmA
   return (
     <div className="dialog-overlay" onClick={onCancel}>
       <div className="dialog" onClick={e => e.stopPropagation()}>
-        <h3>{t('dialogs.closeCodeAgent')}</h3>
+        <h3>{isWorktree ? t('dialogs.closeWorktreeSession') : t('dialogs.closeCodeAgent')}</h3>
         <p>
           {isWorktree
-            ? 'Close this agent session? You can also clean up the worktree.'
+            ? t('dialogs.closeWorktreeSessionConfirm')
             : t('dialogs.closeCodeAgentConfirm')}
         </p>
         <div className="dialog-actions">
@@ -25,11 +25,11 @@ export function CloseConfirmDialog({ onConfirm, onCancel, isWorktree, onConfirmA
           </button>
           {isWorktree && onConfirmAndClean && (
             <button className="dialog-btn confirm danger" onClick={onConfirmAndClean}>
-              Close & Clean Worktree
+              {t('dialogs.closeAndCleanWorktree')}
             </button>
           )}
           <button className="dialog-btn confirm" onClick={onConfirm}>
-            {isWorktree ? 'Close (Keep Worktree)' : t('common.close')}
+            {isWorktree ? t('dialogs.closeKeepWorktree') : t('common.close')}
           </button>
         </div>
       </div>

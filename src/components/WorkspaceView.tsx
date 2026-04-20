@@ -6,8 +6,9 @@ import { settingsStore } from '../stores/settings-store'
 import { ThumbnailBar } from './ThumbnailBar'
 import { CloseConfirmDialog } from './CloseConfirmDialog'
 import { ResizeHandle } from './ResizeHandle'
+import { FolderPicker } from './FolderPicker'
 import { AgentPresetId, getAgentPreset, getVisiblePresets } from '../types/agent-presets'
-import { PROCFILE_NAMES } from '../utils/procfile-parser'
+import { isProcfileName } from '../utils/procfile-parser'
 
 // Lazy load heavy components (xterm.js, Claude SDK, etc.)
 const MainPanel = lazy(() => import('./MainPanel').then(m => ({ default: m.MainPanel })))
@@ -91,6 +92,16 @@ function mergeEnvVars(global: EnvVariable[] = [], workspace: EnvVariable[] = [])
   return result
 }
 
+function buildAgentAutoCommand(presetId: string, settings: ReturnType<typeof settingsStore.getSettings>): string | null {
+  if (presetId === 'codex-cli') {
+    return settings.codexCliDangerousMode !== false
+      ? 'codex --sandbox danger-full-access'
+      : 'codex'
+  }
+  const preset = getAgentPreset(presetId)
+  return preset?.command || null
+}
+
 // Track which workspaces have been initialized (outside component to persist across renders)
 const initializedWorkspaces = new Set<string>()
 
@@ -107,6 +118,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
   const [hasGithubRemote, setHasGithubRemote] = useState(false)
   const [isGitRepo, setIsGitRepo] = useState(false)
   const [detectedProcfiles, setDetectedProcfiles] = useState<string[]>([])
+  const [showProcfilePicker, setShowProcfilePicker] = useState(false)
 
   // Detect git repo, GitHub remote, and Procfiles
   useEffect(() => {
@@ -118,9 +130,10 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
     }).catch(() => setIsGitRepo(false))
     // Detect Procfiles in workspace folder
     window.electronAPI.fs.readdir(workspace.folderPath).then(entries => {
-      const names = entries.map(e => e.name)
-      const found = PROCFILE_NAMES.filter(n => names.includes(n))
-        .map(n => `${workspace.folderPath}/${n}`)
+      const found = entries
+        .filter(entry => !entry.isDirectory && isProcfileName(entry.name))
+        .map(entry => entry.path)
+        .sort((a, b) => a.localeCompare(b))
       setDetectedProcfiles(found)
     }).catch(() => setDetectedProcfiles([]))
   }, [workspace.folderPath])
@@ -248,10 +261,10 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
           })
           // Auto-run agent command for non-Claude agents
           if (terminal.agentPreset && terminal.agentPreset !== 'none' && settings.agentAutoCommand) {
-            const preset = getAgentPreset(terminal.agentPreset)
-            if (preset?.command) {
+            const command = buildAgentAutoCommand(terminal.agentPreset, settings)
+            if (command) {
               setTimeout(() => {
-                window.electronAPI.pty.write(terminal.id, preset.command + '\r')
+                window.electronAPI.pty.write(terminal.id, command + '\r')
               }, 500)
             }
           }
@@ -280,10 +293,10 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
               historyKey: agentTerminal.historyKey,
             })
             if (settings.agentAutoCommand) {
-              const preset = getAgentPreset(defaultAgent)
-              if (preset?.command) {
+              const command = buildAgentAutoCommand(defaultAgent, settings)
+              if (command) {
                 setTimeout(() => {
-                  window.electronAPI.pty.write(agentTerminal.id, preset.command + '\r')
+                  window.electronAPI.pty.write(agentTerminal.id, command + '\r')
                 }, 500)
               }
             }
@@ -337,6 +350,39 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
       historyKey: terminal.historyKey,
     })
     // Focus the new terminal
+    workspaceStore.setFocusedTerminal(terminal.id)
+    workspaceStore.save()
+  }, [workspace.id, workspace.folderPath, workspace.envVars])
+
+  const handleAddWorktreeTerminal = useCallback(async () => {
+    const terminal = workspaceStore.addTerminal(workspace.id)
+    const wtResult = await window.electronAPI.worktree.create(terminal.id, workspace.folderPath)
+
+    if (!wtResult.success || !wtResult.worktreePath) {
+      workspaceStore.removeTerminal(terminal.id)
+      workspaceStore.save()
+      alert(wtResult.error || 'Failed to create worktree terminal.')
+      return
+    }
+
+    const shell = await getShellFromSettings()
+    const settings = settingsStore.getSettings()
+    const customEnv = mergeEnvVars(settings.globalEnvVars, workspace.envVars)
+
+    workspaceStore.updateTerminalCwd(terminal.id, wtResult.worktreePath)
+    workspaceStore.setTerminalWorktreeInfo(terminal.id, wtResult.worktreePath, wtResult.branchName)
+    workspaceStore.renameTerminal(terminal.id, `Worktree: ${wtResult.branchName || 'terminal'}`)
+
+    window.electronAPI.pty.create({
+      id: terminal.id,
+      cwd: wtResult.worktreePath,
+      type: 'terminal',
+      shell,
+      customEnv,
+      perTerminalHistory: settings.perTerminalHistory,
+      historyKey: terminal.historyKey,
+    })
+
     workspaceStore.setFocusedTerminal(terminal.id)
     workspaceStore.save()
   }, [workspace.id, workspace.folderPath, workspace.envVars])
@@ -419,9 +465,10 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         perTerminalHistory: settings.perTerminalHistory,
         historyKey: terminal.historyKey,
       })
-      if (preset.command && settings.agentAutoCommand) {
+      const command = buildAgentAutoCommand(presetId, settings)
+      if (command && settings.agentAutoCommand) {
         setTimeout(() => {
-          window.electronAPI.pty.write(terminal.id, preset.command + '\r')
+          window.electronAPI.pty.write(terminal.id, command + '\r')
         }, 500)
       }
       workspaceStore.setFocusedTerminal(terminal.id)
@@ -431,17 +478,26 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
 
   const handleAddWorker = useCallback(async (selectedPath?: string) => {
     let procfilePath = selectedPath
-    // If no path provided, open file picker
+    // If no path provided, open the remote-aware file picker
     if (!procfilePath) {
-      const files = await window.electronAPI.dialog.selectFiles()
-      if (!files || files.length === 0) return
-      procfilePath = files[0]
+      setShowProcfilePicker(true)
+      return
     }
 
     const terminal = workspaceStore.addTerminal(workspace.id)
     workspaceStore.setTerminalProcfile(terminal.id, procfilePath)
     workspaceStore.setFocusedTerminal(terminal.id)
     workspaceStore.save()
+  }, [workspace.id])
+
+  const handleProcfilePickerSelect = useCallback((paths: string[]) => {
+    const procfilePath = paths[0]
+    if (!procfilePath) return
+    const terminal = workspaceStore.addTerminal(workspace.id)
+    workspaceStore.setTerminalProcfile(terminal.id, procfilePath)
+    workspaceStore.setFocusedTerminal(terminal.id)
+    workspaceStore.save()
+    setShowProcfilePicker(false)
   }, [workspace.id])
 
   const isDebugMode = window.electronAPI?.debug?.isDebugMode
@@ -454,8 +510,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
       workspaceStore.save()
       return
     }
-    // Show confirm for agent terminals
-    if (terminal?.agentPreset && terminal.agentPreset !== 'none') {
+    // Show confirm for agent terminals and worktree-backed terminals
+    if ((terminal?.agentPreset && terminal.agentPreset !== 'none') || terminal?.worktreePath) {
       setShowCloseConfirm(id)
     } else {
       // Regular terminals always use PTY
@@ -475,8 +531,8 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         }
       } else {
         window.electronAPI.pty.kill(showCloseConfirm)
-        // Clean up worktree for claude-cli-worktree preset
-        if (cleanWorktree && terminal?.agentPreset === 'claude-cli-worktree') {
+        // Clean up worktree for PTY-based worktree terminals
+        if (cleanWorktree && terminal?.worktreePath) {
           window.electronAPI.worktree.remove(showCloseConfirm, true)
         }
       }
@@ -623,7 +679,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
             <GitPanel
               workspaceFolderPath={workspace.folderPath}
               worktreePaths={terminals
-                .filter(t => t.agentPreset === 'claude-code-worktree' && t.worktreePath)
+                .filter(t => t.worktreePath)
                 .map(t => ({ path: t.worktreePath!, branch: t.worktreeBranch || 'worktree' }))
               }
             />
@@ -653,6 +709,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         focusedTerminalId={focusedTerminalId}
         onFocus={handleFocus}
         onAddTerminal={handleAddTerminal}
+        onAddWorktreeTerminal={isGitRepo ? handleAddWorktreeTerminal : undefined}
         onAddAgent={handleAddAgent}
         onAddWorker={handleAddWorker}
         detectedProcfiles={detectedProcfiles}
@@ -668,8 +725,20 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
         <CloseConfirmDialog
           onConfirm={() => handleConfirmClose(false)}
           onCancel={() => setShowCloseConfirm(null)}
-          isWorktree={['claude-code-worktree', 'claude-cli-worktree'].includes(terminals.find(t => t.id === showCloseConfirm)?.agentPreset || '')}
+          isWorktree={!!terminals.find(t => t.id === showCloseConfirm)?.worktreePath}
           onConfirmAndClean={() => handleConfirmClose(true)}
+        />
+      )}
+      {showProcfilePicker && (
+        <FolderPicker
+          initialPath={workspace.folderPath}
+          multiSelect={false}
+          mode="files"
+          title="Select Procfile"
+          emptyMessage="No Procfile found in this folder."
+          confirmLabel="Use selected Procfile"
+          onSelect={handleProcfilePickerSelect}
+          onClose={() => setShowProcfilePicker(false)}
         />
       )}
     </div>

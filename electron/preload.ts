@@ -132,6 +132,10 @@ const electronAPI = {
     },
     setPermissionMode: (sessionId: string, mode: string) =>
       ipcRenderer.invoke('claude:set-permission-mode', sessionId, mode),
+    setCodexSandboxMode: (sessionId: string, mode: 'read-only' | 'workspace-write' | 'danger-full-access') =>
+      ipcRenderer.invoke('claude:set-codex-sandbox-mode', sessionId, mode),
+    setCodexApprovalPolicy: (sessionId: string, policy: 'untrusted' | 'on-request' | 'never') =>
+      ipcRenderer.invoke('claude:set-codex-approval-policy', sessionId, policy),
     setModel: (sessionId: string, model: string, autoCompactWindow?: number) =>
       ipcRenderer.invoke('claude:set-model', sessionId, model, autoCompactWindow),
     setEffort: (sessionId: string, effort: string) =>

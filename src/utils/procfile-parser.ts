@@ -8,6 +8,8 @@ export interface ProcfileEntry {
   command: string
 }
 
+export const PROCFILE_PATTERN = /^Procfile(?:\..+)?$/i
+
 /**
  * Parse Procfile content into a list of process entries.
  * Format: `process_name: command to run`
@@ -29,5 +31,6 @@ export function parseProcfile(content: string): ProcfileEntry[] {
   return entries
 }
 
-/** Common Procfile names to search for in a project directory */
-export const PROCFILE_NAMES = ['Procfile.dev', 'Procfile', 'Procfile.local'] as const
+export function isProcfileName(name: string): boolean {
+  return PROCFILE_PATTERN.test(name)
+}

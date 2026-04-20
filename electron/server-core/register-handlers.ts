@@ -190,6 +190,14 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
   registerHandler('claude:stop-session', (_ctx, sessionId: string) => getManager(sessionId)?.stopSession(sessionId))
   registerHandler('claude:abort-session', (_ctx, sessionId: string) => getManager(sessionId)?.abortSession(sessionId))
   registerHandler('claude:set-permission-mode', (_ctx, sessionId: string, mode: string) => getManager(sessionId)?.setPermissionMode(sessionId, mode as import('@anthropic-ai/claude-agent-sdk').PermissionMode))
+  registerHandler('claude:set-codex-sandbox-mode', (_ctx, sessionId: string, mode: 'read-only' | 'workspace-write' | 'danger-full-access') => {
+    const mgr = getManager(sessionId)
+    return (mgr as CodexAgentManager)?.setSandboxMode?.(sessionId, mode) ?? false
+  })
+  registerHandler('claude:set-codex-approval-policy', (_ctx, sessionId: string, policy: 'untrusted' | 'on-request' | 'never') => {
+    const mgr = getManager(sessionId)
+    return (mgr as CodexAgentManager)?.setApprovalPolicy?.(sessionId, policy) ?? false
+  })
   registerHandler('claude:set-model', (_ctx, sessionId: string, model: string, autoCompactWindow?: number) => {
     const mgr = getManager(sessionId)
     if (mgr instanceof ClaudeAgentManager) return mgr.setModel(sessionId, model, autoCompactWindow)

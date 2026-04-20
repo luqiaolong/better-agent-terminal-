@@ -54,7 +54,7 @@ Manage multiple project terminals in one window, with a built-in Claude Code age
 ### Terminal
 - **Split-panel layout** — 70% main panel + 30% scrollable thumbnail bar showing all terminals
 - **Multiple terminals per workspace** — Powered by xterm.js with full Unicode/CJK support
-- **Agent presets** — Pre-configured terminal roles: Claude Code, Claude Code (worktree), Codex CLI, or plain terminal
+- **Agent presets** — Pre-configured terminal roles: Claude Code, Claude Code (worktree), Codex Agent, or plain terminal
 - **Git worktree isolation** — Spawn Claude agents in an isolated worktree to prevent destructive changes to your main working tree
 - **Tab navigation** — Switch between Terminal, Files, and Git views per workspace
 - **File browser** — Search, navigate, and preview files with syntax highlighting (highlight.js)

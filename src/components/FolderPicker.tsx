@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { isProcfileName } from '../utils/procfile-parser'
 
 interface FolderEntry {
   name: string
   path: string
+  isDirectory: boolean
 }
 
 interface QuickLocation {
@@ -15,11 +17,15 @@ interface QuickLocation {
 interface FolderPickerProps {
   initialPath?: string
   multiSelect?: boolean
+  mode?: 'folders' | 'files'
+  title?: string
+  emptyMessage?: string
+  confirmLabel?: string
   onSelect: (paths: string[]) => void
   onClose: () => void
 }
 
-export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClose }: FolderPickerProps) {
+export function FolderPicker({ initialPath, multiSelect = true, mode = 'folders', title, emptyMessage, confirmLabel, onSelect, onClose }: FolderPickerProps) {
   const { t } = useTranslation()
   const [currentPath, setCurrentPath] = useState<string>(initialPath || '')
   const [pathInput, setPathInput] = useState<string>(initialPath || '')
@@ -40,6 +46,25 @@ export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClos
     setLoading(true)
     setError(null)
     try {
+      if (mode === 'files') {
+        const entries = await window.electronAPI.fs.readdir(dirPath)
+        const visible = entries
+          .filter(e => showHidden || !e.name.startsWith('.'))
+          .filter(e => e.isDirectory || isProcfileName(e.name))
+          .sort((a, b) => {
+            if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+            return a.name.localeCompare(b.name)
+          })
+          .map(e => ({ name: e.name, path: e.path, isDirectory: e.isDirectory }))
+        const normalized = dirPath.replace(/[/\\]+$/, '') || dirPath
+        const parentMatch = normalized.match(/^(.*)[/\\][^/\\]+$/)
+        setCurrentPath(dirPath)
+        setPathInput(dirPath)
+        setParent(parentMatch ? parentMatch[1] || (dirPath.startsWith('/') ? '/' : null) : null)
+        setEntries(visible)
+        setSelected(new Set())
+        return
+      }
       const result = await window.electronAPI.fs.listDirs(dirPath, showHidden)
       if ('error' in result) {
         setError(result.error)
@@ -48,12 +73,12 @@ export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClos
       setCurrentPath(result.current)
       setPathInput(result.current)
       setParent(result.parent)
-      setEntries(result.entries)
+      setEntries(result.entries.map(entry => ({ ...entry, isDirectory: true })))
       setSelected(new Set())
     } finally {
       setLoading(false)
     }
-  }, [showHidden])
+  }, [mode, showHidden])
 
   // Resolve initial path: explicit prop, else home. Also load quick links.
   useEffect(() => {
@@ -129,7 +154,7 @@ export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClos
   const handleConfirm = () => {
     if (selected.size > 0) {
       onSelect(Array.from(selected))
-    } else if (currentPath) {
+    } else if (mode === 'folders' && currentPath) {
       onSelect([currentPath])
     }
   }
@@ -159,7 +184,7 @@ export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClos
     <div className="settings-overlay" onClick={onClose}>
       <div className="settings-panel folder-picker" onClick={e => e.stopPropagation()} style={{ maxWidth: 760, width: '92%' }}>
         <div className="settings-header">
-          <h2>{t('folderPicker.title')}</h2>
+          <h2>{title || t('folderPicker.title')}</h2>
           <button className="settings-close" onClick={onClose}>&times;</button>
         </div>
         <div className="settings-body" style={{ padding: 0, display: 'flex', minHeight: 420 }}>
@@ -247,7 +272,7 @@ export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClos
               <button
                 className="profile-action-btn"
                 onClick={() => { setCreating(true); setNewFolderName(''); setCreateError(null) }}
-                disabled={loading || creating || !!error}
+                disabled={mode !== 'folders' || loading || creating || !!error}
               >
                 {t('folderPicker.newFolder')}
               </button>
@@ -286,7 +311,7 @@ export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClos
             {loading && <div className="folder-picker-empty">{t('folderPicker.loading')}</div>}
             {!loading && error && <div className="folder-picker-empty" style={{ color: '#e5534b' }}>{error}</div>}
             {!loading && !error && entries.length === 0 && (
-              <div className="folder-picker-empty">{t('folderPicker.empty')}</div>
+              <div className="folder-picker-empty">{emptyMessage || t('folderPicker.empty')}</div>
             )}
             {!loading && !error && entries.map(entry => {
               const isSel = selected.has(entry.path)
@@ -295,7 +320,10 @@ export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClos
                   key={entry.path}
                   className={`folder-picker-item ${isSel ? 'selected' : ''}`}
                   onClick={() => toggleSelected(entry.path)}
-                  onDoubleClick={() => navigate(entry.path)}
+                  onDoubleClick={() => {
+                    if (entry.isDirectory) navigate(entry.path)
+                    else toggleSelected(entry.path)
+                  }}
                 >
                   <input
                     type="checkbox"
@@ -303,9 +331,16 @@ export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClos
                     onChange={() => toggleSelected(entry.path)}
                     onClick={e => e.stopPropagation()}
                   />
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, opacity: 0.7 }}>
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                  </svg>
+                  {entry.isDirectory ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, opacity: 0.7 }}>
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, opacity: 0.7 }}>
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <path d="M14 2v6h6" />
+                    </svg>
+                  )}
                   <span className="folder-picker-item-name">{entry.name}</span>
                 </div>
               )
@@ -326,11 +361,11 @@ export function FolderPicker({ initialPath, multiSelect = true, onSelect, onClos
               <button
                 className="profile-action-btn"
                 onClick={handleConfirm}
-                disabled={loading || !!error}
+                disabled={loading || !!error || (mode === 'files' && selected.size === 0)}
               >
-                {selected.size > 0
+                {confirmLabel || (selected.size > 0
                   ? t('folderPicker.addSelected', { count: selected.size })
-                  : t('folderPicker.useCurrent')}
+                  : t('folderPicker.useCurrent'))}
               </button>
             </div>
           </div>

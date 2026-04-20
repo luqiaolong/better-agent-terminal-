@@ -37,6 +37,8 @@
     "autoRunAgentCommandHint": "Automatically execute the agent command (e.g., `claude`) when creating an Agent Terminal.",
     "allowBypassPermissions": "Allow bypass permissions without confirmation",
     "allowBypassPermissionsHint": "When enabled, switching to bypassPermissions mode in Claude Agent Panel will not show a confirmation dialog. Use with caution.",
+    "codexCliDangerousMode": "Start Codex CLI in dangerous mode",
+    "codexCliDangerousModeHint": "When enabled, Codex CLI PTY terminals start with `--sandbox danger-full-access`. Disable it to launch Codex with its default sandbox policy.",
     "collapseToolOutputs": "Collapse all tool outputs by default",
     "collapseToolOutputsHint": "When enabled, all tool outputs are collapsed by default. Click to expand. Read-only tools (Read, Glob, Grep) are always collapsed regardless of this setting.",
     "cacheExpiryWarning": "Cache expiry cost warning",
@@ -238,13 +240,18 @@
     "terminals": "Terminals",
     "addTerminalOrAgent": "Add Terminal or Agent",
     "terminalLabel": "Terminal",
+    "worktreeTerminalLabel": "Worktree Terminal",
     "expandThumbnails": "Expand Thumbnails",
     "collapsePanel": "Collapse Panel"
   },
 
   "dialogs": {
     "closeCodeAgent": "Close Code Agent?",
-    "closeCodeAgentConfirm": "Are you sure you want to close the Code Agent terminal? Any running process will be terminated."
+    "closeCodeAgentConfirm": "Are you sure you want to close the Code Agent terminal? Any running process will be terminated.",
+    "closeWorktreeSession": "Close Worktree Session?",
+    "closeWorktreeSessionConfirm": "Close this worktree session? You can also clean up the worktree.",
+    "closeAndCleanWorktree": "Close & Clean Worktree",
+    "closeKeepWorktree": "Close (Keep Worktree)"
   },
 
   "snippets": {
@@ -359,6 +366,7 @@
     "tellClaudeInstead": "Tell Claude what to do instead",
     "escToCancel": "Esc to cancel",
     "model1mHint": "1M context has lower cache efficiency via SDK. For cost-sensitive workloads, consider using Claude CLI directly.",
+    "codexModelChangeWarning": "Switching models will start a new Codex session and clear the current conversation. Continue?",
     "v2ModelChangeWarning": "Switching models in V2 will recreate the session and re-apply context, which may incur additional token costs. Continue?",
     "v1Model1mWarning": "1M context models in Claude Agent (V1) may cause significant unnecessary token consumption due to low cache efficiency (~25%). Consider using CLI or Claude Agent V2 for better cache performance. Continue?",
     "v2ModelListHint": "Switching model in V2 will recreate the session and re-apply context, which may consume additional tokens. Please switch with caution.",
