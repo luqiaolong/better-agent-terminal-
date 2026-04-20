@@ -1051,7 +1051,8 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
         dlog(`${stag} AUTO-RESUME sdkSessionId=${savedSdkSessionId.slice(0, 8)}`)
         historyLoadedRef.current = true
         window.electronAPI.claude.resumeSession(sessionId, savedSdkSessionId, cwd, savedModel, apiVersion,
-          useWorktree ? true : undefined, terminal?.worktreePath, terminal?.worktreeBranch, terminal?.agentPreset)
+          useWorktree ? true : undefined, terminal?.worktreePath, terminal?.worktreeBranch, terminal?.agentPreset,
+          codexSandboxMode, codexApprovalPolicy)
       } else {
         dlog(`${stag} FRESH startSession`)
         window.electronAPI.claude.startSession(sessionId, {
@@ -1281,7 +1282,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
     // Mark that history will be loaded — prevents sys-init from wiping messages
     historyLoadedRef.current = true
     const apiVersion = isV2Session ? 'v2' as const : 'v1' as const
-    await window.electronAPI.claude.resumeSession(sessionId, sdkSessionId, cwd, undefined, apiVersion, undefined, undefined, undefined, terminal?.agentPreset)
+    await window.electronAPI.claude.resumeSession(sessionId, sdkSessionId, cwd, undefined, apiVersion, undefined, undefined, undefined, terminal?.agentPreset, codexSandboxMode, codexApprovalPolicy)
     workspaceStore.setTerminalSdkSessionId(sessionId, sdkSessionId)
   }, [sessionId, cwd, isV2Session])
 

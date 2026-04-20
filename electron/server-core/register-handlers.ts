@@ -388,11 +388,11 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
   registerHandler('claude:resolve-permission', (_ctx, sessionId: string, toolUseId: string, result: { behavior: string; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[]; message?: string; dontAskAgain?: boolean }) => getManager(sessionId)?.resolvePermission(sessionId, toolUseId, result))
   registerHandler('claude:resolve-ask-user', (_ctx, sessionId: string, toolUseId: string, answers: Record<string, string>) => getManager(sessionId)?.resolveAskUser(sessionId, toolUseId, answers))
   registerHandler('claude:list-sessions', (_ctx, cwd: string) => getClaudeManager()?.listSessions(cwd))
-  registerHandler('claude:resume-session', (_ctx, sessionId: string, sdkSessionId: string, cwd: string, model?: string, apiVersion?: 'v1' | 'v2', useWorktree?: boolean, worktreePath?: string, worktreeBranch?: string, agentPreset?: string) => {
+  registerHandler('claude:resume-session', (_ctx, sessionId: string, sdkSessionId: string, cwd: string, model?: string, apiVersion?: 'v1' | 'v2', useWorktree?: boolean, worktreePath?: string, worktreeBranch?: string, agentPreset?: string, codexSandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access', codexApprovalPolicy?: 'untrusted' | 'on-request' | 'never') => {
     const explicitType = agentPreset === 'codex-agent' ? 'codex' : 'claude'
     const type = agentPreset ? explicitType : (sessionManagerMap.get(sessionId) || 'claude')
     sessionManagerMap.set(sessionId, type)
-    if (type === 'codex') return getCodexManager()?.resumeSession(sessionId, sdkSessionId, cwd, model)
+    if (type === 'codex') return getCodexManager()?.resumeSession(sessionId, sdkSessionId, cwd, model, codexSandboxMode, codexApprovalPolicy)
     return getClaudeManager()?.resumeSession(sessionId, sdkSessionId, cwd, model, apiVersion, useWorktree, worktreePath, worktreeBranch)
   })
   registerHandler('claude:fork-session', (_ctx, sessionId: string) => getManager(sessionId)?.forkSession(sessionId))
