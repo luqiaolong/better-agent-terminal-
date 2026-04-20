@@ -55,6 +55,8 @@ export function ThumbnailBar({
   const addMenuRef = useRef<HTMLDivElement>(null)
   const addMenuPopupRef = useRef<HTMLDivElement>(null)
   const addBtnRef = useRef<HTMLButtonElement>(null)
+  const thumbnailListRef = useRef<HTMLDivElement>(null)
+  const middlePanRef = useRef<{ startX: number; startScrollLeft: number } | null>(null)
 
   // Close menu on outside click
   useEffect(() => {
@@ -252,7 +254,24 @@ export function ThumbnailBar({
           )}
         </div>
       </div>
-      <div className="thumbnail-list">
+      <div
+        className="thumbnail-list"
+        ref={thumbnailListRef}
+        onMouseDown={(e) => {
+          if (e.button === 1) {
+            e.preventDefault()
+            const el = thumbnailListRef.current
+            if (el) middlePanRef.current = { startX: e.clientX, startScrollLeft: el.scrollLeft }
+          }
+        }}
+        onMouseMove={(e) => {
+          if (!middlePanRef.current) return
+          const el = thumbnailListRef.current
+          if (el) el.scrollLeft = middlePanRef.current.startScrollLeft - (e.clientX - middlePanRef.current.startX)
+        }}
+        onMouseUp={(e) => { if (e.button === 1) middlePanRef.current = null }}
+        onMouseLeave={() => { middlePanRef.current = null }}
+      >
         {terminals.map(terminal => (
           <div
             key={terminal.id}

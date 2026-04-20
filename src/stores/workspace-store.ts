@@ -295,6 +295,7 @@ class WorkspaceStore {
     }
 
     this.notify()
+    this.save()
   }
 
   setTerminalGeneratedTitle(id: string, title: string): void {
@@ -593,12 +594,16 @@ class WorkspaceStore {
             return null
           }
           const cwd = ws.folderPath
+          // For agent terminals, always derive title from preset to fix any persisted corruption
+          const presetTitle = t.agentPreset && t.agentPreset !== 'none'
+            ? (getAgentPreset(t.agentPreset)?.name || t.title || 'Terminal')
+            : (t.title || 'Terminal')
           return {
             id: t.id || '',
             workspaceId: t.workspaceId || '',
             type: 'terminal' as const,
             agentPreset: t.agentPreset,
-            title: t.title || 'Terminal',
+            title: presetTitle,
             alias: t.alias,
             cwd,
             sdkSessionId: t.sdkSessionId,
