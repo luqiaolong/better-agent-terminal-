@@ -342,6 +342,8 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   const permissionCardRef = useRef<HTMLDivElement>(null)
   const [userScrolledUp, setUserScrolledUp] = useState(false)
   const isNearBottomRef = useRef(true)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const middlePanRef = useRef<{ startX: number; startScrollLeft: number } | null>(null)
   const [aboveViewportUserMsgIds, setAboveViewportUserMsgIds] = useState<Set<string>>(new Set())
   const [claudeFontSize, setClaudeFontSize] = useState(settingsStore.getSettings().fontSize)
   const userMsgRefsMap = useRef<Map<string, HTMLDivElement>>(new Map())
@@ -367,6 +369,13 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     isNearBottomRef.current = nearBottom
     setUserScrolledUp(!nearBottom)
   }, [checkIfNearBottom])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    window.addEventListener('click', close, true)
+    return () => window.removeEventListener('click', close, true)
+  }, [contextMenu])
 
   // Only auto-scroll if user hasn't scrolled up
   useEffect(() => {
@@ -3050,8 +3059,24 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         className="claude-messages claude-timeline"
         ref={messagesContainerRef}
         onScroll={handleMessagesScroll}
-        // Prevent Chromium's middle-click auto-scroll cursor from latching on.
-        onMouseDown={(e) => { if (e.button === 1) e.preventDefault() }}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setContextMenu({ x: e.clientX, y: e.clientY })
+        }}
+        onMouseDown={(e) => {
+          if (e.button === 1) {
+            e.preventDefault()
+            const el = messagesContainerRef.current
+            if (el) middlePanRef.current = { startX: e.clientX, startScrollLeft: el.scrollLeft }
+          }
+        }}
+        onMouseMove={(e) => {
+          if (!middlePanRef.current) return
+          const el = messagesContainerRef.current
+          if (el) el.scrollLeft = middlePanRef.current.startScrollLeft - (e.clientX - middlePanRef.current.startX)
+        }}
+        onMouseUp={(e) => { if (e.button === 1) middlePanRef.current = null }}
+        onMouseLeave={() => { middlePanRef.current = null }}
       >
         {(hasMoreArchived || isLoadingMore) && (
           <div className="claude-load-more">
@@ -4313,6 +4338,20 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           </div>
         )
       })()}
+      {contextMenu && onClose && (
+        <div
+          className="claude-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="claude-context-menu-item"
+            onClick={() => { setContextMenu(null); onClose(sessionId) }}
+          >
+            Close Window
+          </button>
+        </div>
+      )}
     </div>
   )
 }
