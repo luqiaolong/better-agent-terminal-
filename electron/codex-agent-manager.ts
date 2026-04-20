@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron'
+import { createRequire } from 'module'
 import { execSync } from 'child_process'
-import { promises as fs } from 'fs'
+import { existsSync, promises as fs } from 'fs'
 import os from 'os'
 import * as pathModule from 'path'
 import type { ClaudeMessage, ClaudeToolCall, ClaudeSessionState } from '../src/types/claude-agent'
@@ -62,6 +63,16 @@ const CODEX_EFFORT_LEVELS: readonly CodexEffortLevel[] = ['minimal', 'low', 'med
 // Lazy SDK import
 let CodexClass: unknown = null
 
+function getCodexInstallHint(): string {
+  if (process.platform === 'win32') {
+    return 'npm i -g @openai/codex'
+  }
+  if (process.platform === 'darwin') {
+    return 'npm i -g @openai/codex or brew install --cask codex'
+  }
+  return 'npm i -g @openai/codex'
+}
+
 async function getCodexClass(): Promise<unknown> {
   if (!CodexClass) {
     try {
@@ -76,9 +87,54 @@ async function getCodexClass(): Promise<unknown> {
   return CodexClass
 }
 
+// Resolve to the bundled Codex *native* binary. The top-level @openai/codex
+// wrapper ships a JS launcher (bin/codex.js) and bin/.bin/codex.cmd on Windows;
+// neither can be passed directly to child_process.spawn without a shell
+// (Node 20+ refuses to spawn .cmd/.bat implicitly, and .js needs `node`).
+// The native exe lives in the per-platform optionalDependency:
+//   @openai/codex-<platform>-<arch>/vendor/<triple>/codex/codex[.exe]
+function codexTargetTriple(): string | undefined {
+  const { platform, arch } = process
+  if (platform === 'linux' && arch === 'x64') return 'x86_64-unknown-linux-musl'
+  if (platform === 'linux' && arch === 'arm64') return 'aarch64-unknown-linux-musl'
+  if (platform === 'darwin' && arch === 'x64') return 'x86_64-apple-darwin'
+  if (platform === 'darwin' && arch === 'arm64') return 'aarch64-apple-darwin'
+  if (platform === 'win32' && arch === 'x64') return 'x86_64-pc-windows-msvc'
+  if (platform === 'win32' && arch === 'arm64') return 'aarch64-pc-windows-msvc'
+  return undefined
+}
+
 function findCodexBinary(): string | undefined {
+  const exe = process.platform === 'win32' ? 'codex.exe' : 'codex'
+  const triple = codexTargetTriple()
+
+  if (triple) {
+    const platformPkg = `@openai/codex-${process.platform}-${process.arch}`
+    try {
+      const req = createRequire(import.meta.url ?? __filename)
+      let pkgJson = req.resolve(`${platformPkg}/package.json`)
+      if (pkgJson.includes('app.asar') && !pkgJson.includes('app.asar.unpacked')) {
+        pkgJson = pkgJson.replace('app.asar', 'app.asar.unpacked')
+      }
+      const candidate = pathModule.join(pathModule.dirname(pkgJson), 'vendor', triple, 'codex', exe)
+      if (existsSync(candidate)) {
+        return candidate
+      }
+    } catch {
+      // Platform package not installed — fall through.
+    }
+  }
+
   try {
-    return execSync('which codex', { encoding: 'utf-8', timeout: 3000 }).trim() || undefined
+    const command = process.platform === 'win32'
+      ? 'where.exe codex'
+      : 'command -v codex || which codex'
+    const result = execSync(command, { encoding: 'utf-8', timeout: 3000 }).trim()
+    if (!result) return undefined
+    const first = result.split(/\r?\n/).find(Boolean)?.trim()
+    // Skip the .cmd/.bat shim that npm installs — can't be spawn'd directly.
+    if (first && /\.(cmd|bat)$/i.test(first)) return undefined
+    return first || undefined
   } catch {
     return undefined
   }
@@ -393,7 +449,7 @@ export class CodexAgentManager {
 
     const codexPath = findCodexBinary()
     if (!codexPath) {
-      this.send('claude:error', sessionId, 'Codex Agent not found. Install with: npm i -g @openai/codex or brew install --cask codex')
+      this.send('claude:error', sessionId, `Codex CLI not found. Install with: ${getCodexInstallHint()}`)
       return false
     }
 

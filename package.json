@@ -160,8 +160,6 @@
       "dist-electron/**/*",
       "node_modules/**/*",
       "bin/bat-server.js",
-      "!node_modules/@openai/codex/**",
-      "!node_modules/@openai/codex-*-*/**",
       "!node_modules/better-sqlite3/deps/**",
       "!node_modules/better-sqlite3/src/**",
       "!node_modules/better-sqlite3/build/Release/obj/**",
@@ -171,6 +169,7 @@
     ],
     "asarUnpack": [
       "bin/**",
+      "node_modules/@openai/codex-*/vendor/**/*",
       "node_modules/@anthropic-ai/claude-code/bin/**",
       "node_modules/@anthropic-ai/claude-code-*/**",
       "node_modules/@anthropic-ai/claude-agent-sdk-*/**",
