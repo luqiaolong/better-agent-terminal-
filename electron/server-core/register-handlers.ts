@@ -17,6 +17,25 @@ import type { EffortLevel, CreatePtyOptions } from '../../src/types'
 import type { PtyManager } from '../pty-manager'
 import { getDataDir } from './data-dir'
 
+// On Linux, prefer the variant matching the current libc. npm may install
+// both musl and glibc optionalDependencies in some setups; picking the wrong
+// binary (e.g. musl on Ubuntu) crashes at exec. Detect glibc via node's
+// process.report; fall back to glibc-first ordering if detection fails
+// (matches the pre-regression behavior for typical desktop Linux).
+function linuxClaudeArchCandidates(): string[] {
+  const arch = process.arch
+  let isGlibc: boolean | null = null
+  try {
+    const report = (process as unknown as { report?: { getReport: () => { header?: { glibcVersionRuntime?: string } } } }).report
+    const header = report?.getReport()?.header
+    if (header && 'glibcVersionRuntime' in header) {
+      isGlibc = !!header.glibcVersionRuntime
+    }
+  } catch { /* ignore */ }
+  if (isGlibc === false) return [`linux-${arch}-musl`, `linux-${arch}`]
+  return [`linux-${arch}`, `linux-${arch}-musl`]
+}
+
 export interface ProxiedHandlersDeps {
   getPtyManager: () => PtyManager | null
   getClaudeManager: () => ClaudeAgentManager | null
@@ -152,7 +171,7 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
   registerHandler('claude:get-cli-path', () => {
     const exe = process.platform === 'win32' ? 'claude.exe' : 'claude'
     const archKey = process.platform === 'linux'
-      ? [`linux-${process.arch}-musl`, `linux-${process.arch}`]
+      ? linuxClaudeArchCandidates()
       : [`${process.platform}-${process.arch}`]
     const candidates = [
       `@anthropic-ai/claude-code/bin/${exe}`,
@@ -205,6 +224,16 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
   })
   registerHandler('claude:set-effort', (_ctx, sessionId: string, effort: string) => getManager(sessionId)?.setEffort(sessionId, effort as EffortLevel))
   registerHandler('claude:reset-session', (_ctx, sessionId: string) => getManager(sessionId)?.resetSession(sessionId))
+  registerHandler('claude:set-auto-continue', (_ctx, sessionId: string, opts: { enabled: boolean; max?: number; prompt?: string }) => {
+    const mgr = getManager(sessionId)
+    if (mgr instanceof ClaudeAgentManager) return mgr.setAutoContinue(sessionId, opts)
+    return false
+  })
+  registerHandler('claude:get-auto-continue', (_ctx, sessionId: string) => {
+    const mgr = getManager(sessionId)
+    if (mgr instanceof ClaudeAgentManager) return mgr.getAutoContinue(sessionId)
+    return null
+  })
   registerHandler('claude:get-supported-models', (_ctx, sessionId: string) => getManager(sessionId)?.getSupportedModels(sessionId))
   registerHandler('claude:get-account-info', (_ctx, sessionId: string) => getManager(sessionId)?.getAccountInfo(sessionId))
   registerHandler('claude:get-supported-commands', (_ctx, sessionId: string) => getManager(sessionId)?.getSupportedCommands(sessionId))

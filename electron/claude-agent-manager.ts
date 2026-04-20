@@ -79,6 +79,25 @@ function dataUrlToContentBlock(dataUrl: string): { type: 'image'; source: { type
   }
 }
 
+// On Linux, prefer the variant matching the current libc. npm may install
+// both musl and glibc optionalDependencies in some setups; picking the wrong
+// binary (e.g. musl on Ubuntu) crashes at exec. Detect glibc via node's
+// process.report; fall back to musl-first ordering if detection fails.
+function linuxArchCandidates(): string[] {
+  const arch = process.arch
+  let isGlibc: boolean | null = null
+  try {
+    const report = (process as unknown as { report?: { getReport: () => { header?: { glibcVersionRuntime?: string } } } }).report
+    const header = report?.getReport()?.header
+    if (header && 'glibcVersionRuntime' in header) {
+      isGlibc = !!header.glibcVersionRuntime
+    }
+  } catch { /* ignore */ }
+  if (isGlibc === true) return [`linux-${arch}`, `linux-${arch}-musl`]
+  if (isGlibc === false) return [`linux-${arch}-musl`, `linux-${arch}`]
+  return [`linux-${arch}`, `linux-${arch}-musl`]
+}
+
 // Resolve the Claude Code CLI binary path. Since claude-code v2.1.113 the
 // package ships a native binary at bin/claude[.exe] (placed by postinstall
 // from a per-platform optionalDependency) instead of the old bundled cli.js.
@@ -87,7 +106,7 @@ function dataUrlToContentBlock(dataUrl: string): { type: 'image'; source: { type
 function resolveClaudeCodePath(): string {
   const exe = process.platform === 'win32' ? 'claude.exe' : 'claude'
   const archKey = process.platform === 'linux'
-    ? [`linux-${process.arch}-musl`, `linux-${process.arch}`]
+    ? linuxArchCandidates()
     : [`${process.platform}-${process.arch}`]
   const candidates = [
     `@anthropic-ai/claude-code/bin/${exe}`,
@@ -187,6 +206,10 @@ interface SessionInstance {
   worktreeInfo?: WorktreeInfo  // Set when running in worktree isolation
   originalCwd?: string         // Original workspace cwd before worktree redirect
   cachedContextUsage?: unknown  // Cached getContextUsage() result for after process exits
+  // /auto-continue: when set, after each successful turn ends, auto-send `prompt`
+  // up to `max` times. `used` resets when the user manually sends a message.
+  autoContinue?: { enabled: boolean; max: number; used: number; prompt: string }
+  lastResultSubtype?: string   // Subtype of the most recent result message
 }
 
 // Persists SDK session IDs across stop/restart so we can resume conversations
@@ -473,7 +496,19 @@ export class ClaudeAgentManager {
       this.send('claude:error', sessionId, 'Session not found')
       return false
     }
+    // Manual user send refreshes the auto-continue budget for the new chain.
+    if (session.autoContinue) session.autoContinue.used = 0
+    const displayContent = prompt + (images?.length ? `\n[${images.length} image${images.length > 1 ? 's' : ''} attached]` : '')
+    return this._doSendMessage(session, sessionId, prompt, images, displayContent)
+  }
 
+  /** Internal send used by both public sendMessage and auto-continue. Skips the
+   *  budget reset and lets the caller customise the broadcast user-message
+   *  display string (e.g. with an "[auto N/M]" tag). */
+  private async _doSendMessage(
+    session: SessionInstance, sessionId: string, prompt: string,
+    images: string[] | undefined, displayContent: string,
+  ): Promise<boolean> {
     // Auto-wake resting sessions
     if (session.isResting) {
       session.isResting = false
@@ -500,13 +535,53 @@ export class ClaudeAgentManager {
       id: `user-${Date.now()}`,
       sessionId,
       role: 'user',
-      content: prompt + (images?.length ? `\n[${images.length} image${images.length > 1 ? 's' : ''} attached]` : ''),
+      content: displayContent,
       timestamp: Date.now(),
     }
     this.addMessage(sessionId, userMsg)
 
     await this.runQuery(sessionId, prompt, images)
     return true
+  }
+
+  setAutoContinue(sessionId: string, opts: { enabled: boolean; max?: number; prompt?: string }): boolean {
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+    if (!opts.enabled) {
+      session.autoContinue = undefined
+    } else {
+      session.autoContinue = {
+        enabled: true,
+        max: Math.max(1, Math.min(1000, opts.max ?? 3)),
+        used: 0,
+        prompt: opts.prompt ?? '繼續',
+      }
+    }
+    return true
+  }
+
+  getAutoContinue(sessionId: string): { enabled: boolean; max: number; used: number; prompt: string } | null {
+    return this.sessions.get(sessionId)?.autoContinue ?? null
+  }
+
+  /** Trigger auto-continue if the session is configured for it and the most
+   *  recent turn ended successfully. Called from runQuery's finally block. */
+  private _maybeAutoContinue(session: SessionInstance, sessionId: string): void {
+    const ac = session.autoContinue
+    if (!ac || !ac.enabled) return
+    if (ac.used >= ac.max) return
+    if (session.lastResultSubtype && session.lastResultSubtype !== 'success') return
+    if (session.state.isStreaming) return
+    if (session.messageQueue.length > 0) return
+    if (session.abortController.signal.aborted) return
+    ac.used++
+    const displayContent = `${ac.prompt}  [auto ${ac.used}/${ac.max}]`
+    // Defer one tick so the result/status events flush to clients first.
+    setImmediate(() => {
+      const s = this.sessions.get(sessionId)
+      if (!s || s.state.isStreaming) return
+      this._doSendMessage(s, sessionId, ac.prompt, undefined, displayContent)
+    })
   }
 
   private async runQuery(sessionId: string, prompt: string, images?: string[]) {
@@ -797,6 +872,8 @@ export class ClaudeAgentManager {
         const next = session.messageQueue.shift()
         if (next) {
           this.runQuery(sessionId, next.prompt, next.images)
+        } else {
+          this._maybeAutoContinue(session, sessionId)
         }
       }
     }
@@ -1177,6 +1254,7 @@ export class ClaudeAgentManager {
     }
 
     if (message.type === 'result') {
+      session.lastResultSubtype = (message as { subtype?: string }).subtype
       const resultMsg = message as {
         subtype: string
         total_cost_usd?: number
@@ -1530,6 +1608,8 @@ export class ClaudeAgentManager {
         const next = session.messageQueue.shift()
         if (next) {
           this.runQueryV2(sessionId, next.prompt, next.images)
+        } else {
+          this._maybeAutoContinue(session, sessionId)
         }
       }
     }
@@ -1571,6 +1651,8 @@ export class ClaudeAgentManager {
     if (session) {
       session.state.isStreaming = false
       session.messageQueue.length = 0
+      // User explicitly stopping — also halt any pending auto-continue.
+      session.autoContinue = undefined
       if (session.apiVersion === 'v2' && session.v2Session) {
         try { session.v2Session.close() } catch { /* ignore */ }
         session.v2Session = undefined

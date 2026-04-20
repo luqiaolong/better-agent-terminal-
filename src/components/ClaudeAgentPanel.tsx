@@ -330,11 +330,6 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     }
   }, [normalizedAgentParams?.approvalPolicy, normalizedAgentParams?.sandboxMode])
   const currentTurnMsgIdRef = useRef<string | null>(null)
-  // /auto-continue: when enabled, after each turn ends auto-send `prompt`
-  // up to `max` times. `used` resets when the user manually sends.
-  const autoContinueRef = useRef<{ enabled: boolean; max: number; used: number; prompt: string }>({
-    enabled: false, max: 3, used: 0, prompt: '繼續',
-  })
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const streamingThinkingRef = useRef<HTMLPreElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -694,23 +689,6 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         workspaceStore.refreshUsageNow()
         // Show result text only for slash commands that don't produce assistant messages
         const rd = resultData as { result?: string; subtype?: string } | undefined
-        // Auto-continue: only on successful turns, until max reached
-        const ac = autoContinueRef.current
-        if (ac.enabled && ac.used < ac.max && (!rd?.subtype || rd.subtype === 'success')) {
-          ac.used++
-          const acPrompt = ac.prompt
-          const userMsgId = `user-ac-${Date.now()}`
-          currentTurnMsgIdRef.current = userMsgId
-          setMessages(prev => [...prev, {
-            id: userMsgId, sessionId, role: 'user' as const,
-            content: `${acPrompt}  [auto ${ac.used}/${ac.max}]`,
-            timestamp: Date.now(),
-          }])
-          setIsStreaming(true)
-          setTimeout(() => {
-            window.electronAPI.claude.sendMessage(sessionId, acPrompt)
-          }, 150)
-        }
         if (rd?.result && rd.subtype === 'success') {
           setMessages(prev => {
             // Skip if any assistant message contains the result text (already shown via onMessage)
@@ -1352,7 +1330,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     inputHistoryIndexRef.current = -1
     inputDraftRef.current = ''
 
-    // Intercept /auto-continue and /ac — toggle auto-continue mode.
+    // Intercept /auto-continue and /ac — toggle host-side auto-continue.
     // Syntax:
     //   /auto-continue                   enable, default max=3, prompt="繼續"
     //   /auto-continue 5                 enable, max=5, prompt="繼續"
@@ -1366,7 +1344,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
       const rest = trimmed.slice(cmd.length).trim()
       let content: string
       if (rest === 'off' || rest === 'stop') {
-        autoContinueRef.current = { ...autoContinueRef.current, enabled: false, used: 0 }
+        await window.electronAPI.claude.setAutoContinue(sessionId, { enabled: false })
         content = 'Auto-continue disabled.'
       } else {
         let max = 3
@@ -1378,7 +1356,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         } else if (rest) {
           prompt = rest
         }
-        autoContinueRef.current = { enabled: true, max, used: 0, prompt }
+        await window.electronAPI.claude.setAutoContinue(sessionId, { enabled: true, max, prompt })
         content = `Auto-continue enabled (max ${max}). Prompt: "${prompt}"`
       }
       setMessages(prev => [...prev, {
@@ -1386,12 +1364,6 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
         content, timestamp: Date.now(),
       }])
       return
-    }
-
-    // User manually sent a message — reset auto-continue counter so the
-    // budget refreshes for the new request chain.
-    if (autoContinueRef.current.enabled) {
-      autoContinueRef.current.used = 0
     }
 
     // Intercept /resume command (only when not streaming)
@@ -1420,8 +1392,6 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     // Intercept /abort command — force stop current operation
     if (trimmed === '/abort') {
       clearInput()
-      // User explicitly stopping — also halt any pending auto-continue.
-      autoContinueRef.current = { ...autoContinueRef.current, enabled: false, used: 0 }
       window.electronAPI.claude.abortSession(sessionId)
       setIsStreaming(false)
       setIsInterrupted(false)

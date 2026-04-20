@@ -419,9 +419,22 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
       historyKey: termInst?.historyKey,
     })
 
-    // Build CLI command using bundled CLI
+    // Build CLI command using bundled CLI.
+    // Since claude-code 2.1.113 the bundled CLI is a native binary (claude[.exe])
+    // rather than cli.js — invoke directly instead of via `node`. Legacy cli.js
+    // paths (ending in .js) still use the node launcher.
+    // PowerShell needs `& "..."` to invoke a quoted executable path.
     // Worktree sessions start fresh (--continue would resume a session in git root)
-    const cmdParts = ['node', `"${cliPath}"`]
+    const isLegacyJs = /\.js$/i.test(cliPath)
+    const isPowerShell = !!shell && /pwsh|powershell/i.test(shell)
+    const cmdParts: string[] = []
+    if (isLegacyJs) {
+      cmdParts.push('node', `"${cliPath}"`)
+    } else if (isPowerShell) {
+      cmdParts.push('&', `"${cliPath}"`)
+    } else {
+      cmdParts.push(`"${cliPath}"`)
+    }
     if (!isWorktree) {
       cmdParts.push('--continue')
     }

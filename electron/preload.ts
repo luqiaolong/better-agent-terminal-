@@ -90,6 +90,10 @@ const electronAPI = {
       ipcRenderer.invoke('claude:stop-session', sessionId),
     abortSession: (sessionId: string) =>
       ipcRenderer.invoke('claude:abort-session', sessionId),
+    setAutoContinue: (sessionId: string, opts: { enabled: boolean; max?: number; prompt?: string }) =>
+      ipcRenderer.invoke('claude:set-auto-continue', sessionId, opts) as Promise<boolean>,
+    getAutoContinue: (sessionId: string) =>
+      ipcRenderer.invoke('claude:get-auto-continue', sessionId) as Promise<{ enabled: boolean; max: number; used: number; prompt: string } | null>,
     onMessage: (callback: (sessionId: string, message: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, sessionId: string, message: unknown) => callback(sessionId, message)
       ipcRenderer.on('claude:message', handler)
