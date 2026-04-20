@@ -527,7 +527,7 @@ export class CodexAgentManager {
     let sawTurnCompleted = false
     let idleTimedOut = false
     let idleTimer: ReturnType<typeof setTimeout> | undefined
-    const IDLE_TIMEOUT_MS = 120_000
+    const IDLE_TIMEOUT_MS = 300_000
 
     const resetIdleTimer = () => {
       if (idleTimer) clearTimeout(idleTimer)
