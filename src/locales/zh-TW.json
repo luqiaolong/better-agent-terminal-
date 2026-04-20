@@ -238,6 +238,7 @@
     "restartTerminal": "重新啟動終端",
     "closeTerminal": "關閉終端",
     "terminals": "終端",
+    "workspaceSessions": "工作階段",
     "addTerminalOrAgent": "新增終端或 Agent",
     "terminalLabel": "終端",
     "worktreeTerminalLabel": "Terminal (worktree)",

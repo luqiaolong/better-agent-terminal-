@@ -275,7 +275,7 @@ class WorkspaceStore {
     const terminal = this.state.terminals.find(t => t.id === id)
     if (!terminal) return null
     const newPreset = terminal.agentPreset === 'claude-code' ? 'claude-code-v2' as const : 'claude-code' as const
-    const newTitle = newPreset === 'claude-code-v2' ? 'Claude Agent V2' : 'Claude Agent V1'
+    const newTitle = newPreset === 'claude-code-v2' ? 'Claude Agent (V2)' : 'Claude Agent (V1)'
     this.state = {
       ...this.state,
       terminals: this.state.terminals.map(t =>

@@ -238,6 +238,7 @@
     "restartTerminal": "Restart terminal",
     "closeTerminal": "Close terminal",
     "terminals": "Terminals",
+    "workspaceSessions": "Sessions",
     "addTerminalOrAgent": "Add Terminal or Agent",
     "terminalLabel": "Terminal",
     "worktreeTerminalLabel": "Terminal (worktree)",

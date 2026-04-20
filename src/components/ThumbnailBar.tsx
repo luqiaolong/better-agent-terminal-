@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { TerminalInstance } from '../types'
 import { TerminalThumbnail } from './TerminalThumbnail'
-import { getAgentPreset, type AgentPreset } from '../types/agent-presets'
+import type { AgentPreset } from '../types/agent-presets'
 
 interface ThumbnailBarProps {
   terminals: TerminalInstance[]
@@ -39,12 +39,7 @@ export function ThumbnailBar({
   onCollapse
 }: ThumbnailBarProps) {
   const { t } = useTranslation()
-  // Check if these are agent terminals or regular terminals
-  const firstTerminal = terminals[0]
-  const isAgentList = firstTerminal?.agentPreset && firstTerminal.agentPreset !== 'none'
-  const label = isAgentList
-    ? (getAgentPreset(firstTerminal.agentPreset!)?.name || 'Agent')
-    : t('terminal.terminals')
+  const label = t('terminal.workspaceSessions')
 
   // All hooks must be declared before any conditional return (React rules of hooks)
   const [draggedId, setDraggedId] = useState<string | null>(null)

@@ -226,6 +226,7 @@
     "restartTerminal": "重新启动终端",
     "closeTerminal": "关闭终端",
     "terminals": "终端",
+    "workspaceSessions": "会话",
     "addTerminalOrAgent": "新增终端或 Agent",
     "terminalLabel": "终端",
     "worktreeTerminalLabel": "Terminal (worktree)",
