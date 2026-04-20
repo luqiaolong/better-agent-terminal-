@@ -14,6 +14,10 @@ jobs:
             platform: win
           - os: macos-latest
             platform: mac
+            arch: arm64
+          - os: macos-latest
+            platform: mac
+            arch: x64
           - os: ubuntu-latest
             platform: linux
 
@@ -84,7 +88,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npx electron-builder --mac --publish never
+        run: npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
 
       - name: Package for Linux
         if: matrix.platform == 'linux'
@@ -103,7 +107,7 @@ jobs:
         if: matrix.platform == 'mac'
         uses: actions/upload-artifact@v4
         with:
-          name: release-mac
+          name: release-mac-${{ matrix.arch }}
           path: release/*.dmg
 
       - name: Upload Linux artifact
@@ -137,7 +141,8 @@ jobs:
         with:
           files: |
             artifacts/release-win/*
-            artifacts/release-mac/*
+            artifacts/release-mac-arm64/*
+            artifacts/release-mac-x64/*
             artifacts/release-linux/*
           generate_release_notes: true
           draft: false
@@ -164,8 +169,8 @@ jobs:
         id: gate
         shell: bash
         run: |
-          # Chocolatey package pending review — skip until 2026-04-20
-          if [[ "$(date -u +%Y%m%d)" -lt "20260420" ]]; then
+          # Chocolatey package pending review — skip until after 2026-04-30 UTC
+          if [[ "$(date -u +%Y%m%d)" -lt "20260501" ]]; then
             echo "skip=true" >> $GITHUB_OUTPUT
             echo "Skipping: Chocolatey package not yet approved"
           else
