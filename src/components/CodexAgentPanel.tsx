@@ -1766,8 +1766,8 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
   }, [sessionId, isStreaming])
 
   const handleStop = useCallback(() => {
-    if (!isStreaming && !isInterrupted) return
-    // Hard abort — immediately kill the query loop
+    // Hard abort — always works, even when frontend state appears idle
+    // (backend may still be stuck; this is the user's escape hatch)
     window.electronAPI.claude.abortSession(sessionId)
     setIsStreaming(false)
     setIsInterrupted(false)
@@ -2164,18 +2164,22 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
           handlePermissionSelect(2) // Deny
           return
         }
-        if (isStreaming || isInterrupted) {
-          e.preventDefault()
+        {
           const now = Date.now()
-          if (isInterrupted || now - lastEscRef.current < 500) {
-            // Second Esc (or already interrupted) → full stop
-            handleStop()
-          } else {
-            // First Esc → interrupt (pause), user can type to continue
-            handleInterrupt()
+          const doubleEsc = now - lastEscRef.current < 500
+          if (isStreaming || isInterrupted || doubleEsc) {
+            e.preventDefault()
+            if (isInterrupted || doubleEsc) {
+              // Second Esc (or already interrupted) → full stop (always works, even when stuck)
+              handleStop()
+            } else {
+              // First Esc while streaming → interrupt (pause), user can type to continue
+              handleInterrupt()
+            }
+            lastEscRef.current = now
+            return
           }
           lastEscRef.current = now
-          return
         }
       }
       if (pendingPermission) {

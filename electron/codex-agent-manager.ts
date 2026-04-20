@@ -835,9 +835,13 @@ export class CodexAgentManager {
     const session = this.sessions.get(sessionId)
     if (!session) return false
     session.abortController.abort()
+    session.abortController = new AbortController()
     session.state.isStreaming = false
     session.isRunning = false
-    this.sessions.delete(sessionId)
+    session.currentPrompt = undefined
+    session.messageQueue = []
+    session.lastEventAt = undefined
+    this.send('claude:result', sessionId, { subtype: 'aborted' })
     return true
   }
 
