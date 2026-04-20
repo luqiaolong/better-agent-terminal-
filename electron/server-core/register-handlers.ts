@@ -636,7 +636,11 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
 
   registerHandler('fs:list-dirs', async (_ctx, dirPath: string, includeHidden: boolean) => {
     try {
-      const abs = path.resolve(dirPath)
+      let expanded = dirPath
+      if (expanded === '~' || expanded.startsWith('~/') || expanded.startsWith('~\\')) {
+        expanded = expanded === '~' ? os.homedir() : path.join(os.homedir(), expanded.slice(2))
+      }
+      const abs = path.resolve(expanded)
       if (isSensitivePath(abs)) return { error: 'Access denied (sensitive path)' }
       const entries = await fs.readdir(abs, { withFileTypes: true })
       const filtered = entries
