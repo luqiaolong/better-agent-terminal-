@@ -20,6 +20,7 @@ import type { AppState, EnvVariable, TerminalInstance } from './types'
 interface PanelSettings {
   sidebar: {
     width: number
+    collapsed: boolean
   }
   snippetSidebar: {
     width: number
@@ -56,7 +57,10 @@ function loadPanelSettings(): PanelSettings {
       const parsed = JSON.parse(saved)
       // Ensure sidebar settings exist (migration from old format)
       return {
-        sidebar: parsed.sidebar || { width: DEFAULT_SIDEBAR_WIDTH },
+        sidebar: {
+          width: parsed.sidebar?.width ?? DEFAULT_SIDEBAR_WIDTH,
+          collapsed: parsed.sidebar?.collapsed ?? true
+        },
         snippetSidebar: parsed.snippetSidebar || { width: DEFAULT_SNIPPET_WIDTH, collapsed: true }
       }
     }
@@ -64,7 +68,7 @@ function loadPanelSettings(): PanelSettings {
     console.error('Failed to load panel settings:', e)
   }
   return {
-    sidebar: { width: DEFAULT_SIDEBAR_WIDTH },
+    sidebar: { width: DEFAULT_SIDEBAR_WIDTH, collapsed: true },
     snippetSidebar: { width: DEFAULT_SNIPPET_WIDTH, collapsed: true }
   }
 }
@@ -155,6 +159,14 @@ export default function App() {
     })
   }, [])
 
+  const handleSidebarCollapse = useCallback(() => {
+    setPanelSettings(prev => {
+      const updated = { ...prev, sidebar: { ...prev.sidebar, collapsed: !prev.sidebar.collapsed } }
+      savePanelSettings(updated)
+      return updated
+    })
+  }, [])
+
   // Handle snippet sidebar resize
   const handleSnippetResize = useCallback((delta: number) => {
     setPanelSettings(prev => {
@@ -182,6 +194,14 @@ export default function App() {
 
   // Toggle snippet sidebar collapse
   const handleSnippetCollapse = useCallback(() => {
+    setPanelSettings(prev => {
+      const updated = { ...prev, snippetSidebar: { ...prev.snippetSidebar, collapsed: !prev.snippetSidebar.collapsed } }
+      savePanelSettings(updated)
+      return updated
+    })
+  }, [])
+
+  const handleSnippetPanelToggle = useCallback(() => {
     setPanelSettings(prev => {
       const updated = { ...prev, snippetSidebar: { ...prev.snippetSidebar, collapsed: !prev.snippetSidebar.collapsed } }
       savePanelSettings(updated)
@@ -569,6 +589,8 @@ export default function App() {
               terminals={workspaceStore.getWorkspaceTerminals(ws.id)}
               focusedTerminalId={state.focusedTerminalId}
               isActive={true}
+              utilityPanelVisible={!panelSettings.snippetSidebar.collapsed}
+              onToggleUtilityPanel={handleSnippetPanelToggle}
             />
           </div>
         </main>
@@ -581,40 +603,54 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar
-        width={panelSettings.sidebar.width}
-        workspaces={visibleWorkspaces}
-        activeWorkspaceId={state.activeWorkspaceId}
-        windowId={workspaceStore.getWindowId()}
-        groups={workspaceStore.getGroups()}
-        activeGroup={workspaceStore.getActiveGroup()}
-        onSetActiveGroup={(group) => workspaceStore.setActiveGroup(group)}
-        onSetWorkspaceGroup={(id, group) => workspaceStore.setWorkspaceGroup(id, group)}
-        onSelectWorkspace={(id) => workspaceStore.setActiveWorkspace(id)}
-        onAddWorkspace={handleAddWorkspace}
-        onRemoveWorkspace={(id) => {
-          workspaceStore.removeWorkspace(id)
-          workspaceStore.save()
-        }}
-        onRenameWorkspace={(id, alias) => {
-          workspaceStore.renameWorkspace(id, alias)
-          workspaceStore.save()
-        }}
-        onReorderWorkspaces={(workspaceIds) => {
-          workspaceStore.reorderWorkspaces(workspaceIds)
-        }}
-        onOpenEnvVars={(workspaceId) => setEnvDialogWorkspaceId(workspaceId)}
-        onDetachWorkspace={handleDetachWorkspace}
-        activeProfileName={activeProfileName}
-        isRemoteConnected={isRemoteConnected}
-        onOpenProfiles={() => setShowProfiles(true)}
-        onOpenSettings={() => setShowSettings(true)}
-      />
-      <ResizeHandle
-        direction="horizontal"
-        onResize={handleSidebarResize}
-        onDoubleClick={handleSidebarResetWidth}
-      />
+      <div className="app-left-rail">
+        <Sidebar
+          width={panelSettings.sidebar.width}
+          collapsed={panelSettings.sidebar.collapsed}
+          workspaces={visibleWorkspaces}
+          activeWorkspaceId={state.activeWorkspaceId}
+          windowId={workspaceStore.getWindowId()}
+          groups={workspaceStore.getGroups()}
+          activeGroup={workspaceStore.getActiveGroup()}
+          onSetActiveGroup={(group) => workspaceStore.setActiveGroup(group)}
+          onSetWorkspaceGroup={(id, group) => workspaceStore.setWorkspaceGroup(id, group)}
+          onSelectWorkspace={(id) => workspaceStore.setActiveWorkspace(id)}
+          onAddWorkspace={handleAddWorkspace}
+          onRemoveWorkspace={(id) => {
+            workspaceStore.removeWorkspace(id)
+            workspaceStore.save()
+          }}
+          onRenameWorkspace={(id, alias) => {
+            workspaceStore.renameWorkspace(id, alias)
+            workspaceStore.save()
+          }}
+          onReorderWorkspaces={(workspaceIds) => {
+            workspaceStore.reorderWorkspaces(workspaceIds)
+          }}
+          onOpenEnvVars={(workspaceId) => setEnvDialogWorkspaceId(workspaceId)}
+          onDetachWorkspace={handleDetachWorkspace}
+          activeProfileName={activeProfileName}
+          isRemoteConnected={isRemoteConnected}
+          onOpenProfiles={() => setShowProfiles(true)}
+          onOpenSettings={() => setShowSettings(true)}
+          onToggleCollapse={handleSidebarCollapse}
+        />
+        {!panelSettings.sidebar.collapsed && (
+          <ResizeHandle
+            direction="horizontal"
+            onResize={handleSidebarResize}
+            onDoubleClick={handleSidebarResetWidth}
+          />
+        )}
+        <button
+          className={`sidebar-edge-toggle${panelSettings.sidebar.collapsed ? ' collapsed' : ''}`}
+          onClick={handleSidebarCollapse}
+          title={panelSettings.sidebar.collapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')}
+          aria-label={panelSettings.sidebar.collapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')}
+        >
+          {panelSettings.sidebar.collapsed ? '»' : '«'}
+        </button>
+      </div>
       <main className="main-content">
         {visibleWorkspaces.length > 0 ? (
           // Only mount workspaces that have been visited (lazy mount)
@@ -628,6 +664,8 @@ export default function App() {
                 terminals={workspaceStore.getWorkspaceTerminals(workspace.id)}
                 focusedTerminalId={workspace.id === state.activeWorkspaceId ? state.focusedTerminalId : null}
                 isActive={workspace.id === state.activeWorkspaceId}
+                utilityPanelVisible={!panelSettings.snippetSidebar.collapsed}
+                onToggleUtilityPanel={handleSnippetPanelToggle}
               />
             </div>
           ))
@@ -654,20 +692,7 @@ export default function App() {
 
         if (!showSnippetSidebar) return null
 
-        if (panelSettings.snippetSidebar.collapsed) {
-          return (
-            <div className="right-sidebar-collapsed">
-              <button className="right-sidebar-collapsed-btn" onClick={() => handleRightPanelTabChange('snippets')} title={t('snippets.expandSnippets')}>
-                {'\u{1F4DD}'}
-              </button>
-              {isClaudeCode && (
-                <button className="right-sidebar-collapsed-btn" onClick={() => handleRightPanelTabChange('skills')} title={t('skills.expandSkills')}>
-                  {'\u{26A1}'}
-                </button>
-              )}
-            </div>
-          )
-        }
+        if (panelSettings.snippetSidebar.collapsed) return null
 
         // Markdown preview mode: takes over the entire right panel
         if (previewMarkdownPath) {

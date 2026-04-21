@@ -331,6 +331,7 @@ function createWindow(windowId: string, bounds?: { x: number; y: number; width: 
     minHeight: 600,
     show: true,
     backgroundColor: '#1a1a1a',
+    autoHideMenuBar: process.platform === 'win32',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -343,6 +344,10 @@ function createWindow(windowId: string, bounds?: { x: number; y: number; width: 
   })
 
   windowMap.set(windowId, win)
+
+  if (process.platform === 'win32') {
+    win.setMenuBarVisibility(false)
+  }
 
   if (process.platform === 'darwin') {
     const dockIcon = nativeImage.createFromPath(path.join(__dirname, '../assets/icon.png'))

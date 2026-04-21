@@ -1,11 +1,9 @@
 import { useEffect, useCallback, useState, lazy, Suspense } from 'react'
-import { useTranslation } from 'react-i18next'
 import type { Workspace, TerminalInstance, EnvVariable } from '../types'
 import { workspaceStore } from '../stores/workspace-store'
 import { settingsStore } from '../stores/settings-store'
 import { ThumbnailBar } from './ThumbnailBar'
 import { CloseConfirmDialog } from './CloseConfirmDialog'
-import { ResizeHandle } from './ResizeHandle'
 import { FolderPicker } from './FolderPicker'
 import { AgentPresetId, getAgentPreset, getVisiblePresets } from '../types/agent-presets'
 import { isProcfileName } from '../utils/procfile-parser'
@@ -27,42 +25,13 @@ function loadWorkspaceTab(): WorkspaceTab {
   return 'terminal'
 }
 
-// ThumbnailBar panel settings
-const THUMBNAIL_SETTINGS_KEY = 'better-terminal-thumbnail-settings'
-const DEFAULT_THUMBNAIL_HEIGHT = 180
-const MIN_THUMBNAIL_HEIGHT = 80
-const MAX_THUMBNAIL_HEIGHT = 400
-
-interface ThumbnailSettings {
-  height: number
-  collapsed: boolean
-}
-
-function loadThumbnailSettings(): ThumbnailSettings {
-  try {
-    const saved = localStorage.getItem(THUMBNAIL_SETTINGS_KEY)
-    if (saved) {
-      return JSON.parse(saved)
-    }
-  } catch (e) {
-    console.error('Failed to load thumbnail settings:', e)
-  }
-  return { height: DEFAULT_THUMBNAIL_HEIGHT, collapsed: false }
-}
-
-function saveThumbnailSettings(settings: ThumbnailSettings): void {
-  try {
-    localStorage.setItem(THUMBNAIL_SETTINGS_KEY, JSON.stringify(settings))
-  } catch (e) {
-    console.error('Failed to save thumbnail settings:', e)
-  }
-}
-
 interface WorkspaceViewProps {
   workspace: Workspace
   terminals: TerminalInstance[]
   focusedTerminalId: string | null
   isActive: boolean
+  utilityPanelVisible?: boolean
+  onToggleUtilityPanel?: () => void
 }
 
 // Helper to get shell path from settings
@@ -110,10 +79,15 @@ export function clearInitializedWorkspaces(): void {
   initializedWorkspaces.clear()
 }
 
-export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActive }: Readonly<WorkspaceViewProps>) {
-  const { t } = useTranslation()
+export function WorkspaceView({
+  workspace,
+  terminals,
+  focusedTerminalId,
+  isActive,
+  utilityPanelVisible = false,
+  onToggleUtilityPanel
+}: Readonly<WorkspaceViewProps>) {
   const [showCloseConfirm, setShowCloseConfirm] = useState<string | null>(null)
-  const [thumbnailSettings, setThumbnailSettings] = useState<ThumbnailSettings>(loadThumbnailSettings)
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(loadWorkspaceTab)
   const [hasGithubRemote, setHasGithubRemote] = useState(false)
   const [isGitRepo, setIsGitRepo] = useState(false)
@@ -181,44 +155,9 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
     }
   }, [isActive, hasGithubRemote])
 
-  // Handle thumbnail bar resize
-  const handleThumbnailResize = useCallback((delta: number) => {
-    setThumbnailSettings(prev => {
-      // Note: delta is negative when dragging up (making bar taller)
-      const newHeight = Math.min(MAX_THUMBNAIL_HEIGHT, Math.max(MIN_THUMBNAIL_HEIGHT, prev.height - delta))
-      const updated = { ...prev, height: newHeight }
-      saveThumbnailSettings(updated)
-      return updated
-    })
-  }, [])
-
-  // Toggle thumbnail bar collapse
-  const handleThumbnailCollapse = useCallback(() => {
-    setThumbnailSettings(prev => {
-      const updated = { ...prev, collapsed: !prev.collapsed }
-      saveThumbnailSettings(updated)
-      return updated
-    })
-    // Trigger resize so terminals/xterm can refit after layout change
-    requestAnimationFrame(() => {
-      window.dispatchEvent(new Event('resize'))
-    })
-  }, [])
-
-  // Reset thumbnail bar to default height
-  const handleThumbnailResetHeight = useCallback(() => {
-    setThumbnailSettings(prev => {
-      const updated = { ...prev, height: DEFAULT_THUMBNAIL_HEIGHT }
-      saveThumbnailSettings(updated)
-      return updated
-    })
-  }, [])
-
   // Categorize terminals
   const agentTerminal = terminals.find(t => t.agentPreset && t.agentPreset !== 'none')
-  const regularTerminals = terminals.filter(t => !t.agentPreset || t.agentPreset === 'none')
   const focusedTerminal = terminals.find(t => t.id === focusedTerminalId)
-  const isAgentFocused = focusedTerminal?.agentPreset && focusedTerminal.agentPreset !== 'none'
 
   // Initialize terminals when workspace becomes active
   // If terminals were restored from a saved profile, start their PTY/agent processes
@@ -627,35 +566,24 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
 
   return (
     <div className="workspace-view">
-      {/* Top tab bar: Terminal | Files | Git | GitHub */}
-      <div className="workspace-tab-bar">
-        <button
-          className={`workspace-tab-btn ${activeTab === 'terminal' ? 'active' : ''}`}
-          onClick={() => handleTabChange('terminal')}
-        >
-          {t('workspace.terminal')}
-        </button>
-        <button
-          className={`workspace-tab-btn ${activeTab === 'files' ? 'active' : ''}`}
-          onClick={() => handleTabChange('files')}
-        >
-          {t('workspace.files')}
-        </button>
-        <button
-          className={`workspace-tab-btn ${activeTab === 'git' ? 'active' : ''}`}
-          onClick={() => handleTabChange('git')}
-        >
-          {t('workspace.git')}
-        </button>
-        {hasGithubRemote && (
-          <button
-            className={`workspace-tab-btn ${activeTab === 'github' ? 'active' : ''}`}
-            onClick={() => handleTabChange('github')}
-          >
-            {t('workspace.github')}
-          </button>
-        )}
-      </div>
+      <ThumbnailBar
+        terminals={thumbnailTerminals}
+        focusedTerminalId={focusedTerminalId}
+        activeWorkspaceTab={activeTab}
+        hasGithubRemote={hasGithubRemote}
+        utilityPanelVisible={utilityPanelVisible}
+        onFocus={handleFocus}
+        onWorkspaceTabChange={handleTabChange}
+        onToggleUtilityPanel={onToggleUtilityPanel}
+        onAddTerminal={handleAddTerminal}
+        onAddWorktreeTerminal={isGitRepo ? handleAddWorktreeTerminal : undefined}
+        onAddAgent={handleAddAgent}
+        onAddWorker={handleAddWorker}
+        detectedProcfiles={detectedProcfiles}
+        agentPresets={getVisiblePresets().filter(p => p.id !== 'none' && (!p.needsGitRepo || isGitRepo))}
+        onReorder={handleReorderTerminals}
+        onCloseTerminal={handleCloseTerminal}
+      />
 
       {/* Main content area - terminals always rendered (keep processes alive) */}
       <Suspense fallback={<div className="loading-panel" />}>
@@ -672,6 +600,7 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
                 onRestart={handleRestart}
                 onSwitchApiVersion={handleSwitchApiVersion}
                 workspaceId={workspace.id}
+                showHeader={false}
               />
             </div>
           ))}
@@ -707,33 +636,6 @@ export function WorkspaceView({ workspace, terminals, focusedTerminalId, isActiv
           </div>
         </Suspense>
       )}
-
-      {/* Resize handle for thumbnail bar */}
-      {!thumbnailSettings.collapsed && (
-        <ResizeHandle
-          direction="vertical"
-          onResize={handleThumbnailResize}
-          onDoubleClick={handleThumbnailResetHeight}
-        />
-      )}
-
-      <ThumbnailBar
-        terminals={thumbnailTerminals}
-        focusedTerminalId={focusedTerminalId}
-        onFocus={handleFocus}
-        onAddTerminal={handleAddTerminal}
-        onAddWorktreeTerminal={isGitRepo ? handleAddWorktreeTerminal : undefined}
-        onAddAgent={handleAddAgent}
-        onAddWorker={handleAddWorker}
-        detectedProcfiles={detectedProcfiles}
-        agentPresets={getVisiblePresets().filter(p => p.id !== 'none' && (!p.needsGitRepo || isGitRepo))}
-        onReorder={handleReorderTerminals}
-        onCloseTerminal={handleCloseTerminal}
-        showAddButton={true}
-        height={thumbnailSettings.height}
-        collapsed={thumbnailSettings.collapsed}
-        onCollapse={handleThumbnailCollapse}
-      />
 
       {showCloseConfirm && (
         <CloseConfirmDialog

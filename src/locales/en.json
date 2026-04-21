@@ -131,6 +131,8 @@
     "settings": "Settings",
     "connectedToRemote": "Connected to remote host",
     "clickToManageProfiles": "Click to manage profiles",
+    "collapseSidebar": "Collapse workspace sidebar",
+    "expandSidebar": "Expand workspace sidebar",
     "dragToReorder": "Drag to reorder",
     "groupNamePlaceholder": "Group name (empty to remove)",
     "openInExplorer": "Open in Explorer",

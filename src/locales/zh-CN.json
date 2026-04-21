@@ -128,6 +128,8 @@
     "settings": "设置",
     "connectedToRemote": "已连接至远程主机",
     "clickToManageProfiles": "点击管理配置文件",
+    "collapseSidebar": "收起工作区侧栏",
+    "expandSidebar": "展开工作区侧栏",
     "dragToReorder": "拖拽以重新排序",
     "groupNamePlaceholder": "分组名称（留空以移除）",
     "openInExplorer": "在文件管理器中打开",

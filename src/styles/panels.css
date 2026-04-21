@@ -117,78 +117,125 @@
 /* Thumbnail Bar */
 .thumbnail-bar {
   display: flex;
-  flex-direction: column;
-  background: var(--bg-secondary);
+  align-items: stretch;
+  gap: 8px;
+  background: #151515;
   overflow: hidden;
   flex-shrink: 0;
-  min-height: 80px;
-}
-
-.thumbnail-bar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color);
-  font-size: 12px;
-  color: var(--text-secondary);
+  min-height: 36px;
+  padding: 0 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .thumbnail-list {
-  flex: 1;
   display: flex;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 2px;
+  padding: 0;
   overflow-x: auto;
   min-height: 0;
+  flex: 1;
+  align-items: stretch;
+  scrollbar-width: none;
+}
+
+.thumbnail-list::-webkit-scrollbar {
+  display: none;
+}
+
+.thumbnail-list-add {
+  display: flex;
+  align-items: center;
+  padding-left: 4px;
+  flex-shrink: 0;
 }
 
 .thumbnail {
-  width: 200px;
-  min-width: 200px;
-  max-width: 200px;
-  min-height: 40px;
+  min-width: 132px;
+  max-width: 220px;
+  height: 35px;
   flex: none;
   align-self: stretch;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  border-radius: 6px 6px 0 0;
   cursor: pointer;
   overflow: hidden;
   display: flex;
-  flex-direction: column;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  align-items: center;
+  position: relative;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .thumbnail:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
-  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .thumbnail.active {
-  border-color: var(--accent-color);
-  border-width: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
 }
 
 /* Dynamic agent terminal styling - uses CSS custom property --agent-color */
 .thumbnail.agent-terminal {
-  border-color: var(--agent-color, var(--claude-accent));
+  box-shadow: inset 0 2px 0 transparent;
+}
+
+.thumbnail.agent-terminal.active {
+  box-shadow: inset 0 -2px 0 var(--agent-color, var(--claude-accent));
+}
+
+.thumbnail-tab-trailing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.thumbnail-workspace-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.thumbnail-workspace-tab {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.thumbnail-workspace-tab:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.thumbnail-workspace-tab.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
 }
 
 .thumbnail-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px;
-  background: var(--bg-secondary);
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 0 8px;
+  background: transparent;
   font-size: 11px;
+  min-width: 0;
 }
 
 .thumbnail-title {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
 }
 
 /* Dynamic agent terminal title color */
@@ -196,15 +243,94 @@
   color: var(--agent-color, var(--claude-accent));
 }
 
-.thumbnail-preview {
-  flex: 1;
-  padding: 4px 8px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 9px;
-  color: var(--text-secondary);
+.thumbnail-leading-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.thumbnail-title-text {
   overflow: hidden;
-  white-space: pre;
-  line-height: 1.3;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.thumbnail-name-input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.thumbnail-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.thumbnail-close-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.thumbnail:hover .thumbnail-close-btn,
+.thumbnail.active .thumbnail-close-btn {
+  opacity: 0.72;
+}
+
+.thumbnail-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.thumbnail-toolbar-btn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.thumbnail-toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.thumbnail-toolbar-btn.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.thumbnail-tab-inline-add {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  font-size: 13px;
 }
 
 /* Thumbnail drag-and-drop */
@@ -222,8 +348,8 @@
 .thumbnail-drag-wrapper.drop-after::after {
   content: '';
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 8px;
+  bottom: 6px;
   width: 2px;
   background: var(--accent-color);
   z-index: 10;

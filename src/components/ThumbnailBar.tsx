@@ -8,7 +8,12 @@ import type { AgentPreset } from '../types/agent-presets'
 interface ThumbnailBarProps {
   terminals: TerminalInstance[]
   focusedTerminalId: string | null
+  activeWorkspaceTab: 'terminal' | 'files' | 'git' | 'github'
+  hasGithubRemote?: boolean
+  utilityPanelVisible?: boolean
   onFocus: (id: string) => void
+  onWorkspaceTabChange: (tab: 'terminal' | 'files' | 'git' | 'github') => void
+  onToggleUtilityPanel?: () => void
   onAddTerminal?: () => void
   onAddWorktreeTerminal?: () => void
   onAddAgent?: (presetId: string) => void
@@ -17,16 +22,17 @@ interface ThumbnailBarProps {
   agentPresets?: AgentPreset[]
   onReorder?: (orderedIds: string[]) => void
   onCloseTerminal?: (id: string) => void
-  showAddButton: boolean
-  height?: number
-  collapsed?: boolean
-  onCollapse?: () => void
 }
 
 export function ThumbnailBar({
   terminals,
   focusedTerminalId,
+  activeWorkspaceTab,
+  hasGithubRemote = false,
+  utilityPanelVisible = false,
   onFocus,
+  onWorkspaceTabChange,
+  onToggleUtilityPanel,
   onAddTerminal,
   onAddWorktreeTerminal,
   onAddAgent,
@@ -34,16 +40,9 @@ export function ThumbnailBar({
   detectedProcfiles = [],
   agentPresets = [],
   onReorder,
-  onCloseTerminal,
-  showAddButton,
-  height,
-  collapsed = false,
-  onCollapse
+  onCloseTerminal
 }: ThumbnailBarProps) {
   const { t } = useTranslation()
-  const label = t('terminal.workspaceSessions')
-
-  // All hooks must be declared before any conditional return (React rules of hooks)
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [dropTargetId, setDropTargetId] = useState<string | null>(null)
   const [dropPosition, setDropPosition] = useState<'before' | 'after'>('before')
@@ -58,7 +57,6 @@ export function ThumbnailBar({
   const middlePanRef = useRef<{ startX: number; startScrollLeft: number } | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
 
-  // Close menu on outside click
   useEffect(() => {
     if (!showAddMenu) return
     const handleClick = (e: MouseEvent) => {
@@ -123,7 +121,6 @@ export function ThumbnailBar({
     setDraggedId(id)
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', id)
-    // Make the drag ghost semi-transparent
     if (e.currentTarget instanceof HTMLElement) {
       e.currentTarget.style.opacity = '0.4'
     }
@@ -138,22 +135,19 @@ export function ThumbnailBar({
   }, [])
 
   const handleDragOver = useCallback((e: React.DragEvent, id: string) => {
-    // Only handle drags that originated from a thumbnail (not resize handles etc.)
     if (!draggedId || id === draggedId) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
 
-    // Determine if dropping before or after based on mouse position
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    const midY = rect.top + rect.height / 2
-    const pos = e.clientY < midY ? 'before' : 'after'
+    const midX = rect.left + rect.width / 2
+    const pos = e.clientX < midX ? 'before' : 'after'
 
     setDropTargetId(id)
     setDropPosition(pos)
   }, [draggedId])
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
-    // Only clear if leaving the element (not entering a child)
     const related = e.relatedTarget as HTMLElement | null
     if (!related || !(e.currentTarget as HTMLElement).contains(related)) {
       setDropTargetId(null)
@@ -168,16 +162,13 @@ export function ThumbnailBar({
     const draggedIndex = currentOrder.indexOf(draggedId)
     if (draggedIndex === -1) return
 
-    // Remove dragged item
     currentOrder.splice(draggedIndex, 1)
 
-    // Calculate new index based on drop position
     let newIndex = currentOrder.indexOf(targetId)
     if (dropPosition === 'after') {
       newIndex += 1
     }
 
-    // Insert at new position
     currentOrder.splice(newIndex, 0, draggedId)
     onReorder(currentOrder)
 
@@ -191,120 +182,8 @@ export function ThumbnailBar({
     setContextMenu({ x: e.clientX, y: e.clientY, terminalId })
   }, [])
 
-  // Collapsed state - show icon bar
-  if (collapsed) {
-    return (
-      <div
-        className="collapsed-bar collapsed-bar-bottom"
-        onClick={onCollapse}
-        title={t('terminal.expandThumbnails')}
-      >
-        <div className="collapsed-bar-icon">🖼️</div>
-        <span className="collapsed-bar-label">{label}</span>
-      </div>
-    )
-  }
-
-  const style = height ? { height: `${height}px`, flex: 'none' } : undefined
-
   return (
-    <div className="thumbnail-bar" style={style}>
-      <div className="thumbnail-bar-header">
-        <span>{label}</span>
-        <div className="thumbnail-bar-actions">
-          {onAddTerminal && (
-            <div className="thumbnail-add-wrapper" ref={addMenuRef}>
-              <button
-                ref={addBtnRef}
-                className="thumbnail-add-btn"
-                onClick={() => {
-                  setShowAddMenu(prev => {
-                    if (!prev && addBtnRef.current) {
-                      const rect = addBtnRef.current.getBoundingClientRect()
-                      const menuHeight = 200
-                      const spaceBelow = window.innerHeight - rect.bottom
-                      const openUpward = spaceBelow < menuHeight && rect.top > menuHeight
-                      setMenuStyle(openUpward
-                        ? { bottom: window.innerHeight - rect.top + 4, right: window.innerWidth - rect.right }
-                        : { top: rect.bottom + 4, right: window.innerWidth - rect.right }
-                      )
-                    }
-                    return !prev
-                  })
-                }}
-                title={t('terminal.addTerminalOrAgent')}
-              >
-                +
-              </button>
-              {showAddMenu && createPortal(
-                <div className="thumbnail-add-menu" ref={addMenuPopupRef} style={menuStyle}>
-                  <div
-                    className="thumbnail-add-menu-item"
-                    onClick={() => { onAddTerminal(); setShowAddMenu(false) }}
-                  >
-                    <span className="thumbnail-add-menu-icon">⌘</span>
-                    {t('terminal.terminalLabel')}
-                  </div>
-                  {onAddWorktreeTerminal && (
-                    <div
-                      className="thumbnail-add-menu-item"
-                      onClick={() => { onAddWorktreeTerminal(); setShowAddMenu(false) }}
-                    >
-                      <span className="thumbnail-add-menu-icon" style={{ color: '#22c55e' }}>🌳</span>
-                      {t('terminal.worktreeTerminalLabel')}
-                    </div>
-                  )}
-                  {agentPresets.map(preset => (
-                    <div
-                      key={preset.id}
-                      className="thumbnail-add-menu-item"
-                      onClick={() => { onAddAgent?.(preset.id); setShowAddMenu(false) }}
-                    >
-                      <span className="thumbnail-add-menu-icon" style={{ color: preset.color }}>{preset.icon}</span>
-                      {preset.name}
-                      {preset.suggested && <span className="thumbnail-add-menu-suggested">suggested</span>}
-                    </div>
-                  ))}
-                  {onAddWorker && (
-                    <>
-                      <div className="thumbnail-add-menu-separator" />
-                      {detectedProcfiles.map(fp => (
-                        <div
-                          key={fp}
-                          className="thumbnail-add-menu-item"
-                          onClick={() => { onAddWorker(fp); setShowAddMenu(false) }}
-                        >
-                          <span className="thumbnail-add-menu-icon" style={{ color: '#56b6c2' }}>⚙</span>
-                          Worker: {fp.split('/').pop()}
-                        </div>
-                      ))}
-                      <div
-                        className="thumbnail-add-menu-item"
-                        onClick={() => { onAddWorker(); setShowAddMenu(false) }}
-                      >
-                        <span className="thumbnail-add-menu-icon" style={{ color: '#888' }}>📂</span>
-                        Worker: Open File...
-                      </div>
-                      <div
-                        className="thumbnail-add-menu-hint"
-                        onClick={() => window.electronAPI.shell.openExternal('https://github.com/DarthSim/overmind')}
-                      >
-                        What is a Procfile?
-                      </div>
-                    </>
-                  )}
-                </div>,
-                document.body
-              )}
-            </div>
-          )}
-          {onCollapse && (
-            <button className="thumbnail-collapse-btn" onClick={onCollapse} title={t('terminal.collapsePanel')}>
-              ▼
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="thumbnail-bar thumbnail-tab-bar" aria-label={t('terminal.workspaceSessions')}>
       <div
         className="thumbnail-list"
         ref={thumbnailListRef}
@@ -327,7 +206,9 @@ export function ThumbnailBar({
           if (!middlePanRef.current) return
           e.preventDefault()
         }}
-        onMouseUp={(e) => { if (e.button === 1) middlePanRef.current = null }}
+        onMouseUp={(e) => {
+          if (e.button === 1) middlePanRef.current = null
+        }}
       >
         {terminals.map(terminal => (
           <div
@@ -349,10 +230,132 @@ export function ThumbnailBar({
               terminal={terminal}
               isActive={terminal.id === focusedTerminalId}
               onClick={() => onFocus(terminal.id)}
+              onClose={onCloseTerminal ? () => onCloseTerminal(terminal.id) : undefined}
             />
           </div>
         ))}
+        {onAddTerminal && (
+          <div className="thumbnail-list-add" ref={addMenuRef}>
+            <button
+              ref={addBtnRef}
+              className="thumbnail-toolbar-btn thumbnail-tab-inline-add"
+              onClick={() => {
+                setShowAddMenu(prev => {
+                  if (!prev && addBtnRef.current) {
+                    const rect = addBtnRef.current.getBoundingClientRect()
+                    const menuHeight = 240
+                    const spaceBelow = window.innerHeight - rect.bottom
+                    const openUpward = spaceBelow < menuHeight && rect.top > menuHeight
+                    setMenuStyle(openUpward
+                      ? { bottom: window.innerHeight - rect.top + 4, right: window.innerWidth - rect.right }
+                      : { top: rect.bottom + 4, right: window.innerWidth - rect.right }
+                    )
+                  }
+                  return !prev
+                })
+              }}
+              title={t('terminal.addTerminalOrAgent')}
+              aria-label={t('terminal.addTerminalOrAgent')}
+            >
+              +
+            </button>
+          </div>
+        )}
       </div>
+
+      <div className="thumbnail-tab-trailing">
+        <div className="thumbnail-workspace-tabs">
+          <button className={`thumbnail-workspace-tab${activeWorkspaceTab === 'terminal' ? ' active' : ''}`} onClick={() => onWorkspaceTabChange('terminal')}>
+            {t('workspace.terminal')}
+          </button>
+          <button className={`thumbnail-workspace-tab${activeWorkspaceTab === 'files' ? ' active' : ''}`} onClick={() => onWorkspaceTabChange('files')}>
+            {t('workspace.files')}
+          </button>
+          <button className={`thumbnail-workspace-tab${activeWorkspaceTab === 'git' ? ' active' : ''}`} onClick={() => onWorkspaceTabChange('git')}>
+            {t('workspace.git')}
+          </button>
+          {hasGithubRemote && (
+            <button className={`thumbnail-workspace-tab${activeWorkspaceTab === 'github' ? ' active' : ''}`} onClick={() => onWorkspaceTabChange('github')}>
+              {t('workspace.github')}
+            </button>
+          )}
+        </div>
+
+        <div className="thumbnail-tab-actions">
+          {onToggleUtilityPanel && (
+            <button
+              className={`thumbnail-toolbar-btn${utilityPanelVisible ? ' active' : ''}`}
+              onClick={onToggleUtilityPanel}
+              title={utilityPanelVisible ? 'Hide side panel' : 'Show side panel'}
+              aria-label={utilityPanelVisible ? 'Hide side panel' : 'Show side panel'}
+            >
+              ≡
+            </button>
+          )}
+
+          {showAddMenu && createPortal(
+            <div className="thumbnail-add-menu" ref={addMenuPopupRef} style={menuStyle}>
+              <div
+                className="thumbnail-add-menu-item"
+                onClick={() => { onAddTerminal(); setShowAddMenu(false) }}
+              >
+                <span className="thumbnail-add-menu-icon">⌘</span>
+                {t('terminal.terminalLabel')}
+              </div>
+              {onAddWorktreeTerminal && (
+                <div
+                  className="thumbnail-add-menu-item"
+                  onClick={() => { onAddWorktreeTerminal(); setShowAddMenu(false) }}
+                >
+                  <span className="thumbnail-add-menu-icon" style={{ color: '#22c55e' }}>🌳</span>
+                  {t('terminal.worktreeTerminalLabel')}
+                </div>
+              )}
+              {agentPresets.map(preset => (
+                <div
+                  key={preset.id}
+                  className="thumbnail-add-menu-item"
+                  onClick={() => { onAddAgent?.(preset.id); setShowAddMenu(false) }}
+                >
+                  <span className="thumbnail-add-menu-icon" style={{ color: preset.color }}>{preset.icon}</span>
+                  {preset.name}
+                  {preset.suggested && <span className="thumbnail-add-menu-suggested">suggested</span>}
+                </div>
+              ))}
+              {onAddWorker && (
+                <>
+                  <div className="thumbnail-add-menu-separator" />
+                  {detectedProcfiles.map(fp => (
+                    <div
+                      key={fp}
+                      className="thumbnail-add-menu-item"
+                      onClick={() => { onAddWorker(fp); setShowAddMenu(false) }}
+                    >
+                      <span className="thumbnail-add-menu-icon" style={{ color: '#56b6c2' }}>⚙</span>
+                      Worker: {fp.split('/').pop()}
+                    </div>
+                  ))}
+                  <div
+                    className="thumbnail-add-menu-item"
+                    onClick={() => { onAddWorker(); setShowAddMenu(false) }}
+                  >
+                    <span className="thumbnail-add-menu-icon" style={{ color: '#888' }}>📂</span>
+                    Worker: Open File...
+                  </div>
+                  <div
+                    className="thumbnail-add-menu-hint"
+                    onClick={() => window.electronAPI.shell.openExternal('https://github.com/DarthSim/overmind')}
+                  >
+                    What is a Procfile?
+                  </div>
+                </>
+              )}
+            </div>,
+            document.body
+          )}
+        </div>
+      </div>
+
       {contextMenu && onCloseTerminal && createPortal(
         <div
           ref={contextMenuRef}

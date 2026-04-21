@@ -1,7 +1,7 @@
 /* Right sidebar tab bar */
 .right-sidebar-wrapper {
   background: var(--bg-secondary, #1e1e1e);
-  border-left: 1px solid var(--border-color, #333);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
 }
 
 .right-sidebar-tabs {
@@ -9,7 +9,7 @@
   align-items: center;
   padding: 4px 4px 0;
   gap: 2px;
-  border-bottom: 1px solid var(--border-color, #333);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   background: var(--bg-secondary, #1e1e1e);
   flex-shrink: 0;
 }
@@ -46,40 +46,6 @@
 }
 
 .right-sidebar-collapse:hover {
-  color: var(--text-primary, #ccc);
-}
-
-/* Collapsed right sidebar */
-.right-sidebar-collapsed {
-  width: 36px;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-top: 8px;
-  gap: 4px;
-  background: var(--bg-secondary, #1e1e1e);
-  border-left: 1px solid var(--border-color, #333);
-  flex-shrink: 0;
-}
-
-.right-sidebar-collapsed-btn {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary, #888);
-  font-size: 14px;
-  cursor: pointer;
-  border-radius: 4px;
-  transition: background 0.1s, color 0.1s;
-}
-
-.right-sidebar-collapsed-btn:hover {
-  background: var(--bg-hover, #333);
   color: var(--text-primary, #ccc);
 }
 

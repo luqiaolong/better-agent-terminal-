@@ -85,6 +85,12 @@ body {
   height: 100vh;
 }
 
+.app-left-rail {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+}
+
 /* Sidebar */
 .sidebar {
   background: var(--bg-secondary);
@@ -92,6 +98,13 @@ body {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+}
+
+.sidebar-collapsed {
+  width: 56px !important;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
 }
 
 .sidebar-header {
@@ -102,6 +115,111 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.sidebar-collapse-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.sidebar-edge-toggle {
+  position: absolute;
+  top: 50%;
+  right: -11px;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 56px;
+  border: 1px solid var(--border-color);
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+  background: #202020;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.sidebar-edge-toggle:hover {
+  background: #2a2a2a;
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.sidebar-edge-toggle.collapsed {
+  right: -11px;
+}
+
+.sidebar-collapsed-top,
+.sidebar-collapsed-bottom {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.sidebar-collapsed-list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  width: 100%;
+  padding: 10px 0;
+  overflow-y: auto;
+}
+
+.sidebar-collapsed-item {
+  width: 40px;
+  min-height: 40px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-collapsed-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-collapsed-item.active {
+  background: var(--accent-color);
+  color: #fff;
+}
+
+.sidebar-collapsed-color {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 999px;
+}
+
+.sidebar-collapsed-initial {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .sidebar-profile-badge {

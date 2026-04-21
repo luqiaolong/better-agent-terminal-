@@ -105,6 +105,13 @@
   gap: 4px;
 }
 
+.thumbnail-tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .thumbnail-add-btn {
   background: transparent;
   border: 1px solid var(--border-color);
@@ -115,6 +122,14 @@
   border-radius: 4px;
   transition: all 0.15s;
   line-height: 1;
+}
+
+.thumbnail-tab-add-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
 }
 
 .thumbnail-add-btn:hover {
