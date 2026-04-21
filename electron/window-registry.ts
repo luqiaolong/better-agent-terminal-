@@ -7,11 +7,13 @@ import { getDataDir } from './server-core/data-dir'
 export interface WindowEntry {
   id: string
   profileId?: string
+  version?: number
   workspaces: unknown[]
   activeWorkspaceId: string | null
   activeGroup: string | null
   terminals: unknown[]
   activeTerminalId: string | null
+  focusedTerminalId?: string | null
   bounds?: { x: number; y: number; width: number; height: number }
   lastActiveAt: number
 }
@@ -28,13 +30,31 @@ function generateId(): string {
   return `win-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+function normalizeWindowEntry(raw: Partial<WindowEntry>): WindowEntry {
+  const focusedTerminalId = raw.focusedTerminalId ?? raw.activeTerminalId ?? null
+  return {
+    id: raw.id || generateId(),
+    profileId: raw.profileId,
+    version: 3,
+    workspaces: raw.workspaces || [],
+    activeWorkspaceId: raw.activeWorkspaceId || null,
+    activeGroup: raw.activeGroup || null,
+    terminals: raw.terminals || [],
+    activeTerminalId: raw.activeTerminalId ?? focusedTerminalId,
+    focusedTerminalId,
+    bounds: raw.bounds,
+    lastActiveAt: raw.lastActiveAt || Date.now(),
+  }
+}
+
 export class WindowRegistry {
   private cachedEntries: WindowEntry[] | null = null
 
   async readAll(): Promise<WindowEntry[]> {
     try {
       const data = await fs.readFile(getRegistryPath(), 'utf-8')
-      const entries = JSON.parse(data) as WindowEntry[]
+      const rawEntries = JSON.parse(data) as Partial<WindowEntry>[]
+      const entries = rawEntries.map(entry => normalizeWindowEntry(entry))
       this.cachedEntries = entries
       return entries
     } catch {
@@ -78,11 +98,13 @@ export class WindowRegistry {
     const entry: WindowEntry = {
       id: generateId(),
       profileId: opts?.profileId,
+      version: 3,
       workspaces: [],
       activeWorkspaceId: null,
       activeGroup: null,
       terminals: [],
       activeTerminalId: null,
+      focusedTerminalId: null,
       lastActiveAt: Date.now(),
     }
     await this.saveEntry(entry)
@@ -98,12 +120,13 @@ export class WindowRegistry {
     logger.log('[window-registry] First launch — migrating from workspaces.json')
 
     // Try to read existing workspaces.json
-    let workspacesData: { workspaces: unknown[]; activeWorkspaceId: string | null; activeGroup: string | null; terminals?: unknown[]; activeTerminalId?: string | null } = {
+    let workspacesData: { workspaces: unknown[]; activeWorkspaceId: string | null; activeGroup: string | null; terminals?: unknown[]; activeTerminalId?: string | null; focusedTerminalId?: string | null } = {
       workspaces: [],
       activeWorkspaceId: null,
       activeGroup: null,
       terminals: [],
       activeTerminalId: null,
+      focusedTerminalId: null,
     }
 
     try {
@@ -115,6 +138,7 @@ export class WindowRegistry {
         activeGroup: parsed.activeGroup || null,
         terminals: parsed.terminals || [],
         activeTerminalId: parsed.activeTerminalId || null,
+        focusedTerminalId: parsed.focusedTerminalId ?? parsed.activeTerminalId ?? null,
       }
       logger.log(`[window-registry] Read workspaces.json: ${workspacesData.workspaces.length} workspaces, ${(workspacesData.terminals || []).length} terminals`)
     } catch (e) {
@@ -133,7 +157,7 @@ export class WindowRegistry {
     }
 
     // Create a single window entry from existing data
-    const entry: WindowEntry = {
+    const entry: WindowEntry = normalizeWindowEntry({
       id: generateId(),
       profileId: activeProfileId,
       workspaces: workspacesData.workspaces,
@@ -141,8 +165,9 @@ export class WindowRegistry {
       activeGroup: workspacesData.activeGroup,
       terminals: workspacesData.terminals || [],
       activeTerminalId: workspacesData.activeTerminalId || null,
+      focusedTerminalId: workspacesData.focusedTerminalId ?? workspacesData.activeTerminalId ?? null,
       lastActiveAt: Date.now(),
-    }
+    })
 
     const entries = [entry]
     await this.writeAll(entries)
@@ -171,7 +196,7 @@ export class WindowRegistry {
         activeProfileId = 'default'
       }
 
-      const entry: WindowEntry = {
+      const entry: WindowEntry = normalizeWindowEntry({
         id: generateId(),
         profileId: activeProfileId,
         workspaces,
@@ -179,8 +204,9 @@ export class WindowRegistry {
         activeGroup: parsed.activeGroup || null,
         terminals: parsed.terminals || [],
         activeTerminalId: parsed.activeTerminalId || null,
+        focusedTerminalId: parsed.focusedTerminalId ?? parsed.activeTerminalId ?? null,
         lastActiveAt: Date.now(),
-      }
+      })
       await this.writeAll([entry])
       logger.log(`[window-registry] Re-migrated ${workspaces.length} workspaces to window ${entry.id}`)
       return entry
@@ -195,11 +221,12 @@ export class WindowRegistry {
   private async writeAll(entries: WindowEntry[]): Promise<void> {
     // Serialize writes to prevent race conditions
     this.writeQueue = this.writeQueue.then(async () => {
-      await fs.writeFile(getRegistryPath(), JSON.stringify(entries, null, 2), 'utf-8')
+      const normalized = entries.map(entry => normalizeWindowEntry(entry))
+      await fs.writeFile(getRegistryPath(), JSON.stringify(normalized, null, 2), 'utf-8')
+      this.cachedEntries = normalized
     }).catch(e => {
       logger.error('[window-registry] writeAll failed:', e)
     })
     await this.writeQueue
-    this.cachedEntries = entries
   }
 }

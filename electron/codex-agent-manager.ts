@@ -5,7 +5,7 @@ import { existsSync, promises as fs } from 'fs'
 import os from 'os'
 import * as pathModule from 'path'
 import type { ClaudeMessage, ClaudeToolCall, ClaudeSessionState } from '../src/types/claude-agent'
-import type { CodexEffortLevel } from '../src/types'
+import type { CodexEffortLevel, TerminalRecoveryState } from '../src/types'
 import { logger } from './logger'
 import { broadcastHub } from './remote/broadcast-hub'
 
@@ -54,6 +54,14 @@ interface CodexSessionInstance {
   isRunning?: boolean
   startTime?: number
   lastEventAt?: number
+}
+
+interface RecoverySnapshot {
+  sdkSessionId?: string
+  recoveryState: TerminalRecoveryState
+  recoveryError?: string
+  cwd?: string
+  model?: string
 }
 
 type HistoryItem = ClaudeMessage | ClaudeToolCall
@@ -148,6 +156,7 @@ const CODEX_MODELS: Array<{ value: string; displayName: string; description: str
 ]
 
 const sdkThreadIds = new Map<string, string>()
+const recoveryFailures = new Map<string, string>()
 
 // Save a data URL (data:image/png;base64,...) to a temp file, returns absolute path or null.
 async function dataUrlToTempFile(dataUrl: string): Promise<string | null> {
@@ -494,12 +503,15 @@ export class CodexAgentManager {
 
     const codexPath = findCodexBinary()
     if (!codexPath) {
-      this.send('claude:error', sessionId, `Codex CLI not found. Install with: ${getCodexInstallHint()}`)
+      const message = `Codex CLI not found. Install with: ${getCodexInstallHint()}`
+      recoveryFailures.set(sessionId, message)
+      this.send('claude:error', sessionId, message)
       return false
     }
 
     const stag = `[codex:${sessionId.slice(0, 8)}]`
     logger.log(`${stag} Starting session cwd=${options.cwd} model=${options.model || 'default'}`)
+    recoveryFailures.delete(sessionId)
 
     const sandboxMode = options.codexSandboxMode || 'workspace-write'
     const approvalPolicy = options.codexApprovalPolicy || 'on-request'
@@ -576,7 +588,9 @@ export class CodexAgentManager {
       return true
     } catch (err) {
       logger.error(`${stag} Failed to create Codex session:`, err)
-      this.send('claude:error', sessionId, `Failed to start Codex: ${err instanceof Error ? err.message : String(err)}`)
+      const message = `Failed to start Codex: ${err instanceof Error ? err.message : String(err)}`
+      recoveryFailures.set(sessionId, message)
+      this.send('claude:error', sessionId, message)
       this.sessions.delete(sessionId)
       return false
     }
@@ -1078,6 +1092,26 @@ export class CodexAgentManager {
     return this.sessions.get(sessionId)?.isResting ?? false
   }
 
+  getRecoverySnapshot(sessionId: string): RecoverySnapshot | null {
+    const session = this.sessions.get(sessionId)
+    const sdkSessionId = session?.threadId || sdkThreadIds.get(sessionId)
+    const recoveryError = recoveryFailures.get(sessionId)
+    if (!session && !sdkSessionId && !recoveryError) return null
+
+    let recoveryState: TerminalRecoveryState = 'fresh'
+    if (recoveryError) recoveryState = 'failed'
+    else if (session?.isResting) recoveryState = 'resting'
+    else if (sdkSessionId) recoveryState = 'recoverable'
+
+    return {
+      sdkSessionId,
+      recoveryState,
+      recoveryError,
+      cwd: session?.cwd,
+      model: session?.model,
+    }
+  }
+
   async resumeSession(sessionId: string, threadId: string, cwd: string, model?: string, codexSandboxMode?: CodexSandboxMode, codexApprovalPolicy?: CodexApprovalPolicy): Promise<boolean> {
     sdkThreadIds.set(sessionId, threadId)
     const result = await this.startSession(sessionId, {
@@ -1216,6 +1250,7 @@ export class CodexAgentManager {
       session.abortController.abort()
     }
     this.sessions.clear()
+    recoveryFailures.clear()
   }
 
   dispose(): void {

@@ -22,7 +22,7 @@ import { ClaudeAgentManager } from '../claude-agent-manager'
 import { CodexAgentManager } from '../codex-agent-manager'
 import type { WindowRegistry } from '../window-registry'
 import type { ProfileManager } from '../profile-manager'
-import type { EffortLevel, CreatePtyOptions } from '../../src/types'
+import type { EffortLevel, CreatePtyOptions, PersistedTerminalState, PersistedWorkspaceState } from '../../src/types'
 import type { PtyManager } from '../pty-manager'
 import { getDataDir } from './data-dir'
 
@@ -66,6 +66,35 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
 
   const MESSAGE_ARCHIVE_DIR = path.join(getDataDir(), 'message-archives')
 
+  function getSessionManagerForTerminal(terminal: PersistedTerminalState): ClaudeAgentManager | CodexAgentManager | null {
+    const explicitType = sessionManagerMap.get(terminal.id)
+    if (explicitType === 'codex') return getCodexManager()
+    if (explicitType === 'claude') return getClaudeManager()
+    if (terminal.agentPreset === 'codex-agent') return getCodexManager()
+    if (terminal.agentPreset === 'claude-code' || terminal.agentPreset === 'claude-code-v2' || terminal.agentPreset === 'claude-code-worktree') {
+      return getClaudeManager()
+    }
+    return null
+  }
+
+  function enrichTerminalRecoveryState(terminal: PersistedTerminalState): PersistedTerminalState {
+    const manager = getSessionManagerForTerminal(terminal)
+    const snapshot = manager?.getRecoverySnapshot?.(terminal.id)
+    const sdkSessionId = snapshot?.sdkSessionId ?? terminal.sdkSessionId
+    const recoveryState = snapshot?.recoveryState ?? terminal.recoveryState ?? (sdkSessionId ? 'recoverable' : 'fresh')
+
+    return {
+      ...terminal,
+      cwd: snapshot?.cwd || terminal.cwd,
+      sdkSessionId,
+      model: snapshot?.model || terminal.model,
+      worktreePath: snapshot?.worktreePath || terminal.worktreePath,
+      worktreeBranch: snapshot?.worktreeBranch || terminal.worktreeBranch,
+      recoveryState,
+      recoveryError: snapshot?.recoveryError ?? terminal.recoveryError,
+    }
+  }
+
   // PTY
   registerHandler('pty:create', (_ctx, options: unknown) => getPtyManager()?.create(options as CreatePtyOptions))
   registerHandler('pty:write', (_ctx, id: string, data: string) => getPtyManager()?.write(id, data))
@@ -80,14 +109,16 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
   // Workspace persistence — save/load from window registry entry
   registerHandler('workspace:save', async (ctx, data: string) => {
     if (!ctx.windowId) return false
-    const parsed = JSON.parse(data)
+    const parsed = JSON.parse(data) as Partial<PersistedWorkspaceState>
     const entry = await windowRegistry.getEntry(ctx.windowId)
     if (!entry) return false
     entry.workspaces = parsed.workspaces || []
     entry.activeWorkspaceId = parsed.activeWorkspaceId || null
     entry.activeGroup = parsed.activeGroup || null
-    entry.terminals = parsed.terminals || []
-    entry.activeTerminalId = parsed.activeTerminalId || null
+    entry.terminals = (parsed.terminals || []).map(terminal => enrichTerminalRecoveryState(terminal))
+    entry.focusedTerminalId = parsed.focusedTerminalId ?? parsed.activeTerminalId ?? null
+    entry.activeTerminalId = entry.focusedTerminalId
+    entry.version = parsed.version || 3
     entry.lastActiveAt = Date.now()
     await windowRegistry.saveEntry(entry)
     // Also persist to profile snapshot so force-quit doesn't lose state
@@ -101,10 +132,12 @@ export function registerProxiedHandlers(deps: ProxiedHandlersDeps): void {
     const entry = await windowRegistry.getEntry(ctx.windowId)
     if (!entry) return null
     return JSON.stringify({
+      version: entry.version || 3,
       workspaces: entry.workspaces,
       activeWorkspaceId: entry.activeWorkspaceId,
       activeGroup: entry.activeGroup,
       terminals: entry.terminals,
+      focusedTerminalId: entry.focusedTerminalId ?? entry.activeTerminalId,
       activeTerminalId: entry.activeTerminalId,
     })
   })

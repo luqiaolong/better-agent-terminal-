@@ -4,7 +4,7 @@ import * as fsSync from 'fs'
 import * as fsPromises from 'fs/promises'
 import * as pathModule from 'path'
 import type { ClaudeMessage, ClaudeToolCall, ClaudeSessionState } from '../src/types/claude-agent'
-import type { EffortLevel } from '../src/types'
+import type { EffortLevel, TerminalRecoveryState } from '../src/types'
 import type { Query, PermissionMode, CanUseTool, SlashCommand, SDKSession } from '@anthropic-ai/claude-agent-sdk'
 import { logger } from './logger'
 import { getNodeExecutable, isElectronFallback } from './node-resolver'
@@ -212,8 +212,19 @@ interface SessionInstance {
   lastResultSubtype?: string   // Subtype of the most recent result message
 }
 
+interface RecoverySnapshot {
+  sdkSessionId?: string
+  recoveryState: TerminalRecoveryState
+  recoveryError?: string
+  cwd?: string
+  model?: string
+  worktreePath?: string
+  worktreeBranch?: string
+}
+
 // Persists SDK session IDs across stop/restart so we can resume conversations
 const sdkSessionIds = new Map<string, string>()
+const recoveryFailures = new Map<string, string>()
 
 export class ClaudeAgentManager {
   private sessions: Map<string, SessionInstance> = new Map()
@@ -346,6 +357,7 @@ export class ClaudeAgentManager {
     }
 
     try {
+      recoveryFailures.delete(sessionId)
       // Validate cwd — must be a non-empty absolute path to prevent sessions running in wrong directory
       // Reject bare "/" to avoid running in filesystem root
       if (!options.cwd || !pathModule.isAbsolute(options.cwd) || options.cwd === '/') {
@@ -485,7 +497,9 @@ export class ClaudeAgentManager {
       return true
     } catch (error) {
       logger.error('Failed to start Claude session:', error)
-      this.send('claude:error', sessionId, String(error))
+      const message = error instanceof Error ? error.message : String(error)
+      recoveryFailures.set(sessionId, message)
+      this.send('claude:error', sessionId, message)
       return false
     }
   }
@@ -1586,6 +1600,7 @@ export class ClaudeAgentManager {
           })
           return this.runQueryV2(sessionId, prompt, _images)
         }
+        recoveryFailures.set(sessionId, errMsg)
         this.send('claude:error', sessionId, errMsg)
       }
     } finally {
@@ -2295,6 +2310,28 @@ export class ClaudeAgentManager {
     return this.sessions.get(sessionId)?.isResting ?? false
   }
 
+  getRecoverySnapshot(sessionId: string): RecoverySnapshot | null {
+    const session = this.sessions.get(sessionId)
+    const sdkSessionId = session?.sdkSessionId || sdkSessionIds.get(sessionId)
+    const recoveryError = recoveryFailures.get(sessionId)
+    if (!session && !sdkSessionId && !recoveryError) return null
+
+    let recoveryState: TerminalRecoveryState = 'fresh'
+    if (recoveryError) recoveryState = 'failed'
+    else if (session?.isResting) recoveryState = 'resting'
+    else if (sdkSessionId) recoveryState = 'recoverable'
+
+    return {
+      sdkSessionId,
+      recoveryState,
+      recoveryError,
+      cwd: session?.cwd,
+      model: session?.model,
+      worktreePath: session?.worktreeInfo?.worktreePath,
+      worktreeBranch: session?.worktreeInfo?.branchName,
+    }
+  }
+
   /** Fetch subagent conversation messages from SDK transcript files */
   async fetchSubagentMessages(sessionId: string, agentToolUseId: string): Promise<(ClaudeMessage | ClaudeToolCall)[]> {
     const session = this.sessions.get(sessionId)
@@ -2462,6 +2499,7 @@ export class ClaudeAgentManager {
     session.sdkSessionId = newSdkSessionId
     sdkSessionIds.set(sessionId, newSdkSessionId)
     session.metadata.sdkSessionId = newSdkSessionId
+    recoveryFailures.delete(sessionId)
 
     const removedPromptCount = lines.length - cutoffIdx
     logger.log(`[rewindToPrompt] sessionId=${sessionId.slice(0, 8)} promptIndex=${promptIndex} kept=${keptLines.length}/${lines.length} lines, newSdkSessionId=${newSdkSessionId.slice(0, 8)}`)
@@ -2559,6 +2597,7 @@ export class ClaudeAgentManager {
     // Users explicitly discard worktrees via the UI.
     this.sessions.clear()
     sdkSessionIds.clear()
+    recoveryFailures.clear()
   }
 
   // --- Worktree operations ---

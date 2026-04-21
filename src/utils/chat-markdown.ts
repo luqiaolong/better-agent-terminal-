@@ -1,25 +1,9 @@
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { absPathToFileUrl, isAbsoluteFilePath, parseFileUrlToPath, resolveRelativePath } from './markdown-paths'
 
 const markdownCache = new Map<string, string>()
 const MARKDOWN_CACHE_MAX = 500
-
-function absPathToFileUrl(absPath: string): string {
-  const normalized = absPath.replace(/\\/g, '/')
-  const withLeading = /^[A-Za-z]:\//.test(normalized) ? '/' + normalized : normalized
-  return 'file://' + encodeURI(withLeading)
-}
-
-function resolveRelativePath(cwd: string, rel: string): string {
-  const cwdParts = cwd.replace(/\\/g, '/').replace(/\/+$/, '').split('/')
-  const relParts = rel.replace(/\\/g, '/').split('/')
-  for (const part of relParts) {
-    if (part === '' || part === '.') continue
-    if (part === '..') { if (cwdParts.length > 1) cwdParts.pop(); continue }
-    cwdParts.push(part)
-  }
-  return cwdParts.join('/')
-}
 
 export function renderChatMarkdown(text: string, cwd: string): string {
   const cacheKey = cwd + '\0' + text
@@ -41,8 +25,7 @@ export function renderChatMarkdown(text: string, cwd: string): string {
         /<a\s+([^>]*?)href="([^"#][^"]*)"/gi,
         (match, attrs, href) => {
           if (/^(?:https?|mailto|tel|file):/i.test(href)) return match
-          const isAbs = href.startsWith('/') || /^[A-Za-z]:[\\/]/.test(href)
-          const absPath = isAbs ? href : resolveRelativePath(cwd, href)
+          const absPath = isAbsoluteFilePath(href) ? href : resolveRelativePath(cwd, href)
           return `<a ${attrs}href="${absPathToFileUrl(absPath)}"`
         }
       )
@@ -70,8 +53,7 @@ export function renderChatMarkdown(text: string, cwd: string): string {
 export function openChatMarkdownLink(href: string): void {
   if (href.startsWith('file://')) {
     try {
-      let filePath = decodeURIComponent(new URL(href).pathname)
-      if (/^\/[A-Za-z]:\//.test(filePath)) filePath = filePath.slice(1)
+      const filePath = parseFileUrlToPath(href)
       const eventName = /\.md(?:[?#]|$)/i.test(href) ? 'preview-markdown' : 'preview-file'
       window.dispatchEvent(new CustomEvent(eventName, { detail: { path: filePath } }))
       return

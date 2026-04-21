@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { MarkdownPreview } from './FileTree'
+const MarkdownPreview = lazy(() => import('./MarkdownPreview').then(module => ({ default: module.MarkdownPreview })))
 
 interface MarkdownPreviewPanelProps {
   filePath: string
@@ -99,7 +99,11 @@ export function MarkdownPreviewPanel({ filePath, onClose }: MarkdownPreviewPanel
       </div>
       <div className="md-preview-content">
         {error && <div className="md-preview-error">{error}</div>}
-        {content !== null && <MarkdownPreview content={content} />}
+        {content !== null && (
+          <Suspense fallback={<div className="md-preview-loading">Loading preview...</div>}>
+            <MarkdownPreview content={content} filePath={filePath} />
+          </Suspense>
+        )}
       </div>
       {contextMenu && (
         <div ref={contextMenuRef} className="workspace-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>

@@ -197,6 +197,47 @@
     "git": "Git",
     "github": "GitHub"
   },
+  "commandPalette": {
+    "searchPlaceholder": "搜索工作区和操作",
+    "hint": "使用 ↑ ↓ 导航，Enter 执行，Esc 关闭",
+    "empty": "没有匹配的工作区或操作。",
+    "sections": {
+      "workspaces": "工作区",
+      "views": "视图",
+      "panels": "面板",
+      "app": "操作"
+    },
+    "badges": {
+      "current": "当前",
+      "pending": "待处理",
+      "hidden": "隐藏",
+      "visible": "显示中"
+    },
+    "actions": {
+      "showTerminal": "显示终端",
+      "showFiles": "显示文件",
+      "showGit": "显示 Git",
+      "showGitHub": "显示 GitHub",
+      "expandSidebar": "展开工作区侧栏",
+      "collapseSidebar": "收起工作区侧栏",
+      "toggleSidebarHint": "切换左侧工作区栏",
+      "showUtilityPanel": "显示工具面板",
+      "hideUtilityPanel": "隐藏工具面板",
+      "toggleUtilityPanelHint": "切换右侧工具面板",
+      "openSnippetsPanel": "打开代码片段面板",
+      "openSnippetsPanelHint": "在工具面板中显示代码片段",
+      "openSkillsPanel": "打开 Skills 面板",
+      "openSkillsPanelHint": "显示当前 Claude 会话的 Skills",
+      "openAgentsPanel": "打开 Agents 面板",
+      "openAgentsPanelHint": "显示当前 Claude 会话的子代理",
+      "openWorkspace": "打开工作区",
+      "openWorkspaceHint": "将一个或多个文件夹添加到当前窗口",
+      "openProfiles": "打开配置文件",
+      "openProfilesHint": "管理并切换配置文件",
+      "openSettings": "打开设置",
+      "openSettingsHint": "调整终端、主题和应用偏好"
+    }
+  },
 
   "github": {
     "pullRequests": "Pull Requests",
@@ -233,7 +274,15 @@
     "terminalLabel": "终端",
     "worktreeTerminalLabel": "Terminal (worktree)",
     "expandThumbnails": "展开缩略图",
-    "collapsePanel": "收起面板"
+    "collapsePanel": "收起面板",
+    "recoveryAvailableLabel": "恢复就绪",
+    "recoveryAvailableMessage": "已恢复会话链接，可从已保存状态继续上下文。",
+    "recoveryRestingLabel": "休眠中",
+    "recoveryRestingMessage": "此会话已按休眠状态恢复。继续工作前请先唤醒。",
+    "recoveryFailedLabel": "恢复失败",
+    "recoveryFailedMessage": "上一次恢复尝试未能恢复先前的会话状态。",
+    "recoveryFailedMessageWithError": "上一次恢复尝试失败：{{error}}",
+    "recoveryRestartAction": "重新开始"
   },
   "dialogs": {
     "closeCodeAgent": "关闭 Code Agent？",

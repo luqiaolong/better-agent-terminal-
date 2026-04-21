@@ -33,6 +33,24 @@ export interface ProfileSnapshotV1 {
   activeGroup: string | null
   terminals?: unknown[]
   activeTerminalId?: string | null
+  focusedTerminalId?: string | null
+}
+
+export interface ProfileWindowSnapshotV2 {
+  workspaces: unknown[]
+  activeWorkspaceId: string | null
+  activeGroup: string | null
+  terminals: unknown[]
+  activeTerminalId: string | null
+  focusedTerminalId?: string | null
+  bounds?: { x: number; y: number; width: number; height: number }
+}
+
+export interface ProfileSnapshotV2 {
+  id: string
+  name: string
+  version: 2
+  windows: ProfileWindowSnapshotV2[]
 }
 
 // Per-window state within a profile
@@ -41,15 +59,16 @@ export interface ProfileWindowSnapshot {
   activeWorkspaceId: string | null
   activeGroup: string | null
   terminals: unknown[]
-  activeTerminalId: string | null
+  focusedTerminalId: string | null
+  activeTerminalId?: string | null
   bounds?: { x: number; y: number; width: number; height: number }
 }
 
-// V2 snapshot — profile as a set of windows
+// V3 snapshot — profile as a set of windows with focusedTerminalId as canonical terminal focus
 export interface ProfileSnapshot {
   id: string
   name: string
-  version: 2
+  version: 3
   windows: ProfileWindowSnapshot[]
 }
 
@@ -153,21 +172,50 @@ async function writeIndex(index: ProfileIndex): Promise<void> {
   await fs.rename(tmpPath, indexPath)
 }
 
-function migrateSnapshot(raw: ProfileSnapshotV1 | ProfileSnapshot): ProfileSnapshot {
-  if ('version' in raw && raw.version === 2) return raw as ProfileSnapshot
+function normalizeWindowSnapshot(raw: Partial<ProfileWindowSnapshotV2 | ProfileWindowSnapshot>): ProfileWindowSnapshot {
+  const focusedTerminalId = raw.focusedTerminalId ?? raw.activeTerminalId ?? null
+  return {
+    workspaces: raw.workspaces || [],
+    activeWorkspaceId: raw.activeWorkspaceId || null,
+    activeGroup: raw.activeGroup || null,
+    terminals: raw.terminals || [],
+    focusedTerminalId,
+    activeTerminalId: raw.activeTerminalId ?? focusedTerminalId,
+    bounds: raw.bounds,
+  }
+}
+
+function migrateSnapshot(raw: ProfileSnapshotV1 | ProfileSnapshotV2 | ProfileSnapshot): ProfileSnapshot {
+  if ('version' in raw && raw.version === 3) {
+    const v3 = raw as ProfileSnapshot
+    return {
+      ...v3,
+      windows: (v3.windows || []).map(windowSnap => normalizeWindowSnapshot(windowSnap)),
+    }
+  }
+  if ('version' in raw && raw.version === 2) {
+    const v2 = raw as ProfileSnapshotV2
+    return {
+      id: v2.id,
+      name: v2.name,
+      version: 3,
+      windows: (v2.windows || []).map(windowSnap => normalizeWindowSnapshot(windowSnap)),
+    }
+  }
   // V1 → V2: wrap flat fields into a single-element windows array
   const v1 = raw as ProfileSnapshotV1
   return {
     id: v1.id,
     name: v1.name,
-    version: 2,
-    windows: [{
+    version: 3,
+    windows: [normalizeWindowSnapshot({
       workspaces: v1.workspaces,
       activeWorkspaceId: v1.activeWorkspaceId,
       activeGroup: v1.activeGroup,
       terminals: v1.terminals || [],
+      focusedTerminalId: v1.focusedTerminalId ?? v1.activeTerminalId ?? null,
       activeTerminalId: v1.activeTerminalId || null,
-    }],
+    })],
   }
 }
 
@@ -262,12 +310,13 @@ async function ensureInitialized(): Promise<ProfileIndex> {
   }
 
   // Read current workspaces.json to seed the default profile
-  let workspacesData: { workspaces: unknown[]; activeWorkspaceId: string | null; activeGroup: string | null; terminals?: unknown[]; activeTerminalId?: string | null } = {
+  let workspacesData: { workspaces: unknown[]; activeWorkspaceId: string | null; activeGroup: string | null; terminals?: unknown[]; activeTerminalId?: string | null; focusedTerminalId?: string | null } = {
     workspaces: [],
     activeWorkspaceId: null,
     activeGroup: null,
     terminals: [],
     activeTerminalId: null,
+    focusedTerminalId: null,
   }
   try {
     const raw = await fs.readFile(path.join(getDataDir(), 'workspaces.json'), 'utf-8')
@@ -278,20 +327,22 @@ async function ensureInitialized(): Promise<ProfileIndex> {
       activeGroup: parsed.activeGroup || null,
       terminals: parsed.terminals || [],
       activeTerminalId: parsed.activeTerminalId || null,
+      focusedTerminalId: parsed.focusedTerminalId ?? parsed.activeTerminalId ?? null,
     }
   } catch { /* no existing workspaces */ }
 
   const snapshot: ProfileSnapshot = {
     id: 'default',
     name: 'Default',
-    version: 2,
-    windows: [{
+    version: 3,
+    windows: [normalizeWindowSnapshot({
       workspaces: workspacesData.workspaces,
       activeWorkspaceId: workspacesData.activeWorkspaceId,
       activeGroup: workspacesData.activeGroup,
       terminals: workspacesData.terminals || [],
+      focusedTerminalId: workspacesData.focusedTerminalId ?? workspacesData.activeTerminalId ?? null,
       activeTerminalId: workspacesData.activeTerminalId || null,
-    }],
+    })],
   }
 
   const newIndex: ProfileIndex = {
@@ -343,7 +394,7 @@ export class ProfileManager {
       const snapshot: ProfileSnapshot = {
         id,
         name,
-        version: 2,
+        version: 3,
         windows: [],
       }
       await writeSnapshot(snapshot)
@@ -372,14 +423,15 @@ export class ProfileManager {
       activeWorkspaceId: w.activeWorkspaceId,
       activeGroup: w.activeGroup,
       terminals: w.terminals,
-      activeTerminalId: w.activeTerminalId,
+      focusedTerminalId: w.focusedTerminalId ?? w.activeTerminalId ?? null,
+      activeTerminalId: w.activeTerminalId ?? w.focusedTerminalId ?? null,
       bounds: w.bounds,
     }))
 
     const snapshot: ProfileSnapshot = {
       id: profileId,
       name: entry.name,
-      version: 2,
+      version: 3,
       windows: windowSnapshots,
     }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import i18next from 'i18next'
 import { workspaceStore } from './stores/workspace-store'
@@ -14,7 +14,9 @@ import { WorkspaceEnvDialog } from './components/WorkspaceEnvDialog'
 import { ResizeHandle } from './components/ResizeHandle'
 import { ProfilePanel } from './components/ProfilePanel'
 import { FolderPicker } from './components/FolderPicker'
+import { CommandPalette } from './components/CommandPalette'
 import type { AppState, EnvVariable, TerminalInstance } from './types'
+import type { CommandPaletteItem } from './utils/command-palette'
 
 // Panel settings interface
 interface PanelSettings {
@@ -101,8 +103,10 @@ export default function App() {
   const [previewMarkdownPath, setPreviewMarkdownPath] = useState<string | null>(null)
   // Track collapsed state before markdown preview opened, to restore on close
   const previewPrevCollapsed = useRef<boolean | null>(null)
+  const commandPaletteRestoreRef = useRef<HTMLElement | null>(null)
   // Panel settings for resizable panels
   const [panelSettings, setPanelSettings] = useState<PanelSettings>(loadPanelSettings)
+  const [showCommandPalette, setShowCommandPalette] = useState(false)
   // Detached workspace support
   const [detachedWorkspaceId] = useState(() => window.electronAPI.workspace.getDetachedId())
   const [detachedIds, setDetachedIds] = useState<Set<string>>(new Set())
@@ -209,6 +213,21 @@ export default function App() {
     })
   }, [])
 
+  const openCommandPalette = useCallback(() => {
+    commandPaletteRestoreRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+    setShowCommandPalette(true)
+  }, [])
+
+  const closeCommandPalette = useCallback((restoreFocus = true) => {
+    setShowCommandPalette(false)
+    if (!restoreFocus) return
+    requestAnimationFrame(() => {
+      commandPaletteRestoreRef.current?.focus?.()
+    })
+  }, [])
+
   // Reset snippet sidebar to default width
   const handleSnippetResetWidth = useCallback(() => {
     setPanelSettings(prev => {
@@ -238,9 +257,40 @@ export default function App() {
     return () => window.removeEventListener('preview-markdown', handler)
   }, [])
 
+  useEffect(() => {
+    if (!showCommandPalette) return
+    if (showSettings || showProfiles || folderPickerOpen || envDialogWorkspaceId !== null) {
+      closeCommandPalette(false)
+    }
+  }, [showCommandPalette, showSettings, showProfiles, folderPickerOpen, envDialogWorkspaceId, closeCommandPalette])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'k') return
+      if (showSettings || showProfiles || folderPickerOpen || envDialogWorkspaceId !== null) return
+      e.preventDefault()
+      if (showCommandPalette) {
+        closeCommandPalette()
+        return
+      }
+      openCommandPalette()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [
+    showCommandPalette,
+    showSettings,
+    showProfiles,
+    folderPickerOpen,
+    envDialogWorkspaceId,
+    openCommandPalette,
+    closeCommandPalette,
+  ])
+
   // Cmd+N / Ctrl+N: open new empty window
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (showCommandPalette) return
       if ((e.metaKey || e.ctrlKey) && e.key === 'n' && !e.shiftKey && !e.altKey) {
         e.preventDefault()
         window.electronAPI.app.newWindow()
@@ -248,7 +298,7 @@ export default function App() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [])
+  }, [showCommandPalette])
 
   // Track previous terminal for Cmd+` toggle
   const prevTerminalIdRef = useRef<string | null>(null)
@@ -256,6 +306,7 @@ export default function App() {
   // Keyboard shortcuts: Cmd+` (toggle terminal), Cmd+Left/Right (cycle tabs), Cmd+Up/Down (switch workspace)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (showCommandPalette) return
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return
 
       // Cmd+` / Ctrl+`: Toggle between first regular terminal and Claude Code terminal
@@ -306,7 +357,7 @@ export default function App() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [])
+  }, [showCommandPalette])
 
   useEffect(() => {
     const unsubscribe = workspaceStore.subscribe(() => {
@@ -560,6 +611,200 @@ export default function App() {
     setShowProfiles(false)
   }, [t])
 
+  const focusedTerminal = state.focusedTerminalId
+    ? state.terminals.find(terminal => terminal.id === state.focusedTerminalId) ?? null
+    : null
+  const activeWorkspace = state.activeWorkspaceId
+    ? state.workspaces.find(workspace => workspace.id === state.activeWorkspaceId) ?? null
+    : null
+  const visibleWorkspaces = state.workspaces.filter(w => !detachedIds.has(w.id))
+  const paletteWorkspaces = detachedWorkspaceId
+    ? state.workspaces.filter(workspace => workspace.id === detachedWorkspaceId)
+    : visibleWorkspaces
+  const isClaudeFocused = focusedTerminal?.agentPreset === 'claude-code' || focusedTerminal?.agentPreset === 'claude-code-v2'
+
+  const commandPaletteItems = useMemo<CommandPaletteItem[]>(() => {
+    const items: CommandPaletteItem[] = []
+    const activeGroup = workspaceStore.getActiveGroup()
+    const workspaceItems = paletteWorkspaces
+      .map(workspace => {
+        const terminals = workspaceStore.getWorkspaceTerminals(workspace.id)
+        const hasPendingAction = terminals.some(terminal => terminal.hasPendingAction)
+        const lastActivity = workspaceStore.getWorkspaceLastActivity(workspace.id) ?? workspace.createdAt
+        const inActiveGroup = activeGroup ? workspace.group === activeGroup : true
+        const displayName = workspace.alias || workspace.name
+        const badges: string[] = []
+        if (workspace.id === state.activeWorkspaceId) badges.push(t('commandPalette.badges.current'))
+        if (hasPendingAction) badges.push(t('commandPalette.badges.pending'))
+        if (workspace.group) badges.push(workspace.group)
+        return {
+          id: `workspace:${workspace.id}`,
+          title: displayName,
+          subtitle: workspace.folderPath,
+          section: 'workspaces',
+          keywords: [workspace.name, workspace.alias ?? '', workspace.folderPath, workspace.group ?? '', workspace.color ?? ''],
+          badges,
+          active: workspace.id === state.activeWorkspaceId,
+          rank: (workspace.id === state.activeWorkspaceId ? 4000 : 0)
+            + (hasPendingAction ? 2500 : 0)
+            + (inActiveGroup ? 400 : 0)
+            + Math.floor(lastActivity / 1000),
+          onSelect: () => workspaceStore.setActiveWorkspace(workspace.id),
+        } satisfies CommandPaletteItem
+      })
+      .sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0))
+
+    items.push(...workspaceItems)
+
+    const dispatchWorkspaceTab = (tab: 'terminal' | 'files' | 'git' | 'github') => {
+      window.dispatchEvent(new CustomEvent('workspace-switch-tab', { detail: { tab } }))
+    }
+
+    if (activeWorkspace) {
+      items.push(
+        {
+          id: 'view:terminal',
+          title: t('commandPalette.actions.showTerminal'),
+          subtitle: activeWorkspace.alias || activeWorkspace.name,
+          section: 'views',
+          keywords: ['terminal session shell tab'],
+          rank: 900,
+          onSelect: () => dispatchWorkspaceTab('terminal'),
+        },
+        {
+          id: 'view:files',
+          title: t('commandPalette.actions.showFiles'),
+          subtitle: activeWorkspace.alias || activeWorkspace.name,
+          section: 'views',
+          keywords: ['files explorer tree tab'],
+          rank: 890,
+          onSelect: () => dispatchWorkspaceTab('files'),
+        },
+        {
+          id: 'view:git',
+          title: t('commandPalette.actions.showGit'),
+          subtitle: activeWorkspace.alias || activeWorkspace.name,
+          section: 'views',
+          keywords: ['git changes history tab'],
+          rank: 880,
+          onSelect: () => dispatchWorkspaceTab('git'),
+        },
+        {
+          id: 'view:github',
+          title: t('commandPalette.actions.showGitHub'),
+          subtitle: activeWorkspace.alias || activeWorkspace.name,
+          section: 'views',
+          keywords: ['github pull requests issues tab'],
+          rank: 870,
+          onSelect: () => dispatchWorkspaceTab('github'),
+        }
+      )
+    }
+
+    items.push(
+      {
+        id: 'panel:sidebar',
+        title: panelSettings.sidebar.collapsed ? t('commandPalette.actions.expandSidebar') : t('commandPalette.actions.collapseSidebar'),
+        subtitle: t('commandPalette.actions.toggleSidebarHint'),
+        section: 'panels',
+        keywords: ['sidebar workspace rail left toggle collapse expand'],
+        badges: panelSettings.sidebar.collapsed ? [t('commandPalette.badges.hidden')] : [t('commandPalette.badges.visible')],
+        active: !panelSettings.sidebar.collapsed,
+        rank: 820,
+        onSelect: handleSidebarCollapse,
+      },
+      {
+        id: 'panel:utility',
+        title: panelSettings.snippetSidebar.collapsed ? t('commandPalette.actions.showUtilityPanel') : t('commandPalette.actions.hideUtilityPanel'),
+        subtitle: t('commandPalette.actions.toggleUtilityPanelHint'),
+        section: 'panels',
+        keywords: ['right panel snippets skills agents toggle'],
+        badges: panelSettings.snippetSidebar.collapsed ? [t('commandPalette.badges.hidden')] : [t('commandPalette.badges.visible')],
+        active: !panelSettings.snippetSidebar.collapsed,
+        rank: 810,
+        onSelect: handleSnippetPanelToggle,
+      },
+      {
+        id: 'panel:snippets',
+        title: t('commandPalette.actions.openSnippetsPanel'),
+        subtitle: t('commandPalette.actions.openSnippetsPanelHint'),
+        section: 'panels',
+        keywords: ['snippets clipboard templates right panel'],
+        rank: 800,
+        onSelect: () => handleRightPanelTabChange('snippets'),
+      }
+    )
+
+    if (isClaudeFocused) {
+      items.push(
+        {
+          id: 'panel:skills',
+          title: t('commandPalette.actions.openSkillsPanel'),
+          subtitle: t('commandPalette.actions.openSkillsPanelHint'),
+          section: 'panels',
+          keywords: ['skills claude tools right panel'],
+          rank: 790,
+          onSelect: () => handleRightPanelTabChange('skills'),
+        },
+        {
+          id: 'panel:agents',
+          title: t('commandPalette.actions.openAgentsPanel'),
+          subtitle: t('commandPalette.actions.openAgentsPanelHint'),
+          section: 'panels',
+          keywords: ['agents claude tasks right panel'],
+          rank: 780,
+          onSelect: () => handleRightPanelTabChange('agents'),
+        }
+      )
+    }
+
+    items.push(
+      {
+        id: 'app:add-workspace',
+        title: t('commandPalette.actions.openWorkspace'),
+        subtitle: t('commandPalette.actions.openWorkspaceHint'),
+        section: 'app',
+        keywords: ['add workspace open folder project directory'],
+        rank: 760,
+        onSelect: handleAddWorkspace,
+      },
+      {
+        id: 'app:profiles',
+        title: t('commandPalette.actions.openProfiles'),
+        subtitle: t('commandPalette.actions.openProfilesHint'),
+        section: 'app',
+        keywords: ['profiles switch account window'],
+        rank: 750,
+        onSelect: () => setShowProfiles(true),
+      },
+      {
+        id: 'app:settings',
+        title: t('commandPalette.actions.openSettings'),
+        subtitle: t('commandPalette.actions.openSettingsHint'),
+        section: 'app',
+        keywords: ['settings preferences config options'],
+        rank: 740,
+        onSelect: () => setShowSettings(true),
+      }
+    )
+
+    return items
+  }, [
+    activeWorkspace,
+    detachedWorkspaceId,
+    handleAddWorkspace,
+    handleRightPanelTabChange,
+    handleSidebarCollapse,
+    handleSnippetPanelToggle,
+    isClaudeFocused,
+    paletteWorkspaces,
+    panelSettings.sidebar.collapsed,
+    panelSettings.snippetSidebar.collapsed,
+    state.activeWorkspaceId,
+    state.terminals,
+    t,
+  ])
+
   // Get the workspace for env dialog
   const envDialogWorkspace = envDialogWorkspaceId
     ? state.workspaces.find(w => w.id === envDialogWorkspaceId)
@@ -594,12 +839,14 @@ export default function App() {
             />
           </div>
         </main>
+        <CommandPalette
+          isOpen={showCommandPalette}
+          items={commandPaletteItems}
+          onClose={closeCommandPalette}
+        />
       </div>
     )
   }
-
-  // Filter out detached workspaces from main window
-  const visibleWorkspaces = state.workspaces.filter(w => !detachedIds.has(w.id))
 
   return (
     <div className="app">
@@ -809,6 +1056,11 @@ export default function App() {
           </div>
         </div>
       )}
+      <CommandPalette
+        isOpen={showCommandPalette}
+        items={commandPaletteItems}
+        onClose={closeCommandPalette}
+      />
     </div>
   )
 }

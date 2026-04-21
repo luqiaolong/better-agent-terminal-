@@ -9,6 +9,19 @@ export interface EnvVariable {
 
 export type AgentParamValue = string | number | boolean;
 
+export type TerminalRecoveryState = 'fresh' | 'recoverable' | 'resting' | 'failed';
+
+export interface TerminalSessionMeta {
+  totalCost: number;
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number;
+  numTurns: number;
+  contextWindow: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -59,20 +72,13 @@ export interface TerminalInstance {
   agentParams?: Record<string, AgentParamValue>; // Normalized agent-specific persisted params
   pendingPrompt?: string;        // Prompt to auto-send after fork/resume
   pendingImages?: string[];      // Data URLs of images to send with pendingPrompt
-  sessionMeta?: {                // Persisted session metadata for status line
-    totalCost: number;
-    inputTokens: number;
-    outputTokens: number;
-    durationMs: number;
-    numTurns: number;
-    contextWindow: number;
-    cacheReadTokens?: number;
-    cacheCreationTokens?: number;
-  };
+  sessionMeta?: TerminalSessionMeta; // Persisted session metadata for status line
   worktreePath?: string;          // Path to the worktree if running in worktree isolation
   worktreeBranch?: string;        // Branch name in the worktree
   historyKey?: string;            // Stable key for per-terminal HISTFILE (persisted across restarts)
   procfilePath?: string;          // If set, this terminal is a Worker panel running processes from this Procfile
+  recoveryState?: TerminalRecoveryState; // Recovery linkage state (not live process state)
+  recoveryError?: string;         // Last recovery failure, if any
 }
 
 export interface AppState {
@@ -81,6 +87,39 @@ export interface AppState {
   terminals: TerminalInstance[];
   activeTerminalId: string | null;
   focusedTerminalId: string | null;
+}
+
+export interface PersistedTerminalState {
+  id: string;
+  workspaceId: string;
+  type: 'terminal';
+  agentPreset?: AgentPresetId;
+  title: string;
+  alias?: string;
+  cwd: string;
+  sdkSessionId?: string;
+  model?: string;
+  agentParams?: Record<string, AgentParamValue>;
+  pendingPrompt?: string;
+  pendingImages?: string[];
+  sessionMeta?: TerminalSessionMeta;
+  worktreePath?: string;
+  worktreeBranch?: string;
+  historyKey?: string;
+  procfilePath?: string;
+  lastActivityTime?: number;
+  recoveryState?: TerminalRecoveryState;
+  recoveryError?: string;
+}
+
+export interface PersistedWorkspaceState {
+  version: number;
+  workspaces: Workspace[];
+  activeWorkspaceId: string | null;
+  activeGroup: string | null;
+  terminals: PersistedTerminalState[];
+  focusedTerminalId: string | null;
+  activeTerminalId?: string | null; // legacy compatibility alias
 }
 
 export interface CreatePtyOptions {

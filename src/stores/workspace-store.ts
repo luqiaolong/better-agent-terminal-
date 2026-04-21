@@ -1,11 +1,20 @@
 import { v4 as uuidv4 } from 'uuid'
-import type { Workspace, TerminalInstance, AppState } from '../types'
+import type {
+  Workspace,
+  TerminalInstance,
+  AppState,
+  PersistedTerminalState,
+  PersistedWorkspaceState,
+  TerminalSessionMeta,
+  TerminalRecoveryState,
+} from '../types'
 import { AgentPresetId, getAgentPreset } from '../types/agent-presets'
 import { normalizeAgentParams } from '../types/agent-profiles'
 import { clearPreviewCache } from '../components/TerminalThumbnail'
 import { settingsStore } from './settings-store'
 
 type Listener = () => void
+const WORKSPACE_STATE_VERSION = 3
 
 class WorkspaceStore {
   private state: AppState = {
@@ -41,6 +50,75 @@ class WorkspaceStore {
     this.listeners.forEach(listener => listener())
   }
 
+  private getPersistedFocusedTerminalId(): string | null {
+    return this.state.focusedTerminalId ?? this.state.activeTerminalId ?? null
+  }
+
+  private serializeTerminal(terminal: TerminalInstance): PersistedTerminalState {
+    return {
+      id: terminal.id,
+      workspaceId: terminal.workspaceId,
+      type: terminal.type,
+      agentPreset: terminal.agentPreset,
+      title: terminal.title,
+      alias: terminal.alias,
+      cwd: terminal.cwd,
+      sdkSessionId: terminal.sdkSessionId,
+      model: terminal.model,
+      agentParams: terminal.agentParams,
+      pendingPrompt: terminal.pendingPrompt,
+      pendingImages: terminal.pendingImages,
+      sessionMeta: terminal.sessionMeta,
+      worktreePath: terminal.worktreePath,
+      worktreeBranch: terminal.worktreeBranch,
+      historyKey: terminal.historyKey,
+      procfilePath: terminal.procfilePath,
+      lastActivityTime: terminal.lastActivityTime,
+      recoveryState: terminal.recoveryState,
+      recoveryError: terminal.recoveryError,
+    }
+  }
+
+  private hydrateTerminal(saved: Partial<PersistedTerminalState>, workspaceMap: Map<string, Workspace>): TerminalInstance | null {
+    const ws = saved.workspaceId ? workspaceMap.get(saved.workspaceId) : undefined
+    if (!ws?.folderPath) {
+      window.electronAPI?.debug?.log?.(`[workspace-store] Warning: terminal ${saved.id} has no valid workspace, skipping`)
+      return null
+    }
+
+    const cwd = saved.cwd || ws.folderPath
+    const presetTitle = saved.agentPreset && saved.agentPreset !== 'none'
+      ? (getAgentPreset(saved.agentPreset)?.name || saved.title || 'Terminal')
+      : (saved.procfilePath
+        ? (saved.title || `Worker: ${saved.procfilePath.split(/[\\/]/).pop() || 'Procfile'}`)
+        : (saved.title || 'Terminal'))
+
+    return {
+      id: saved.id || '',
+      workspaceId: saved.workspaceId || '',
+      type: 'terminal',
+      agentPreset: saved.agentPreset,
+      title: presetTitle,
+      alias: saved.alias,
+      cwd,
+      sdkSessionId: saved.sdkSessionId,
+      model: saved.model,
+      agentParams: normalizeAgentParams(saved.agentPreset, saved.agentParams),
+      pendingPrompt: saved.pendingPrompt,
+      pendingImages: saved.pendingImages,
+      sessionMeta: saved.sessionMeta,
+      worktreePath: saved.worktreePath,
+      worktreeBranch: saved.worktreeBranch,
+      historyKey: saved.historyKey || uuidv4().replace(/-/g, '').slice(0, 12),
+      procfilePath: saved.procfilePath,
+      lastActivityTime: saved.lastActivityTime,
+      recoveryState: saved.recoveryState || (saved.sdkSessionId ? 'recoverable' : 'fresh'),
+      recoveryError: saved.recoveryError,
+      scrollbackBuffer: [],
+      pid: undefined,
+    }
+  }
+
   // Workspace actions
   addWorkspace(name: string, folderPath: string): Workspace {
     const workspace: Workspace = {
@@ -57,6 +135,7 @@ class WorkspaceStore {
     }
 
     this.notify()
+    this.save()
     return workspace
   }
 
@@ -74,6 +153,7 @@ class WorkspaceStore {
     }
 
     this.notify()
+    this.save()
   }
 
   setActiveWorkspace(id: string): void {
@@ -86,6 +166,7 @@ class WorkspaceStore {
     }
 
     this.notify()
+    this.save()
   }
 
   renameWorkspace(id: string, alias: string): void {
@@ -172,7 +253,7 @@ class WorkspaceStore {
     this.save()
   }
 
-  setTerminalSessionMeta(terminalId: string, meta: { totalCost: number; inputTokens: number; outputTokens: number; durationMs: number; numTurns: number; contextWindow: number; cacheReadTokens?: number; cacheCreationTokens?: number }): void {
+  setTerminalSessionMeta(terminalId: string, meta: TerminalSessionMeta): void {
     this.state = {
       ...this.state,
       terminals: this.state.terminals.map(t =>
@@ -184,13 +265,15 @@ class WorkspaceStore {
   }
 
   setTerminalProcfile(terminalId: string, procfilePath: string): void {
+    const procfileName = procfilePath.split(/[\\/]/).pop() || procfilePath
     this.state = {
       ...this.state,
       terminals: this.state.terminals.map(t =>
-        t.id === terminalId ? { ...t, procfilePath, title: `Worker: ${procfilePath.split('/').pop()}` } : t
+        t.id === terminalId ? { ...t, procfilePath, title: `Worker: ${procfileName}` } : t
       )
     }
     this.notify()
+    this.save()
   }
 
   setTerminalPendingPrompt(terminalId: string, prompt: string, images?: string[]): void {
@@ -201,6 +284,18 @@ class WorkspaceStore {
       )
     }
     this.notify()
+    this.save()
+  }
+
+  setTerminalRecoveryState(terminalId: string, recoveryState: TerminalRecoveryState, recoveryError?: string): void {
+    this.state = {
+      ...this.state,
+      terminals: this.state.terminals.map(t =>
+        t.id === terminalId ? { ...t, recoveryState, recoveryError } : t
+      )
+    }
+    this.notify()
+    this.save()
   }
 
   // Legacy: also store on workspace for backwards compatibility
@@ -241,6 +336,7 @@ class WorkspaceStore {
       lastActivityTime: Date.now(),
       historyKey: uuidv4().replace(/-/g, '').slice(0, 12),
       agentParams: normalizeAgentParams(agentPreset),
+      recoveryState: 'fresh',
     }
 
     // Auto-focus if it's an agent terminal or no current focus
@@ -253,6 +349,7 @@ class WorkspaceStore {
     }
 
     this.notify()
+    this.save()
     return terminal
   }
 
@@ -269,6 +366,7 @@ class WorkspaceStore {
     }
 
     this.notify()
+    this.save()
   }
 
   switchTerminalApiVersion(id: string): 'claude-code' | 'claude-code-v2' | null {
@@ -314,10 +412,12 @@ class WorkspaceStore {
 
     this.state = {
       ...this.state,
-      focusedTerminalId: id
+      focusedTerminalId: id,
+      activeTerminalId: id
     }
 
     this.notify()
+    this.save()
   }
 
   updateTerminalCwd(id: string, cwd: string): void {
@@ -329,6 +429,7 @@ class WorkspaceStore {
     }
 
     this.notify()
+    this.save()
   }
 
   updateTerminalModel(id: string, model: string): void {
@@ -550,28 +651,18 @@ class WorkspaceStore {
     // Wait for any in-flight save to finish, then perform ours
     this._savePromise = this._savePromise.then(async () => {
       this._savePending = false
-      const savedTerminals = this.state.terminals.map(t => ({
-        id: t.id,
-        workspaceId: t.workspaceId,
-        type: t.type,
-        agentPreset: t.agentPreset,
-        title: t.title,
-        alias: t.alias,
-        cwd: t.cwd,
-        sdkSessionId: t.sdkSessionId,
-        model: t.model,
-        agentParams: t.agentParams,
-        sessionMeta: t.sessionMeta,
-        procfilePath: t.procfilePath,
-      }))
-      const data = JSON.stringify({
+      const savedTerminals = this.state.terminals.map(t => this.serializeTerminal(t))
+      const focusedTerminalId = this.getPersistedFocusedTerminalId()
+      const data: PersistedWorkspaceState = {
+        version: WORKSPACE_STATE_VERSION,
         workspaces: this.state.workspaces,
         activeWorkspaceId: this.state.activeWorkspaceId,
         activeGroup: this.activeGroup,
         terminals: savedTerminals,
-        activeTerminalId: this.state.activeTerminalId,
-      })
-      await window.electronAPI.workspace.save(data)
+        focusedTerminalId,
+        activeTerminalId: focusedTerminalId,
+      }
+      await window.electronAPI.workspace.save(JSON.stringify(data))
     }).catch(e => {
       console.error('Failed to save workspace data:', e)
     })
@@ -583,44 +674,20 @@ class WorkspaceStore {
     const data = await window.electronAPI.workspace.load()
     if (data) {
       try {
-        const parsed = JSON.parse(data)
-        // Restore terminals with empty runtime fields
+        const parsed = JSON.parse(data) as Partial<PersistedWorkspaceState>
         const workspaces: Workspace[] = parsed.workspaces || []
         const workspaceMap = new Map(workspaces.map((w: Workspace) => [w.id, w]))
-        const terminals = (parsed.terminals || []).map((t: Partial<TerminalInstance>): TerminalInstance | null => {
-          const ws = t.workspaceId ? workspaceMap.get(t.workspaceId) : undefined
-          if (!ws?.folderPath) {
-            window.electronAPI?.debug?.log?.(`[workspace-store] Warning: terminal ${t.id} has no valid workspace, skipping`)
-            return null
-          }
-          const cwd = ws.folderPath
-          // For agent terminals, always derive title from preset to fix any persisted corruption
-          const presetTitle = t.agentPreset && t.agentPreset !== 'none'
-            ? (getAgentPreset(t.agentPreset)?.name || t.title || 'Terminal')
-            : (t.title || 'Terminal')
-          return {
-            id: t.id || '',
-            workspaceId: t.workspaceId || '',
-            type: 'terminal' as const,
-            agentPreset: t.agentPreset,
-            title: presetTitle,
-            alias: t.alias,
-            cwd,
-            sdkSessionId: t.sdkSessionId,
-            model: t.model,
-            agentParams: normalizeAgentParams(t.agentPreset, t.agentParams),
-            sessionMeta: t.sessionMeta,
-            procfilePath: t.procfilePath,
-            scrollbackBuffer: [],
-            pid: undefined,
-          }
-        }).filter((t: TerminalInstance | null): t is TerminalInstance => t !== null)
+        const terminals = (parsed.terminals || [])
+          .map((t: Partial<PersistedTerminalState>) => this.hydrateTerminal(t, workspaceMap))
+          .filter((t: TerminalInstance | null): t is TerminalInstance => t !== null)
+        const focusedTerminalId = parsed.focusedTerminalId ?? parsed.activeTerminalId ?? null
         this.state = {
           ...this.state,
           workspaces,
           activeWorkspaceId: parsed.activeWorkspaceId || null,
           terminals,
-          activeTerminalId: parsed.activeTerminalId || null,
+          activeTerminalId: focusedTerminalId,
+          focusedTerminalId,
         }
         this.activeGroup = parsed.activeGroup || null
         this.notify()

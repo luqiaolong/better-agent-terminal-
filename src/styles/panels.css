@@ -97,6 +97,67 @@
   overflow: hidden;
 }
 
+.main-panel-recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+}
+
+.main-panel-recovery-info {
+  background: rgba(95, 150, 255, 0.08);
+  color: #b8d3ff;
+}
+
+.main-panel-recovery-warning {
+  background: rgba(217, 119, 6, 0.08);
+  color: #f2c27a;
+}
+
+.main-panel-recovery-error {
+  background: rgba(244, 67, 54, 0.09);
+  color: #ffb3ad;
+}
+
+.main-panel-recovery-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.main-panel-recovery-label {
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.main-panel-recovery-message {
+  min-width: 0;
+  color: inherit;
+  opacity: 0.92;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.main-panel-recovery-action {
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.main-panel-recovery-action:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 /* Terminal name inline edit input */
 .terminal-name-input {
   background: transparent;

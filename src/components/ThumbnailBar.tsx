@@ -286,8 +286,8 @@ export function ThumbnailBar({
             <button
               className={`thumbnail-toolbar-btn${utilityPanelVisible ? ' active' : ''}`}
               onClick={onToggleUtilityPanel}
-              title={utilityPanelVisible ? 'Hide side panel' : 'Show side panel'}
-              aria-label={utilityPanelVisible ? 'Hide side panel' : 'Show side panel'}
+              title={utilityPanelVisible ? t('commandPalette.actions.hideUtilityPanel') : t('commandPalette.actions.showUtilityPanel')}
+              aria-label={utilityPanelVisible ? t('commandPalette.actions.hideUtilityPanel') : t('commandPalette.actions.showUtilityPanel')}
             >
               ≡
             </button>

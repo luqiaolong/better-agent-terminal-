@@ -203,6 +203,47 @@
     "git": "Git",
     "github": "GitHub"
   },
+  "commandPalette": {
+    "searchPlaceholder": "Search workspaces and actions",
+    "hint": "Use ↑ ↓ to navigate, Enter to run, Esc to close",
+    "empty": "No matching workspaces or actions.",
+    "sections": {
+      "workspaces": "Workspaces",
+      "views": "Views",
+      "panels": "Panels",
+      "app": "Actions"
+    },
+    "badges": {
+      "current": "Current",
+      "pending": "Pending",
+      "hidden": "Hidden",
+      "visible": "Visible"
+    },
+    "actions": {
+      "showTerminal": "Show Terminal",
+      "showFiles": "Show Files",
+      "showGit": "Show Git",
+      "showGitHub": "Show GitHub",
+      "expandSidebar": "Expand Workspace Sidebar",
+      "collapseSidebar": "Collapse Workspace Sidebar",
+      "toggleSidebarHint": "Toggle the left workspace rail",
+      "showUtilityPanel": "Show Utility Panel",
+      "hideUtilityPanel": "Hide Utility Panel",
+      "toggleUtilityPanelHint": "Toggle the right utility panel",
+      "openSnippetsPanel": "Open Snippets Panel",
+      "openSnippetsPanelHint": "Show snippets in the utility panel",
+      "openSkillsPanel": "Open Skills Panel",
+      "openSkillsPanelHint": "Show skills for the active Claude session",
+      "openAgentsPanel": "Open Agents Panel",
+      "openAgentsPanelHint": "Show sub-agents for the active Claude session",
+      "openWorkspace": "Open Workspace",
+      "openWorkspaceHint": "Add one or more folders to this window",
+      "openProfiles": "Open Profiles",
+      "openProfilesHint": "Manage and switch profiles",
+      "openSettings": "Open Settings",
+      "openSettingsHint": "Adjust terminal, theme, and app preferences"
+    }
+  },
 
   "github": {
     "pullRequests": "Pull Requests",
@@ -245,7 +286,15 @@
     "terminalLabel": "Terminal",
     "worktreeTerminalLabel": "Terminal (worktree)",
     "expandThumbnails": "Expand Thumbnails",
-    "collapsePanel": "Collapse Panel"
+    "collapsePanel": "Collapse Panel",
+    "recoveryAvailableLabel": "Recovery",
+    "recoveryAvailableMessage": "Session linkage was restored. Context can resume from the saved state.",
+    "recoveryRestingLabel": "Resting",
+    "recoveryRestingMessage": "This session was restored in resting mode. Wake it before sending more work.",
+    "recoveryFailedLabel": "Recovery failed",
+    "recoveryFailedMessage": "The last recovery attempt could not restore the previous session state.",
+    "recoveryFailedMessageWithError": "The last recovery attempt failed: {{error}}",
+    "recoveryRestartAction": "Start fresh"
   },
 
   "dialogs": {

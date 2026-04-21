@@ -47,6 +47,37 @@ export const MainPanel = memo(function MainPanel({
   const [showToolMsg, setShowToolMsg] = useState(true)
   const [showThinkingMsg, setShowThinkingMsg] = useState(true)
 
+  const recoveryBanner = (() => {
+    if (!terminal.recoveryState || terminal.recoveryState === 'fresh') return null
+
+    if (terminal.recoveryState === 'failed') {
+      return {
+        tone: 'error',
+        label: t('terminal.recoveryFailedLabel'),
+        message: terminal.recoveryError
+          ? t('terminal.recoveryFailedMessageWithError', { error: terminal.recoveryError })
+          : t('terminal.recoveryFailedMessage'),
+        action: t('terminal.recoveryRestartAction'),
+      } as const
+    }
+
+    if (terminal.recoveryState === 'resting') {
+      return {
+        tone: 'warning',
+        label: t('terminal.recoveryRestingLabel'),
+        message: t('terminal.recoveryRestingMessage'),
+        action: null,
+      } as const
+    }
+
+    return {
+      tone: 'info',
+      label: t('terminal.recoveryAvailableLabel'),
+      message: t('terminal.recoveryAvailableMessage'),
+      action: null,
+    } as const
+  })()
+
   const handleDoubleClick = () => {
     setEditValue(displayTitle)
     setIsEditing(true)
@@ -158,6 +189,22 @@ export const MainPanel = memo(function MainPanel({
               ×
             </button>
           </div>
+        </div>
+      )}
+      {recoveryBanner && (
+        <div className={`main-panel-recovery main-panel-recovery-${recoveryBanner.tone}`}>
+          <div className="main-panel-recovery-copy">
+            <span className="main-panel-recovery-label">{recoveryBanner.label}</span>
+            <span className="main-panel-recovery-message">{recoveryBanner.message}</span>
+          </div>
+          {recoveryBanner.action && (
+            <button
+              className="main-panel-recovery-action"
+              onClick={() => onRestart(terminal.id)}
+            >
+              {recoveryBanner.action}
+            </button>
+          )}
         </div>
       )}
       <div className="main-panel-content">
