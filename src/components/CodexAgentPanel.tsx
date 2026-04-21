@@ -296,13 +296,6 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
   const [userScrolledUp, setUserScrolledUp] = useState(false)
   const isNearBottomRef = useRef(true)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
-  const middlePanRef = useRef<{
-    startX: number
-    startY: number
-    startScrollLeft: number
-    startScrollTop: number
-    el: HTMLDivElement
-  } | null>(null)
   const activeTasksRef = useRef<HTMLDivElement>(null)
   const [aboveViewportUserMsgIds, setAboveViewportUserMsgIds] = useState<Set<string>>(new Set())
   const [claudeFontSize, setClaudeFontSize] = useState(settingsStore.getSettings().fontSize)
@@ -354,29 +347,6 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
     return () => window.removeEventListener('preview-file', handler)
   }, [])
 
-  const handleMiddlePanStart = useCallback((e: React.MouseEvent<HTMLDivElement>, el: HTMLDivElement | null) => {
-    if (e.button !== 1 || !el) return
-    e.preventDefault()
-    middlePanRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      startScrollLeft: el.scrollLeft,
-      startScrollTop: el.scrollTop,
-      el,
-    }
-  }, [])
-
-  const handleMiddlePanMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!middlePanRef.current) return
-    const { el, startX, startY, startScrollLeft, startScrollTop } = middlePanRef.current
-    el.scrollLeft = startScrollLeft - (e.clientX - startX)
-    el.scrollTop = startScrollTop - (e.clientY - startY)
-  }, [])
-
-  const handleMiddlePanEnd = useCallback((e?: React.MouseEvent<HTMLDivElement>) => {
-    if (e && e.button !== 1) return
-    middlePanRef.current = null
-  }, [])
 
   // Only auto-scroll if user hasn't scrolled up
   useEffect(() => {
@@ -3065,10 +3035,6 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
             e.preventDefault()
             setContextMenu({ x: e.clientX, y: e.clientY })
           }}
-          onMouseDown={(e) => handleMiddlePanStart(e, activeTasksRef.current)}
-          onMouseMove={handleMiddlePanMove}
-          onMouseUp={handleMiddlePanEnd}
-          onMouseLeave={() => handleMiddlePanEnd()}
         >
           {activeTasks.map(task => {
             const label = task.input.description
@@ -3107,10 +3073,6 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
           e.preventDefault()
           setContextMenu({ x: e.clientX, y: e.clientY })
         }}
-        onMouseDown={(e) => handleMiddlePanStart(e, messagesContainerRef.current)}
-        onMouseMove={handleMiddlePanMove}
-        onMouseUp={handleMiddlePanEnd}
-        onMouseLeave={() => handleMiddlePanEnd()}
       >
         {(hasMoreArchived || isLoadingMore) && (
           <div className="claude-load-more">

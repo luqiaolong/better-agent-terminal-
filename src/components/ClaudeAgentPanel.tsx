@@ -287,7 +287,6 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
   const [userScrolledUp, setUserScrolledUp] = useState(false)
   const isNearBottomRef = useRef(true)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
-  const middlePanRef = useRef<{ startX: number; startScrollLeft: number } | null>(null)
   const [aboveViewportUserMsgIds, setAboveViewportUserMsgIds] = useState<Set<string>>(new Set())
   const [claudeFontSize, setClaudeFontSize] = useState(settingsStore.getSettings().fontSize)
   const userMsgRefsMap = useRef<Map<string, HTMLDivElement>>(new Map())
@@ -329,6 +328,7 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
     window.addEventListener('preview-file', handler)
     return () => window.removeEventListener('preview-file', handler)
   }, [])
+
 
   // Only auto-scroll if user hasn't scrolled up
   useEffect(() => {
@@ -2992,20 +2992,6 @@ export function ClaudeAgentPanel({ sessionId, cwd, isActive, workspaceId, onClos
           e.preventDefault()
           setContextMenu({ x: e.clientX, y: e.clientY })
         }}
-        onMouseDown={(e) => {
-          if (e.button === 1) {
-            e.preventDefault()
-            const el = messagesContainerRef.current
-            if (el) middlePanRef.current = { startX: e.clientX, startScrollLeft: el.scrollLeft }
-          }
-        }}
-        onMouseMove={(e) => {
-          if (!middlePanRef.current) return
-          const el = messagesContainerRef.current
-          if (el) el.scrollLeft = middlePanRef.current.startScrollLeft - (e.clientX - middlePanRef.current.startX)
-        }}
-        onMouseUp={(e) => { if (e.button === 1) middlePanRef.current = null }}
-        onMouseLeave={() => { middlePanRef.current = null }}
       >
         {(hasMoreArchived || isLoadingMore) && (
           <div className="claude-load-more">
