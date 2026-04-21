@@ -880,7 +880,6 @@ export default function App() {
           isRemoteConnected={isRemoteConnected}
           onOpenProfiles={() => setShowProfiles(true)}
           onOpenSettings={() => setShowSettings(true)}
-          onToggleCollapse={handleSidebarCollapse}
         />
         {!panelSettings.sidebar.collapsed && (
           <ResizeHandle

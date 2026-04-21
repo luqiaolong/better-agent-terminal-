@@ -43,10 +43,15 @@ export function ThumbnailBar({
   onCloseTerminal
 }: ThumbnailBarProps) {
   const { t } = useTranslation()
+  const platform = window.electronAPI?.platform || 'darwin'
+  const showWindowControls = platform === 'win32' || platform === 'linux'
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [dropTargetId, setDropTargetId] = useState<string | null>(null)
   const [dropPosition, setDropPosition] = useState<'before' | 'after'>('before')
   const [showAddMenu, setShowAddMenu] = useState(false)
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
+  const [showWorkerOptions, setShowWorkerOptions] = useState(false)
+  const [isWindowMaximized, setIsWindowMaximized] = useState(false)
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({})
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; terminalId: string } | null>(null)
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null)
@@ -73,6 +78,12 @@ export function ThumbnailBar({
   }, [showAddMenu])
 
   useEffect(() => {
+    if (showAddMenu) return
+    setShowAdvancedOptions(false)
+    setShowWorkerOptions(false)
+  }, [showAddMenu])
+
+  useEffect(() => {
     if (!contextMenu) return
     const handleClickOutside = (e: MouseEvent) => {
       if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
@@ -82,6 +93,18 @@ export function ThumbnailBar({
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [contextMenu])
+
+  useEffect(() => {
+    if (!showWindowControls) return
+
+    window.electronAPI.app.isWindowMaximized()
+      .then(setIsWindowMaximized)
+      .catch(() => {})
+
+    return window.electronAPI.app.onWindowMaximizedChanged((nextValue) => {
+      setIsWindowMaximized(nextValue)
+    })
+  }, [showWindowControls])
 
   useLayoutEffect(() => {
     if (!contextMenu || !contextMenuRef.current) {
@@ -182,8 +205,13 @@ export function ThumbnailBar({
     setContextMenu({ x: e.clientX, y: e.clientY, terminalId })
   }, [])
 
+  const advancedPresetOrder = ['claude-code-worktree', 'claude-cli', 'claude-cli-worktree', 'codex-cli']
+  const advancedAgentPresets = agentPresets
+    .filter(preset => !['claude-code', 'claude-code-v2', 'codex-agent'].includes(preset.id))
+    .sort((a, b) => advancedPresetOrder.indexOf(a.id) - advancedPresetOrder.indexOf(b.id))
+
   return (
-    <div className="thumbnail-bar thumbnail-tab-bar" aria-label={t('terminal.workspaceSessions')}>
+    <div className={`thumbnail-bar thumbnail-tab-bar${showWindowControls ? ' has-window-controls' : ''}`} aria-label={t('terminal.workspaceSessions')}>
       <div
         className="thumbnail-list"
         ref={thumbnailListRef}
@@ -293,6 +321,35 @@ export function ThumbnailBar({
             </button>
           )}
 
+          {showWindowControls && (
+            <div className="window-controls" aria-label="Window controls">
+              <button
+                className="window-control-btn"
+                onClick={() => { void window.electronAPI.app.minimizeWindow() }}
+                title="Minimize"
+                aria-label="Minimize"
+              >
+                <span className="window-control-icon">─</span>
+              </button>
+              <button
+                className="window-control-btn"
+                onClick={() => { void window.electronAPI.app.toggleMaximizeWindow() }}
+                title={isWindowMaximized ? 'Restore' : 'Maximize'}
+                aria-label={isWindowMaximized ? 'Restore' : 'Maximize'}
+              >
+                <span className="window-control-icon">{isWindowMaximized ? '❐' : '□'}</span>
+              </button>
+              <button
+                className="window-control-btn close"
+                onClick={() => { void window.electronAPI.app.closeWindow() }}
+                title={t('common.close')}
+                aria-label={t('common.close')}
+              >
+                <span className="window-control-icon">×</span>
+              </button>
+            </div>
+          )}
+
           {showAddMenu && createPortal(
             <div className="thumbnail-add-menu" ref={addMenuPopupRef} style={menuStyle}>
               <div
@@ -302,33 +359,68 @@ export function ThumbnailBar({
                 <span className="thumbnail-add-menu-icon">⌘</span>
                 {t('terminal.terminalLabel')}
               </div>
+              <div
+                className="thumbnail-add-menu-item"
+                onClick={() => { onAddAgent?.('claude-code'); setShowAddMenu(false) }}
+              >
+                <span className="thumbnail-add-menu-icon" style={{ color: '#d97706' }}>✦</span>
+                {t('terminal.claudeAgentV1Label')}
+              </div>
+              <div
+                className="thumbnail-add-menu-item"
+                onClick={() => { onAddAgent?.('claude-code-v2'); setShowAddMenu(false) }}
+              >
+                <span className="thumbnail-add-menu-icon" style={{ color: '#eab308' }}>✦</span>
+                {t('terminal.claudeAgentV2Label')}
+              </div>
+              <div
+                className="thumbnail-add-menu-item"
+                onClick={() => { onAddAgent?.('codex-agent'); setShowAddMenu(false) }}
+              >
+                <span className="thumbnail-add-menu-icon" style={{ color: '#10a37f' }}>⬡</span>
+                {t('terminal.codexAgentLabel')}
+              </div>
               {onAddWorktreeTerminal && (
                 <div
                   className="thumbnail-add-menu-item"
                   onClick={() => { onAddWorktreeTerminal(); setShowAddMenu(false) }}
                 >
                   <span className="thumbnail-add-menu-icon" style={{ color: '#22c55e' }}>🌳</span>
-                  {t('terminal.worktreeTerminalLabel')}
+                  {t('terminal.worktreeLabel')}
                 </div>
               )}
-              {agentPresets.map(preset => (
-                <div
-                  key={preset.id}
-                  className="thumbnail-add-menu-item"
-                  onClick={() => { onAddAgent?.(preset.id); setShowAddMenu(false) }}
-                >
-                  <span className="thumbnail-add-menu-icon" style={{ color: preset.color }}>{preset.icon}</span>
-                  {preset.name}
-                  {preset.suggested && <span className="thumbnail-add-menu-suggested">suggested</span>}
-                </div>
-              ))}
               {onAddWorker && (
+                <div
+                  className="thumbnail-add-menu-item"
+                  onClick={() => {
+                    setShowWorkerOptions(prev => !prev)
+                    setShowAdvancedOptions(false)
+                  }}
+                >
+                  <span className="thumbnail-add-menu-icon" style={{ color: '#56b6c2' }}>⚙</span>
+                  {t('terminal.workerLabel')}
+                </div>
+              )}
+              {advancedAgentPresets.length > 0 && (
+                <div
+                  className="thumbnail-add-menu-item"
+                  onClick={() => {
+                    setShowAdvancedOptions(prev => !prev)
+                    setShowWorkerOptions(false)
+                  }}
+                >
+                  <span className="thumbnail-add-menu-icon" style={{ color: '#888' }}>⋯</span>
+                  {t('terminal.moreOptionsLabel')}
+                </div>
+              )}
+              {showWorkerOptions && onAddWorker && (
                 <>
                   <div className="thumbnail-add-menu-separator" />
+                  <div className="thumbnail-add-menu-label">{t('terminal.workerOptionsLabel')}</div>
                   {detectedProcfiles.map(fp => (
                     <div
                       key={fp}
-                      className="thumbnail-add-menu-item"
+                      className="thumbnail-add-menu-item thumbnail-add-menu-item-secondary"
                       onClick={() => { onAddWorker(fp); setShowAddMenu(false) }}
                     >
                       <span className="thumbnail-add-menu-icon" style={{ color: '#56b6c2' }}>⚙</span>
@@ -336,18 +428,35 @@ export function ThumbnailBar({
                     </div>
                   ))}
                   <div
-                    className="thumbnail-add-menu-item"
+                    className="thumbnail-add-menu-item thumbnail-add-menu-item-secondary"
                     onClick={() => { onAddWorker(); setShowAddMenu(false) }}
                   >
                     <span className="thumbnail-add-menu-icon" style={{ color: '#888' }}>📂</span>
-                    Worker: Open File...
+                    {t('terminal.workerOpenFileLabel')}
                   </div>
                   <div
                     className="thumbnail-add-menu-hint"
                     onClick={() => window.electronAPI.shell.openExternal('https://github.com/DarthSim/overmind')}
                   >
-                    What is a Procfile?
+                    {t('terminal.procfileHelpLabel')}
                   </div>
+                </>
+              )}
+              {showAdvancedOptions && advancedAgentPresets.length > 0 && (
+                <>
+                  <div className="thumbnail-add-menu-separator" />
+                  <div className="thumbnail-add-menu-label">{t('terminal.advancedOptionsLabel')}</div>
+                  {advancedAgentPresets.map(preset => (
+                    <div
+                      key={preset.id}
+                      className="thumbnail-add-menu-item thumbnail-add-menu-item-secondary"
+                      onClick={() => { onAddAgent?.(preset.id); setShowAddMenu(false) }}
+                    >
+                      <span className="thumbnail-add-menu-icon" style={{ color: preset.color }}>{preset.icon}</span>
+                      {preset.name}
+                      {preset.suggested && <span className="thumbnail-add-menu-suggested">suggested</span>}
+                    </div>
+                  ))}
                 </>
               )}
             </div>,

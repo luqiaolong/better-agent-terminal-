@@ -101,10 +101,11 @@ body {
 }
 
 .sidebar-collapsed {
-  width: 56px !important;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 0;
+  width: 8px !important;
+  min-width: 8px;
+  padding: 0;
+  background: var(--bg-secondary);
+  overflow: visible;
 }
 
 .sidebar-header {
@@ -163,7 +164,10 @@ body {
 }
 
 .sidebar-edge-toggle.collapsed {
-  right: -11px;
+  right: -9px;
+  width: 18px;
+  height: 48px;
+  border-radius: 0 8px 8px 0;
 }
 
 .sidebar-collapsed-top,

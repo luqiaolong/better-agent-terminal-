@@ -235,6 +235,18 @@ function getWindowIdByWebContents(wc: Electron.WebContents): string | null {
 
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 const GITHUB_REPO_URL = 'https://github.com/tony1223/better-agent-terminal'
+const useCustomWindowChrome = process.platform !== 'darwin'
+
+function bindWindowStateEvents(win: BrowserWindow) {
+  const sendMaximizedState = () => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('window:maximized-changed', win.isMaximized())
+    }
+  }
+
+  win.on('maximize', sendMaximizedState)
+  win.on('unmaximize', sendMaximizedState)
+}
 
 function buildMenu() {
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -337,13 +349,15 @@ function createWindow(windowId: string, bounds?: { x: number; y: number; width: 
       nodeIntegration: false,
       contextIsolation: true
     },
-    frame: true,
-    titleBarStyle: 'default',
+    ...(useCustomWindowChrome
+      ? { frame: false, titleBarStyle: 'hidden' as const }
+      : { frame: true, titleBarStyle: 'default' as const }),
     title: 'Better Agent Terminal',
     icon: nativeImage.createFromPath(path.join(__dirname, process.platform === 'win32' ? '../assets/icon.ico' : '../assets/icon.png'))
   })
 
   windowMap.set(windowId, win)
+  bindWindowStateEvents(win)
 
   if (process.platform === 'win32') {
     win.setMenuBarVisibility(false)
@@ -1169,6 +1183,33 @@ function registerLocalHandlers() {
     return sameProfile.findIndex(e => e.id === windowId) + 1
   })
 
+  ipcMain.handle('app:window-minimize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return false
+    win.minimize()
+    return true
+  })
+
+  ipcMain.handle('app:window-toggle-maximize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return false
+    if (win.isMaximized()) win.unmaximize()
+    else win.maximize()
+    return win.isMaximized()
+  })
+
+  ipcMain.handle('app:window-is-maximized', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return win ? win.isMaximized() : false
+  })
+
+  ipcMain.handle('app:window-close', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return false
+    win.close()
+    return true
+  })
+
   // Dock badge count (macOS/Linux)
   ipcMain.handle('app:set-dock-badge', (_event, count: number) => {
     if (process.platform === 'darwin') {
@@ -1310,9 +1351,13 @@ function registerLocalHandlers() {
     const detachedWin = new BrowserWindow({
       width: 900, height: 700, minWidth: 600, minHeight: 400,
       webPreferences: { preload: path.join(__dirname, 'preload.js'), nodeIntegration: false, contextIsolation: true },
-      frame: true, titleBarStyle: 'default', icon: nativeImage.createFromPath(path.join(__dirname, process.platform === 'win32' ? '../assets/icon.ico' : '../assets/icon.png'))
+      ...(useCustomWindowChrome
+        ? { frame: false, titleBarStyle: 'hidden' as const }
+        : { frame: true, titleBarStyle: 'default' as const }),
+      icon: nativeImage.createFromPath(path.join(__dirname, process.platform === 'win32' ? '../assets/icon.ico' : '../assets/icon.png'))
     })
     setupResizeThrottle(detachedWin, 'detached')
+    bindWindowStateEvents(detachedWin)
     detachedWindows.set(workspaceId, detachedWin)
     const urlParam = `?detached=${encodeURIComponent(workspaceId)}`
     if (VITE_DEV_SERVER_URL) { detachedWin.loadURL(VITE_DEV_SERVER_URL + urlParam) }

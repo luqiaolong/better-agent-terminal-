@@ -169,11 +169,26 @@
   background: var(--bg-hover);
 }
 
+.thumbnail-add-menu-item-secondary {
+  padding-left: 26px;
+  color: var(--text-secondary);
+}
+
 .thumbnail-add-menu-icon {
   font-size: 14px;
   width: 18px;
   text-align: center;
   flex-shrink: 0;
+}
+
+.thumbnail-add-menu-label {
+  padding: 6px 14px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  opacity: 0.8;
 }
 
 .thumbnail-add-menu-separator {

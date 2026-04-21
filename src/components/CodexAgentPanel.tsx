@@ -80,6 +80,12 @@ interface SessionSummary {
   summary?: string
 }
 
+interface StartupStage {
+  id: string
+  content: string
+  timestamp: number
+}
+
 export interface CodexAgentPanelProps {
   sessionId: string
   cwd: string
@@ -106,6 +112,18 @@ type MessageItem = ClaudeMessage | ClaudeToolCall
 
 // Track sessions that have been started to prevent duplicate calls across StrictMode remounts
 const startedSessions = new Set<string>()
+const DEFAULT_CODEX_MODEL = 'gpt-5.4'
+const SUPPORTED_CODEX_MODELS = new Set(['gpt-5.4', 'gpt-5.4-mini'])
+
+function normalizeCodexModel(value?: string): string {
+  return value && SUPPORTED_CODEX_MODELS.has(value) ? value : DEFAULT_CODEX_MODEL
+}
+
+function readPendingCodexModel(value: unknown): string | null {
+  return typeof value === 'string' && SUPPORTED_CODEX_MODELS.has(value)
+    ? value
+    : null
+}
 
 export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose, showUserMsg = true, showAssistantMsg = true, showToolMsg = true, showThinkingMsg = true }: Readonly<CodexAgentPanelProps>) {
   const { t } = useTranslation()
@@ -115,6 +133,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
   const isWorktreeSession = terminal?.agentPreset === 'claude-code-worktree'
   const normalizedAgentParams = normalizeAgentParams(terminal?.agentPreset, terminal?.agentParams)
   const [messages, setMessages] = useState<MessageItem[]>([])
+  const [startupStages, setStartupStages] = useState<StartupStage[]>([])
   const inputValueRef = useRef('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [isInterrupted, setIsInterrupted] = useState(false)
@@ -144,7 +163,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
   const [permissionMode, setPermissionMode] = useState<string>('bypassPermissions')
   const [currentModel, setCurrentModel] = useState<string>(() => {
     const t = workspaceStore.getState().terminals.find(t => t.id === sessionId)
-    if (isCodexSession) return t?.model || ''
+    if (isCodexSession) return normalizeCodexModel(t?.model)
     return t?.model || settingsStore.getSettings().defaultModel || ''
   })
   const [codexSandboxMode, setCodexSandboxMode] = useState<'read-only' | 'workspace-write' | 'danger-full-access'>(() => {
@@ -185,6 +204,11 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
   const [resumeSessions, setResumeSessions] = useState<SessionSummary[]>([])
   const [resumeLoading, setResumeLoading] = useState(false)
   const [showModelList, setShowModelList] = useState(false)
+  const [pendingCodexModel, setPendingCodexModel] = useState<string | null>(() =>
+    isCodexSession ? readPendingCodexModel(normalizedAgentParams?.nextSessionModel) : null,
+  )
+  const modelButtonRef = useRef<HTMLSpanElement>(null)
+  const modelListRef = useRef<HTMLDivElement>(null)
   const [contentModal, setContentModal] = useState<{ title: string; content: string; markdown?: boolean } | null>(null)
   // Subagent message storage (keyed by parent Task tool_use_id)
   const subagentMessagesRef = useRef<Map<string, MessageItem[]>>(new Map())
@@ -258,6 +282,18 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
   const [loadedArchive, setLoadedArchive] = useState<MessageItem[]>([])
   const [hasMoreArchived, setHasMoreArchived] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const clearStartupStages = useCallback(() => setStartupStages([]), [])
+  const upsertStartupStage = useCallback((message: ClaudeMessage) => {
+    setStartupStages(prev => {
+      const idx = prev.findIndex(stage => stage.id === message.id)
+      if (idx === -1) {
+        return [...prev, { id: message.id, content: message.content, timestamp: message.timestamp }]
+      }
+      const next = [...prev]
+      next[idx] = { ...next[idx], content: message.content, timestamp: message.timestamp }
+      return next
+    })
+  }, [])
   const archivedCountRef = useRef(0)
   const loadedFromArchiveRef = useRef(0)
   const archivingRef = useRef(false)
@@ -282,6 +318,11 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
       setCodexApprovalPolicy(approvalPolicy)
     }
   }, [normalizedAgentParams?.approvalPolicy, normalizedAgentParams?.sandboxMode])
+
+  useEffect(() => {
+    if (!isCodexSession) return
+    setPendingCodexModel(readPendingCodexModel(normalizedAgentParams?.nextSessionModel))
+  }, [isCodexSession, normalizedAgentParams?.nextSessionModel])
   const currentTurnMsgIdRef = useRef<string | null>(null)
   // /auto-continue: when enabled, after each turn ends auto-send `prompt`
   // up to `max` times. `used` resets when the user manually sends.
@@ -301,6 +342,9 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
   const [claudeFontSize, setClaudeFontSize] = useState(settingsStore.getSettings().fontSize)
   const userMsgRefsMap = useRef<Map<string, HTMLDivElement>>(new Map())
   const observerRef = useRef<IntersectionObserver | null>(null)
+  const queuedCodexModelLabel = isCodexSession && pendingCodexModel && pendingCodexModel !== currentModel
+    ? pendingCodexModel
+    : null
 
   // Check if scrolled near bottom (within 80px)
   const checkIfNearBottom = useCallback(() => {
@@ -337,6 +381,18 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
     window.addEventListener('click', close, true)
     return () => window.removeEventListener('click', close, true)
   }, [contextMenu])
+
+  useEffect(() => {
+    if (!showModelList) return
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (modelListRef.current?.contains(target) || modelButtonRef.current?.contains(target)) return
+      setShowModelList(false)
+    }
+    window.addEventListener('mousedown', handlePointerDown, true)
+    return () => window.removeEventListener('mousedown', handlePointerDown, true)
+  }, [showModelList])
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -523,10 +579,15 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
         console.log(`${tag} onMessage`, (msg as ClaudeMessage).id)
         workspaceStore.updateTerminalActivity(sessionId)
         const message = msg as ClaudeMessage
+        if (message.id.startsWith(`sys-stage-${sessionId}-`)) {
+          upsertStartupStage(message)
+          return
+        }
         // On restart, sys-init message arrives again — reset messages
         // But skip reset if history will be loaded (resume flow)
         if (message.id === `sys-init-${sessionId}`) {
           window.electronAPI?.debug?.log(`${tag} sys-init historyLoaded=${historyLoadedRef.current}`)
+          clearStartupStages()
           if (!historyLoadedRef.current) {
             setMessages([message])
             // Clear archive on fresh session start
@@ -551,6 +612,9 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
             setSessionMeta(null)
           }
           return
+        }
+        if (message.role === 'assistant') {
+          clearStartupStages()
         }
         // Route subagent messages to separate bucket
         if (message.parentToolUseId) {
@@ -590,6 +654,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
         workspaceStore.updateTerminalActivity(sessionId)
         const toolCall = tool as ClaudeToolCall
         window.electronAPI.debug.log(`[renderer] onToolUse name=${toolCall.toolName} id=${toolCall.id?.slice(0, 12)} status=${toolCall.status} parentToolUseId=${toolCall.parentToolUseId || 'none'}`)
+        clearStartupStages()
         // Route subagent tool calls to separate bucket
         if (toolCall.parentToolUseId) {
           const bucket = subagentMessagesRef.current.get(toolCall.parentToolUseId) || []
@@ -657,6 +722,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
 
       api.onTurnEnd((sid: string, payload) => {
         if (sid !== sessionId) return
+        clearStartupStages()
         // Auto-continue: only when turn completed successfully, until max reached
         if (payload.reason !== 'completed') return
         const ac = autoContinueRef.current
@@ -679,6 +745,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
 
       api.onResult((sid: string, resultData: unknown) => {
         if (sid !== sessionId) return
+        clearStartupStages()
         setIsStreaming(false)
         setIsInterrupted(false)
         setStreamingText('')
@@ -709,6 +776,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
 
       api.onError((sid: string, error: string) => {
         if (sid !== sessionId) return
+        clearStartupStages()
         setMessages(prev => [...prev, {
           id: `err-${Date.now()}`,
           sessionId: sid,
@@ -724,6 +792,9 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
         if (sid !== sessionId) return
         workspaceStore.updateTerminalActivity(sessionId)
         const d = data as { text?: string; thinking?: string; parentToolUseId?: string }
+        if (d.text || d.thinking) {
+          clearStartupStages()
+        }
         if (d.parentToolUseId) {
           // Route to per-subagent streaming state
           if (d.text) {
@@ -777,9 +848,10 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
           }
         }
         if (m.model) {
-          setCurrentModel(prev => isCodexSession ? m.model! : (prev || m.model!))
+          const resolvedModel = isCodexSession ? normalizeCodexModel(m.model) : m.model!
+          setCurrentModel(prev => isCodexSession ? resolvedModel : (prev || resolvedModel))
           if (isCodexSession) {
-            workspaceStore.updateTerminalModel(sessionId, m.model)
+            workspaceStore.updateTerminalModel(sessionId, resolvedModel)
           }
         }
         // Persist session metadata for status line restoration on next app launch.
@@ -833,6 +905,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
 
       api.onSessionReset((sid: string) => {
         if (sid !== sessionId) return
+        clearStartupStages()
         setMessages([])
         setStreamingText('')
         setStreamingThinking('')
@@ -855,6 +928,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
         }
         const dlog2 = (...args: unknown[]) => window.electronAPI?.debug?.log(...args)
         dlog2(`${tag} onHistory items=${(items as unknown[]).length} pendingPromptSent=${pendingPromptSentRef.current}`)
+        clearStartupStages()
         historyLoadedRef.current = true
         // Partition history items: main timeline vs subagent buckets
         const mainItems: MessageItem[] = []
@@ -948,7 +1022,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
       console.log(`${tag} unsubscribing IPC events`)
       unsubs.forEach(unsub => unsub())
     }
-  }, [sessionId, isCodexSession])
+  }, [sessionId, isCodexSession, clearStartupStages, upsertStartupStage])
 
   // Start session on mount (guarded against StrictMode double-mount)
   // If a saved sdkSessionId exists (from a previous /resume), auto-resume that session
@@ -969,10 +1043,14 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
       dlog(`${stag} sdkSessionId=${savedSdkSessionId?.slice(0, 8)} pendingPrompt="${terminal?.pendingPrompt || ''}" apiVersion=${apiVersion}`)
 
       // Restore saved model to UI, or use global default
+      const queuedModel = isCodexSession ? readPendingCodexModel(terminal?.agentParams?.nextSessionModel) : null
       const effectiveModel = isCodexSession
-        ? (savedModel || '')
+        ? (savedSdkSessionId ? normalizeCodexModel(savedModel) : normalizeCodexModel(queuedModel || savedModel))
         : (savedModel || globalSettings.defaultModel)
       if (effectiveModel) setCurrentModel(effectiveModel)
+      if (isCodexSession && !savedSdkSessionId && effectiveModel) {
+        workspaceStore.updateTerminalModel(sessionId, effectiveModel)
+      }
 
       // Use global default effort
       const effectiveEffort = isCodexSession
@@ -1011,7 +1089,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
         if (meta) {
           setSessionMeta(meta as SessionMeta)
           if ((meta as SessionMeta).model) {
-            const nextModel = (meta as SessionMeta).model!
+            const nextModel = isCodexSession ? normalizeCodexModel((meta as SessionMeta).model) : (meta as SessionMeta).model!
             setCurrentModel(prev => isCodexSession ? nextModel : (prev || nextModel))
             if (isCodexSession) {
               workspaceStore.updateTerminalModel(sessionId, nextModel)
@@ -1160,9 +1238,19 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
   }, [isActive])
 
   const handleModelSelect = useCallback(async (modelValue: string) => {
-    if (isCodexSession && modelValue !== currentModel) {
-      const ok = await window.electronAPI.dialog.confirm(t('claude.codexModelChangeWarning'))
-      if (!ok) return
+    if (isCodexSession) {
+      setShowModelList(false)
+      setPendingCodexModel(modelValue)
+      workspaceStore.updateTerminalAgentParams(sessionId, { nextSessionModel: modelValue })
+      setMessages(prev => [...prev, {
+        id: `sys-codex-model-pending-${Date.now()}`,
+        sessionId,
+        role: 'system' as const,
+        content: t('claude.codexModelQueuedNotice', { current: currentModel, next: modelValue }),
+        timestamp: Date.now(),
+      }])
+      setTimeout(() => textareaRef.current?.focus(), 0)
+      return
     }
     // V2: warn that model change will recreate session and re-apply context
     if (!isCodexSession && isV2Session && modelValue !== currentModel) {
@@ -1445,6 +1533,14 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
     // Intercept /new or /clear command — reset session (clear conversation, fresh start)
     if (!isStreaming && (trimmed === '/new' || trimmed === '/clear')) {
       clearInput()
+      if (isCodexSession) {
+        const nextModel = normalizeCodexModel(pendingCodexModel || currentModel)
+        if (nextModel !== currentModel) {
+          await window.electronAPI.claude.setModel(sessionId, nextModel, settingsStore.getSettings().autoCompactWindow)
+          workspaceStore.updateTerminalModel(sessionId, nextModel)
+          setCurrentModel(nextModel)
+        }
+      }
       setMessages([])
       setStreamingText('')
       setStreamingThinking('')
@@ -1905,10 +2001,15 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
     if (availableModels.length === 0) return
     const idx = availableModels.findIndex(m => m.value === currentModel)
     const next = availableModels[(idx + 1) % availableModels.length]
+    if (isCodexSession) {
+      setPendingCodexModel(next.value)
+      workspaceStore.updateTerminalAgentParams(sessionId, { nextSessionModel: next.value })
+      return
+    }
     setCurrentModel(next.value)
     await window.electronAPI.claude.setModel(sessionId, next.value, settingsStore.getSettings().autoCompactWindow)
     workspaceStore.updateTerminalModel(sessionId, next.value)
-  }, [sessionId, currentModel, availableModels])
+  }, [sessionId, currentModel, availableModels, isCodexSession])
 
   const handleEffortChange = useCallback(async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const next = e.target.value
@@ -3065,6 +3166,16 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
           })}
         </div>
       )}
+      {startupStages.length > 0 && (
+        <div className="claude-startup-stages">
+          {startupStages.map((stage, index) => (
+            <div key={stage.id} className="claude-startup-stage">
+              <span className="claude-startup-stage-index">{index + 1}</span>
+              <span className="claude-startup-stage-text">{stage.content}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div
         className="claude-messages claude-timeline"
         ref={messagesContainerRef}
@@ -3093,7 +3204,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
           ) : null
           return <Fragment key={item.id || `msg-${i}`}>{divider}{renderMessage(item, i)}</Fragment>
         })}
-        {isStreaming && !streamingText && !streamingThinking && showThinkingMsg && (
+        {isStreaming && !streamingText && !streamingThinking && showThinkingMsg && startupStages.length === 0 && (
           <div className="tl-item">
             <div className="tl-dot dot-thinking" />
             <div className="tl-content claude-thinking">
@@ -3307,7 +3418,7 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
 
       {/* Model Selection List */}
       {showModelList && (
-        <div className="claude-resume-card">
+        <div className="claude-resume-card" ref={modelListRef}>
           <div className="claude-permission-title">{isCodexSession ? 'Select a Codex model' : 'Select a model'}</div>
           {availableModels.length === 0 ? (
             <div className="claude-resume-empty">No models available</div>
@@ -3346,6 +3457,9 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
                 )
               })()}
             </div>
+          )}
+          {isCodexSession && (
+            <div className="claude-model-1m-hint">{t('claude.codexModelQueuedHint')}</div>
           )}
           {!isCodexSession && isV2Session && (
             <div className="claude-model-1m-hint">{t('claude.v2ModelListHint')}</div>
@@ -3639,11 +3753,14 @@ export function CodexAgentPanel({ sessionId, cwd, isActive, workspaceId, onClose
 
             {currentModel && (
               <span
+                ref={modelButtonRef}
                 className="claude-status-btn"
                 onClick={() => setShowModelList(true)}
-                title={`Model: ${currentModel} (click to select)`}
+                title={queuedCodexModelLabel
+                  ? t('claude.codexModelQueuedTitle', { current: currentModel, next: queuedCodexModelLabel })
+                  : `Model: ${currentModel} (click to select)`}
               >
-                {'</>'} {currentModel}{sessionMeta && sessionMeta.contextWindow > 0 ? ` (${sessionMeta.contextWindow >= 1000000 ? `${Math.round(sessionMeta.contextWindow / 1000000)}M` : `${Math.round(sessionMeta.contextWindow / 1000)}k`})` : ''}
+                {'</>'} {currentModel}{sessionMeta && sessionMeta.contextWindow > 0 ? ` (${sessionMeta.contextWindow >= 1000000 ? `${Math.round(sessionMeta.contextWindow / 1000000)}M` : `${Math.round(sessionMeta.contextWindow / 1000)}k`})` : ''}{queuedCodexModelLabel ? ` -> next ${queuedCodexModelLabel}` : ''}
               </span>
             )}
             {(isCodexSession || !isV2Session) && (

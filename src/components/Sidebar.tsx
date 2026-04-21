@@ -26,7 +26,6 @@ interface SidebarProps {
   onDetachWorkspace: (workspaceId: string) => void
   onOpenProfiles: () => void
   onOpenSettings: () => void
-  onToggleCollapse: () => void
 }
 
 export function Sidebar({
@@ -50,7 +49,6 @@ export function Sidebar({
   onDetachWorkspace,
   onOpenProfiles,
   onOpenSettings,
-  onToggleCollapse,
 }: Readonly<SidebarProps>) {
   const { t } = useTranslation()
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -290,63 +288,11 @@ export function Sidebar({
 
   if (collapsed) {
     return (
-      <aside className="sidebar sidebar-collapsed" style={{ width: 56 }}>
-        <div className="sidebar-collapsed-top" />
-        <div className="sidebar-collapsed-list">
-          {filteredWorkspaces.map(workspace => {
-            const label = workspace.alias || workspace.name
-            const shortLabel = label.trim().slice(0, 1).toUpperCase()
-            return (
-              <button
-                key={workspace.id}
-                className={`sidebar-collapsed-item${workspace.id === activeWorkspaceId ? ' active' : ''}`}
-                onClick={() => onSelectWorkspace(workspace.id)}
-                onContextMenu={(e) => handleContextMenu(e, workspace.id)}
-                title={label}
-              >
-                {workspace.color && <span className="sidebar-collapsed-color" style={{ backgroundColor: workspace.color }} />}
-                <span className="sidebar-collapsed-initial">{shortLabel}</span>
-                <ActivityIndicator workspaceId={workspace.id} size="small" />
-              </button>
-            )
-          })}
-        </div>
-        <div className="sidebar-collapsed-bottom">
-          <button className="sidebar-collapse-btn" onClick={onAddWorkspace} title={t('sidebar.addWorkspace')} aria-label={t('sidebar.addWorkspace')}>
-            +
-          </button>
-        </div>
-
-        {contextMenu && (
-          <div
-            ref={contextMenuRef}
-            className="workspace-context-menu"
-            style={menuPos
-              ? { left: menuPos.x, top: menuPos.y }
-              : { left: contextMenu.x, top: contextMenu.y, visibility: 'hidden' as const }
-            }
-          >
-            <div
-              className="context-menu-item"
-              onClick={() => {
-                onToggleCollapse()
-                setContextMenu(null)
-              }}
-            >
-              {t('sidebar.expandSidebar')}
-            </div>
-            <div
-              className="context-menu-item danger"
-              onClick={() => {
-                onRemoveWorkspace(contextMenu.workspaceId)
-                setContextMenu(null)
-              }}
-            >
-              {t('sidebar.closeWorkspace')}
-            </div>
-          </div>
-        )}
-      </aside>
+      <aside
+        className="sidebar sidebar-collapsed"
+        style={{ width: 8 }}
+        aria-hidden="true"
+      />
     )
   }
 

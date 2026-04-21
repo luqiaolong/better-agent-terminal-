@@ -41,6 +41,7 @@ interface CodexSessionInstance {
   state: ClaudeSessionState
   threadId?: string
   cwd: string
+  codexPath?: string
   metadata: SessionMetadata
   codexInstance?: unknown
   thread?: unknown
@@ -66,10 +67,12 @@ interface RecoverySnapshot {
 
 type HistoryItem = ClaudeMessage | ClaudeToolCall
 
-const CODEX_EFFORT_LEVELS: readonly CodexEffortLevel[] = ['minimal', 'low', 'medium', 'high', 'xhigh']
+const DEFAULT_CODEX_MODEL = 'gpt-5.4'
+const CODEX_EFFORT_LEVELS: readonly CodexEffortLevel[] = ['low', 'medium', 'high', 'xhigh']
 
 // Lazy SDK import
 let CodexClass: unknown = null
+let cachedCodexBinaryPath: string | undefined
 
 function getCodexInstallHint(): string {
   if (process.platform === 'win32') {
@@ -113,6 +116,10 @@ function codexTargetTriple(): string | undefined {
 }
 
 function findCodexBinary(): string | undefined {
+  if (cachedCodexBinaryPath && existsSync(cachedCodexBinaryPath)) {
+    return cachedCodexBinaryPath
+  }
+
   const exe = process.platform === 'win32' ? 'codex.exe' : 'codex'
   const triple = codexTargetTriple()
 
@@ -126,6 +133,7 @@ function findCodexBinary(): string | undefined {
       }
       const candidate = pathModule.join(pathModule.dirname(pkgJson), 'vendor', triple, 'codex', exe)
       if (existsSync(candidate)) {
+        cachedCodexBinaryPath = candidate
         return candidate
       }
     } catch {
@@ -142,6 +150,7 @@ function findCodexBinary(): string | undefined {
     const first = result.split(/\r?\n/).find(Boolean)?.trim()
     // Skip the .cmd/.bat shim that npm installs — can't be spawn'd directly.
     if (first && /\.(cmd|bat)$/i.test(first)) return undefined
+    if (first) cachedCodexBinaryPath = first
     return first || undefined
   } catch {
     return undefined
@@ -149,11 +158,16 @@ function findCodexBinary(): string | undefined {
 }
 
 const CODEX_MODELS: Array<{ value: string; displayName: string; description: string }> = [
-  { value: 'o3', displayName: 'o3', description: 'OpenAI o3 · reasoning model' },
-  { value: 'o4-mini', displayName: 'o4-mini', description: 'OpenAI o4-mini · fast & efficient' },
-  { value: 'gpt-4.1', displayName: 'GPT-4.1', description: 'OpenAI GPT-4.1 · latest GPT' },
-  { value: 'codex-mini-latest', displayName: 'Codex Mini', description: 'codex-mini · optimized for code' },
+  { value: 'gpt-5.4', displayName: 'GPT-5.4', description: 'OpenAI GPT-5.4 · flagship coding model' },
+  { value: 'gpt-5.4-mini', displayName: 'GPT-5.4 Mini', description: 'OpenAI GPT-5.4 Mini · faster, lighter coding model' },
 ]
+
+function normalizeCodexModel(value: unknown): string {
+  if (typeof value === 'string' && CODEX_MODELS.some(model => model.value === value)) {
+    return value
+  }
+  return DEFAULT_CODEX_MODEL
+}
 
 const sdkThreadIds = new Map<string, string>()
 const recoveryFailures = new Map<string, string>()
@@ -274,8 +288,21 @@ export class CodexAgentManager {
 
   private static readonly MSG_BUFFER_CAP = 300
 
-  private rebuildThread(session: CodexSessionInstance): void {
-    if (!session.codexInstance || !session.threadId) return
+  private emitEphemeralSystemMessage(sessionId: string, id: string, content: string) {
+    this.send('claude:message', sessionId, {
+      id,
+      sessionId,
+      role: 'system',
+      content,
+      timestamp: Date.now(),
+    } satisfies ClaudeMessage)
+  }
+
+  private emitStageMessage(sessionId: string, key: string, content: string) {
+    this.emitEphemeralSystemMessage(sessionId, `sys-stage-${sessionId}-${key}`, content)
+  }
+
+  private buildThreadOptions(session: CodexSessionInstance): Record<string, unknown> {
     const threadOpts: Record<string, unknown> = {
       workingDirectory: session.cwd,
       sandboxMode: session.sandboxMode,
@@ -283,6 +310,82 @@ export class CodexAgentManager {
       modelReasoningEffort: session.effort,
     }
     if (session.model) threadOpts.model = session.model
+    return threadOpts
+  }
+
+  private async ensureRuntime(sessionId: string, session: CodexSessionInstance): Promise<boolean> {
+    if (session.codexInstance) return true
+
+    const codexPath = session.codexPath || findCodexBinary()
+    if (!codexPath) {
+      const message = `Codex CLI not found. Install with: ${getCodexInstallHint()}`
+      recoveryFailures.set(sessionId, message)
+      this.send('claude:error', sessionId, message)
+      return false
+    }
+
+    session.codexPath = codexPath
+    this.emitStageMessage(sessionId, 'runtime', 'Starting Codex runtime...')
+
+    try {
+      const Codex = await getCodexClass() as new (opts: Record<string, unknown>) => unknown
+      session.codexInstance = new Codex({
+        codexPathOverride: codexPath,
+      })
+      this.emitStageMessage(sessionId, 'runtime', 'Codex runtime ready.')
+      return true
+    } catch (err) {
+      logger.error(`[codex:${sessionId.slice(0, 8)}] Failed to create Codex runtime:`, err)
+      const message = `Failed to start Codex: ${err instanceof Error ? err.message : String(err)}`
+      recoveryFailures.set(sessionId, message)
+      this.send('claude:error', sessionId, message)
+      return false
+    }
+  }
+
+  private async ensureThread(sessionId: string, session: CodexSessionInstance): Promise<boolean> {
+    if (session.thread) return true
+    if (!(await this.ensureRuntime(sessionId, session))) return false
+
+    const savedThreadId = session.threadId || sdkThreadIds.get(sessionId)
+    this.emitStageMessage(
+      sessionId,
+      'thread',
+      savedThreadId ? 'Restoring previous Codex conversation...' : 'Creating Codex conversation thread...'
+    )
+
+    try {
+      const codex = session.codexInstance as Record<string, (input: unknown, opts?: Record<string, unknown>) => unknown>
+      const threadOpts = this.buildThreadOptions(session)
+      session.thread = savedThreadId
+        ? codex.resumeThread(savedThreadId, threadOpts)
+        : codex.startThread(threadOpts)
+
+      const threadId = (session.thread as Record<string, unknown>)?.id as string | undefined
+      if (threadId) {
+        session.threadId = threadId
+        session.metadata.sdkSessionId = threadId
+        sdkThreadIds.set(sessionId, threadId)
+      } else if (savedThreadId) {
+        session.threadId = savedThreadId
+        session.metadata.sdkSessionId = savedThreadId
+      }
+
+      this.send('claude:status', sessionId, { ...session.metadata })
+      this.emitStageMessage(sessionId, 'thread', savedThreadId ? 'Previous conversation restored.' : 'Conversation thread ready.')
+      return true
+    } catch (err) {
+      logger.error(`[codex:${sessionId.slice(0, 8)}] Failed to prepare Codex thread:`, err)
+      const message = `Failed to prepare Codex thread: ${err instanceof Error ? err.message : String(err)}`
+      recoveryFailures.set(sessionId, message)
+      this.send('claude:error', sessionId, message)
+      return false
+    }
+  }
+
+  private rebuildThread(session: CodexSessionInstance): void {
+    if (!session.codexInstance || !session.threadId) return
+    const threadOpts = this.buildThreadOptions(session)
     const codex = session.codexInstance as Record<string, (id: string, opts: Record<string, unknown>) => unknown>
     session.thread = codex.resumeThread(session.threadId, threadOpts)
   }
@@ -303,7 +406,8 @@ export class CodexAgentManager {
     const threadId = session?.threadId
     if (!session || !threadId) return
 
-    const model = await readModelFromSessionLog(threadId).catch(() => undefined)
+    const rawModel = await readModelFromSessionLog(threadId).catch(() => undefined)
+    const model = normalizeCodexModel(rawModel)
     if (!model || session.metadata.model === model) return
 
     logger.log(`[codex:${sessionId.slice(0, 8)}] Resolved session model from log: ${model}`)
@@ -510,7 +614,8 @@ export class CodexAgentManager {
     }
 
     const stag = `[codex:${sessionId.slice(0, 8)}]`
-    logger.log(`${stag} Starting session cwd=${options.cwd} model=${options.model || 'default'}`)
+    const model = normalizeCodexModel(options.model)
+    logger.log(`${stag} Starting session cwd=${options.cwd} model=${model}`)
     recoveryFailures.delete(sessionId)
 
     const sandboxMode = options.codexSandboxMode || 'workspace-write'
@@ -520,14 +625,15 @@ export class CodexAgentManager {
       abortController: new AbortController(),
       state: { sessionId, messages: [], isStreaming: false },
       cwd: options.cwd,
+      codexPath,
       metadata: {
         ...this.makeMetadata(),
-        model: options.model,
+        model,
         cwd: options.cwd,
       },
       sandboxMode,
       approvalPolicy,
-      model: options.model,
+      model,
       effort: normalizeCodexEffort(options.effort),
       messageQueue: [],
       startTime: Date.now(),
@@ -535,70 +641,40 @@ export class CodexAgentManager {
 
     this.sessions.set(sessionId, session)
 
+    const savedThreadId = sdkThreadIds.get(sessionId)
+    if (savedThreadId) {
+      session.threadId = savedThreadId
+      session.metadata.sdkSessionId = savedThreadId
+    }
+
     // Send init message
     this.addMessage(sessionId, {
       id: `sys-init-${sessionId}`,
       sessionId,
       role: 'system',
-      content: `Codex session started (sandbox: ${sandboxMode}, approval: ${approvalPolicy})`,
+      content: `Codex session ready (sandbox: ${sandboxMode}, approval: ${approvalPolicy})`,
       timestamp: Date.now(),
     })
+    this.emitStageMessage(
+      sessionId,
+      'idle',
+      savedThreadId
+        ? 'Previous conversation is loaded. Runtime will resume on your next message.'
+        : 'Waiting for your first message. Codex runtime starts on demand.'
+    )
+    this.send('claude:status', sessionId, { ...session.metadata })
 
-    // Create Codex instance and thread
-    try {
-      const Codex = await getCodexClass() as new (opts: Record<string, unknown>) => unknown
-      const codex = new Codex({
-        codexPathOverride: codexPath,
-      })
-      session.codexInstance = codex
-
-      const threadOpts: Record<string, unknown> = {
-        workingDirectory: options.cwd,
-        sandboxMode,
-        approvalPolicy,
-        modelReasoningEffort: session.effort,
-      }
-      if (options.model) threadOpts.model = options.model
-
-      const savedThreadId = sdkThreadIds.get(sessionId)
-      let thread: unknown
-      if (savedThreadId) {
-        logger.log(`${stag} Resuming thread ${savedThreadId.slice(0, 8)}`)
-        thread = (codex as Record<string, (id: string, opts?: Record<string, unknown>) => unknown>).resumeThread(savedThreadId, threadOpts)
-      } else {
-        thread = (codex as Record<string, (opts: Record<string, unknown>) => unknown>).startThread(threadOpts)
-      }
-      session.thread = thread
-
-      // Extract thread ID if available
-      const threadId = (thread as Record<string, unknown>)?.id as string | undefined
-      if (threadId) {
-        session.threadId = threadId
-        session.metadata.sdkSessionId = threadId
-        sdkThreadIds.set(sessionId, threadId)
-      }
-
-      this.send('claude:status', sessionId, { ...session.metadata })
-
-      // If a prompt was provided, send it immediately
-      if (options.prompt) {
-        await this.sendMessage(sessionId, options.prompt)
-      }
-
-      return true
-    } catch (err) {
-      logger.error(`${stag} Failed to create Codex session:`, err)
-      const message = `Failed to start Codex: ${err instanceof Error ? err.message : String(err)}`
-      recoveryFailures.set(sessionId, message)
-      this.send('claude:error', sessionId, message)
-      this.sessions.delete(sessionId)
-      return false
+    // If a prompt was provided, send it immediately
+    if (options.prompt) {
+      await this.sendMessage(sessionId, options.prompt)
     }
+
+    return true
   }
 
   async sendMessage(sessionId: string, prompt: string, images?: string[]): Promise<boolean> {
     const session = this.sessions.get(sessionId)
-    if (!session || !session.thread) return false
+    if (!session) return false
 
     const stag = `[codex:${sessionId.slice(0, 8)}]`
 
@@ -625,6 +701,17 @@ export class CodexAgentManager {
     session.state.isStreaming = true
     session.lastEventAt = Date.now()
     const ctrl = session.abortController
+
+    if (!(await this.ensureThread(sessionId, session)) || !session.thread) {
+      if (session.abortController === ctrl) {
+        session.isRunning = false
+        session.state.isStreaming = false
+        session.currentPrompt = undefined
+      }
+      return false
+    }
+
+    this.emitStageMessage(sessionId, 'dispatch', 'Sending request to Codex...')
 
     // Add user message to UI (with note when images are attached, so remote viewers see context)
     const displayContent = prompt + (images?.length ? `\n[${images.length} image${images.length > 1 ? 's' : ''} attached]` : '')
@@ -679,6 +766,7 @@ export class CodexAgentManager {
         ]
       }
       const { events } = await thread.runStreamed(input, { signal: ctrl.signal })
+      this.emitStageMessage(sessionId, 'dispatch', 'Request sent. Waiting for Codex to begin responding...')
 
       resetIdleTimer()
 
@@ -1144,18 +1232,19 @@ export class CodexAgentManager {
   setModel(sessionId: string, model: string): boolean {
     const session = this.sessions.get(sessionId)
     if (!session) return false
-    if (session.model === model) return true
+    const nextModel = normalizeCodexModel(model)
+    if (session.model === nextModel) return true
     const aborted = this.abortRunningTurn(session)
-    session.model = model
-    session.metadata.model = model
+    session.model = nextModel
+    session.metadata.model = nextModel
     this.rebuildThread(session)
     this.addMessage(sessionId, {
       id: `sys-model-${Date.now()}`,
       sessionId,
       role: 'system',
       content: aborted
-        ? `Codex model updated to ${model}. Previous turn aborted.`
-        : `Codex model updated to ${model}.`,
+        ? `Codex model updated to ${nextModel}. Previous turn aborted.`
+        : `Codex model updated to ${nextModel}.`,
       timestamp: Date.now(),
     })
     this.send('claude:status', sessionId, { ...session.metadata })

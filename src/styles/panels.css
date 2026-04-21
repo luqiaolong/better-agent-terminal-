@@ -186,6 +186,11 @@
   min-height: 36px;
   padding: 0 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  -webkit-app-region: drag;
+}
+
+.thumbnail-tab-bar.has-window-controls {
+  padding-right: 0;
 }
 
 .thumbnail-list {
@@ -208,6 +213,7 @@
   align-items: center;
   padding-left: 4px;
   flex-shrink: 0;
+  -webkit-app-region: no-drag;
 }
 
 .thumbnail {
@@ -225,6 +231,7 @@
   align-items: center;
   position: relative;
   transition: background 0.15s ease, color 0.15s ease;
+  -webkit-app-region: no-drag;
 }
 
 .thumbnail:hover {
@@ -256,6 +263,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  -webkit-app-region: no-drag;
 }
 
 .thumbnail-workspace-tab {
@@ -267,6 +275,7 @@
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
+  -webkit-app-region: no-drag;
 }
 
 .thumbnail-workspace-tab:hover {
@@ -350,6 +359,7 @@
   justify-content: center;
   opacity: 0;
   transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+  -webkit-app-region: no-drag;
 }
 
 .thumbnail:hover .thumbnail-close-btn,
@@ -375,6 +385,7 @@
   align-items: center;
   justify-content: center;
   transition: background 0.15s ease, color 0.15s ease;
+  -webkit-app-region: no-drag;
 }
 
 .thumbnail-toolbar-btn:hover {
@@ -399,6 +410,7 @@
   position: relative;
   flex-shrink: 0;
   display: flex;
+  -webkit-app-region: no-drag;
 }
 
 .thumbnail-drag-wrapper.dragging {
@@ -430,6 +442,47 @@
 
 .thumbnail-drag-wrapper[draggable="true"]:active {
   cursor: grabbing;
+}
+
+.thumbnail-tab-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  -webkit-app-region: no-drag;
+}
+
+.window-controls {
+  display: flex;
+  align-items: stretch;
+  margin-left: 6px;
+}
+
+.window-control-btn {
+  width: 44px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+  -webkit-app-region: no-drag;
+}
+
+.window-control-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.window-control-btn.close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.window-control-icon {
+  font-size: 11px;
+  line-height: 1;
 }
 
 .add-terminal-btn {
@@ -464,16 +517,22 @@
   box-sizing: border-box;
 }
 
-/* Fix IME candidate box position - force it to bottom left */
+/* Keep the IME anchor positioned for candidate windows without exposing it visually. */
 .terminal-panel .xterm-helper-textarea {
   position: fixed !important;
   bottom: 60px !important;
   left: 220px !important;
   top: auto !important;
-  opacity: 1 !important;
+  opacity: 0 !important;
   width: 1px !important;
   height: 20px !important;
   font-size: 14px !important;
+  color: transparent !important;
+  background: transparent !important;
+  border: 0 !important;
+  outline: none !important;
+  caret-color: transparent !important;
+  pointer-events: none !important;
   z-index: 10 !important;
 }
 

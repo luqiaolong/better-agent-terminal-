@@ -72,6 +72,15 @@ const electronAPI = {
     getWindowIndex: () => ipcRenderer.invoke('app:get-window-index') as Promise<number>,
     newWindow: () => ipcRenderer.invoke('app:new-window') as Promise<string>,
     setDockBadge: (count: number) => ipcRenderer.invoke('app:set-dock-badge', count),
+    minimizeWindow: () => ipcRenderer.invoke('app:window-minimize') as Promise<boolean>,
+    toggleMaximizeWindow: () => ipcRenderer.invoke('app:window-toggle-maximize') as Promise<boolean>,
+    isWindowMaximized: () => ipcRenderer.invoke('app:window-is-maximized') as Promise<boolean>,
+    closeWindow: () => ipcRenderer.invoke('app:window-close') as Promise<boolean>,
+    onWindowMaximizedChanged: (callback: (isMaximized: boolean) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, isMaximized: boolean) => callback(isMaximized)
+      ipcRenderer.on('window:maximized-changed', handler)
+      return () => ipcRenderer.removeListener('window:maximized-changed', handler)
+    },
   },
   update: {
     check: () => ipcRenderer.invoke('update:check'),
